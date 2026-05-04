@@ -26,6 +26,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # ── Detach kept tables from retired tables ────────────────────────────────
+    # calendar_events is kept but carries FK columns referencing todos and goals.
+    # Drop the constraints and columns first so the table drops below succeed.
+    op.drop_constraint("calendar_events_todo_id_fkey", "calendar_events", type_="foreignkey")
+    op.drop_column("calendar_events", "todo_id")
+    op.drop_constraint("calendar_events_goal_id_fkey", "calendar_events", type_="foreignkey")
+    op.drop_column("calendar_events", "goal_id")
+
     # ── Leaf tables (their FKs point into tables dropped further below) ───────
 
     # note_links.source_note_id → notes.id  (must precede notes)

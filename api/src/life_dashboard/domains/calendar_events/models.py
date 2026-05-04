@@ -19,13 +19,6 @@ class CalendarEvent(Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    todo_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("todos.id", ondelete="SET NULL")
-    )
-    goal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("goals.id", ondelete="SET NULL")
-    )
-
     ical_uid: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text)
