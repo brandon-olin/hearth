@@ -1,0 +1,15 @@
+# Replace YOUR_NAS.tailnet-name.ts.net with your actual Tailscale hostname.
+# Refresh the cert on the NAS host when it expires (valid ~90 days):
+#   sudo tailscale cert YOUR_NAS.tailnet-name.ts.net
+# The cert files land in /var/packages/Tailscale/var/certs/ and are
+# bind-mounted read-only into the caddy container.
+
+YOUR_NAS.tailnet-name.ts.net {
+    tls /etc/caddy/certs/YOUR_NAS.tailnet-name.ts.net.crt \
+        /etc/caddy/certs/YOUR_NAS.tailnet-name.ts.net.key
+
+    # Phase 1: API only — all traffic proxied to the FastAPI backend.
+    # Phase 2: split /api/* → api:8000 and /* → web:3000 when the
+    # Next.js frontend is added.
+    reverse_proxy api:8000
+}
