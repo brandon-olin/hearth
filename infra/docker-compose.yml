@@ -33,6 +33,9 @@ services:
   indexer:
     image: life-dashboard-api:latest
     command: python -m life_dashboard.indexer.main
+    # Run as root so the container can read the Synology shared folder.
+    # The volume is :ro so the indexer can never modify graph files.
+    user: root
     restart: unless-stopped
     networks:
       - life-dashboard
