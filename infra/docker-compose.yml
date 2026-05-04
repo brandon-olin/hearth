@@ -30,6 +30,20 @@ services:
       start_period: 15s
     depends_on: []   # postgres-1 is external; healthcheck handles readiness
 
+  indexer:
+    image: life-dashboard-api:latest
+    command: python -m life_dashboard.indexer.main
+    restart: unless-stopped
+    networks:
+      - life-dashboard
+    volumes:
+      # Mount the NAS graph directories read-only into the container.
+      # The path inside the container (/data/logseq) must match LOGSEQ_GRAPHS in .env.
+      - /volume1/data/logseq:/data/logseq:ro
+    env_file:
+      - .env
+    depends_on: []  # postgres-1 is external; indexer retries on connection error
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

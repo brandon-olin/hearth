@@ -28,6 +28,9 @@ dependencies = [
     # Utilities
     "python-dotenv>=1.0.1",
     "httpx>=0.28.0",
+
+    # Graph indexer
+    "watchdog>=4.0.0",
 ]
 
 [project.optional-dependencies]
