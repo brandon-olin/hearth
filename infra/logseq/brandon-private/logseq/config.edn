@@ -1,0 +1,31 @@
+{:meta/version 1
+
+ ;; Markdown (.md) for all pages and journals — keeps files human-readable
+ ;; and compatible with the graph indexer service.
+ :preferred-format :markdown
+
+ ;; Standard directory layout — the indexer watches these exact names.
+ :pages-directory "pages"
+ :journals-directory "journals"
+
+ ;; Journal date format
+ :journal/page-title-format "yyyy-MM-dd"
+ :journal/file-name-format "yyyy_MM_dd"
+
+ ;; Use triple-lowbar for nested page file names so that "Career/Job Search"
+ ;; becomes "Career___Job Search.md" rather than creating a subdirectory.
+ ;; Keeps the pages/ folder flat and easier for the indexer to walk.
+ :file/name-format :triple-lowbar
+
+ ;; Features — disable what this graph won't use
+ :feature/enable-journals? true
+ :feature/enable-flashcards? false
+ :feature/enable-whiteboards? false
+ :feature/enable-timetracking? false
+
+ ;; Logseq-managed folders to exclude from the graph index
+ :hidden [".git" "logseq/bak" "logseq/version-files"]
+
+ :export/bullet-indentation :tab
+
+ :graph/name "Brandon"}

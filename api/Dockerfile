@@ -33,9 +33,9 @@ FROM python:3.12-slim AS runtime
 RUN useradd --create-home --shell /bin/bash appuser
 WORKDIR /app
 
-COPY --from=builder /venv /venv
-COPY alembic.ini .
-COPY migrations/ migrations/
+COPY --chown=appuser:appuser --from=builder /venv /venv
+COPY --chown=appuser:appuser alembic.ini .
+COPY --chown=appuser:appuser migrations/ migrations/
 
 ENV PATH="/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
