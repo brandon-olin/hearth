@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { $api } from "@/lib/api/query";
-import { apiClient } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Circle, Loader2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,9 +24,9 @@ function HabitRow({ habit, today }: { habit: Habit; today: string }) {
     }
   );
 
-  const { mutateAsync: generateOccs } = $api.useMutation(
+  const { mutateAsync: createOcc } = $api.useMutation(
     "post",
-    "/habits/{habit_id}/occurrences/generate"
+    "/habits/{habit_id}/occurrences"
   );
 
   const { mutateAsync: updateOcc } = $api.useMutation(
@@ -44,12 +43,14 @@ function HabitRow({ habit, today }: { habit: Habit; today: string }) {
       let occ = occurrence;
 
       if (!occ) {
-        await generateOccs({
+        // No occurrence for today yet — create one then immediately complete it.
+        const created = await createOcc({
           params: { path: { habit_id: habit.id } },
-          body: { from_date: today, to_date: today },
+          body: { scheduled_date: today, status: "completed" },
         });
-        const fresh = await refetchOcc();
-        occ = fresh.data?.items[0] ?? null;
+        refetchOcc();
+        // The occurrence was created as completed, so we're done.
+        if (created) return;
       }
 
       if (occ) {
