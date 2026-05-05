@@ -47,11 +47,10 @@ def upgrade() -> None:
     op.drop_index("idx_logseq_index_graph", table_name="logseq_index")
     op.drop_table("logseq_index")
 
-    # ── priority_level enum ───────────────────────────────────────────────────
-    # Dropped in 0004 alongside goals/todos. Recreate before those tables.
-    op.execute("CREATE TYPE priority_level AS ENUM ('low', 'medium', 'high')")
-
     # ── goals ─────────────────────────────────────────────────────────────────
+    # priority_level enum is created by the goals.priority column below
+    # (create_type=True). Subsequent tables that use the same type set
+    # create_type=False so SQLAlchemy doesn't try to CREATE TYPE a second time.
     # Root entity. Self-referential parent_id for hierarchical goal trees.
     # target_value / current_value / unit support progress tracking (e.g.
     # "run 100 km", current = 37, unit = "km").
@@ -78,7 +77,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(50), nullable=False, server_default="active"),
         sa.Column(
             "priority",
-            sa.Enum("low", "medium", "high", name="priority_level", create_type=False),
+            sa.Enum("low", "medium", "high", name="priority_level", create_type=True),
             nullable=True,
         ),
         sa.Column("target_value", sa.Numeric(), nullable=True),
