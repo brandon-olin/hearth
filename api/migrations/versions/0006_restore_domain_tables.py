@@ -49,7 +49,7 @@ def upgrade() -> None:
 
     # ── priority_level enum ───────────────────────────────────────────────────
     # Dropped in 0004 alongside goals/todos. Recreate before those tables.
-    op.execute("CREATE TYPE priority_level AS ENUM ('low', 'medium', 'high')")
+    op.execute("CREATE TYPE IF NOT EXISTS priority_level AS ENUM ('low', 'medium', 'high')")
 
     # ── goals ─────────────────────────────────────────────────────────────────
     # Root entity. Self-referential parent_id for hierarchical goal trees.
