@@ -22,7 +22,13 @@ if config.config_file_name is not None:
 import life_dashboard.auth.models  # noqa: F401
 import life_dashboard.domains.calendar_events.models  # noqa: F401
 import life_dashboard.domains.contacts.models  # noqa: F401
+import life_dashboard.domains.documents.models  # noqa: F401
+import life_dashboard.domains.goals.models  # noqa: F401
+import life_dashboard.domains.grocery_lists.models  # noqa: F401
+import life_dashboard.domains.habits.models  # noqa: F401
+import life_dashboard.domains.recipes.models  # noqa: F401
 import life_dashboard.domains.tags.models  # noqa: F401
+import life_dashboard.domains.todos.models  # noqa: F401
 
 target_metadata = Base.metadata
 

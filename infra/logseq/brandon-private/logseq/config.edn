@@ -28,4 +28,10 @@
 
  :export/bullet-indentation :tab
 
- :graph/name "Brandon"}
+ :graph/name "Brandon"
+
+ ;; Open the Dashboard page on startup instead of the journal.
+ :default-home {:page "Dashboard"}
+
+ ;; Auto-insert this template when a new journal page is created.
+ :default-templates {:journals "Daily Journal Template"}}

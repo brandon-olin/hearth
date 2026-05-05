@@ -1,196 +1,287 @@
-# AGENTS – Life Dashboard (Logseq‑First Architecture)
+# AGENTS.md – life-dashboard
 
-This file explains the architecture and conventions for my Logseq‑based life dashboard so AI coding agents can act consistently.
+This file defines the architecture, conventions, and guardrails AI coding agents should follow when working in the `life-dashboard` repository.
 
-Key principles:
-- Logseq is the **primary UI and knowledge engine**.
-- Data is stored as Markdown files on my NAS, not in third‑party clouds.
-- The AI agent and backend services **augment** Logseq rather than replace it.
+It is the repo-wide technical companion to `CLAUDE.md`.
 
----
+***
 
-## Core Components
+## Product framing
 
-- **Logseq graphs**
-  - `household` graph → `/data/logseq/household-graph/`
-  - `brandon-private` graph → `/data/logseq/brandon-private/`
-  - (Future) `partner-private` graph → `/data/logseq/partner-private/`
+`life-dashboard` is a **local-first household operating system** for planning, chores, routines, notes, and life administration.
 
-- **NAS**
-  - Hosts the Logseq graph directories.
-  - Runs Postgres (`postgres-1`) for structured data (tasks, events, feeds, AI artifacts, etc.).
-  - Runs backend services/APIs that integrate Logseq data and AI workflows.
+This repository should be treated as a real product codebase, not a one-off personal dashboard.
 
-- **Gaming PC**
-  - Runs the local LLM server (e.g., Ollama/LM Studio/custom container).
-  - Accessible from the NAS and other devices via Tailscale.
-  - The AI "agent" uses this model to process and transform data via tools/APIs.
+The project follows an **open-core** strategy:
+- the core app should be useful, inspectable, and self-hostable;
+- premium value should come from managed sync, hosted infrastructure, mobile polish, premium integrations, and operational convenience;
+- the free/local experience should still be capable enough for a household to meaningfully try the product.
 
-Agents should assume:
-- Logseq graphs are the source of truth for unstructured knowledge.
-- Postgres and backend services are the source of truth for structured data and automations.
-- All write operations happen through clear, well‑defined APIs or file operations, not ad‑hoc hacks.
+Agents should optimize for:
+- local-first usability,
+- clean product architecture,
+- privacy and trust,
+- maintainability,
+- and future extensibility into sync and hosting.
 
----
+***
 
-## Graph Boundaries and Privacy
+## Deployment modes
 
-### 1. `household` graph
-- Path: `/data/logseq/household-graph/`
-- Scope: Shared, long‑term household knowledge, including:
-  - groceries, pantry, and shopping lists;
-  - chores and home maintenance;
-  - household projects (repairs, renovations, planning);
-  - family logistics and shared routines;
-  - shared travel planning.
+Assume the product must eventually support three modes.
 
-**Rules for agents:**
-- Treat this as *shared* content.
-- It is safe to surface, summarize, and use this data in shared dashboards or outputs that might be visible to multiple household members.
-- When deciding where to put a new shared note, default to the `household` graph.
+### 1. Local-only mode
+- Runs on one machine.
+- Should not require a separately managed local server for basic use.
+- Supports one household with multiple local household member profiles.
+- No multi-device sync.
+- Intended as the easiest way to try the product.
 
-### 2. `brandon-private` graph
-- Path: `/data/logseq/brandon-private/`
-- Scope: Personal information, including:
-  - journals and reflections;
-  - career notes, job search, and life planning;
-  - deep technical notes and research;
-  - any sensitive personal material.
+### 2. Self-hosted mode
+- Runs on user-owned infrastructure.
+- Supports real accounts, shared access, and sync across devices.
+- Intended for technical households that want control and privacy.
 
-**Rules for agents:**
-- Treat this as *private to Brandon*.
-- Do **not** surface content from this graph in any UI or output intended for multiple users (e.g., shared household dashboards).
-- It is acceptable to:
-  - use this content for private summaries, dashboards, and analyses;
-  - create tasks or structured data in Postgres linked to pages here, as long as outputs remain private.
+### 3. Hosted mode
+- Runs on managed infrastructure.
+- Supports the same core product concepts as self-hosted mode.
+- Intended for users who want low setup friction.
 
-### 3. Future: `partner-private` graph
-- Path (planned): `/data/logseq/partner-private/`
-- Scope: Partner's personal notes and journal.
-- Rules mirror `brandon-private`:
-  - private to partner,
-  - not surfaced in Brandon's private views, except in explicitly shared contexts.
+Agents should prefer designs that preserve a shared domain model across all three modes.
 
----
+***
 
-## Access Model (for Agents and Code)
+## Core domain model
 
-When designing code or workflows:
+Agents should think in terms of these first-class entities and boundaries.
 
-1. **Do not assume a single graph.**
-   - Always know which graph you are reading/writing.
-   - Backend services should accept a graph identifier or path for operations.
+### Primary entities
+- **Household** – the top-level shared container.
+- **Household member** – a person represented in the household.
+- **Account** – an authenticated identity used in synced modes.
+- **Local profile** – a profile used in local-only mode on one machine.
+- **Device** – a client installation that may eventually sync.
+- **Role** – owner, parent/admin, adult member, child, viewer, etc.
+- **Assignment** – the relationship between a task/chore and a household member.
+- **Integration connection** – a configured link to an external system or provider.
+- **Automation action** – an AI- or rule-driven operation that reads data and proposes or applies changes.
 
-2. **Honor the caller's context.**
-   - "Household dashboard" views → read from `household` (and maybe some public/derived structured data).
-   - "Brandon private dashboard" views → read from `brandon-private` (+ optionally household where appropriate).
-   - Future partner flows → read from `partner-private` (+ household).
+### Product objects
+At minimum, assume the system will need structured support for objects such as:
+- chores
+- tasks
+- recurring routines
+- schedules / calendar items
+- notes / documents
+- shopping or household lists
+- projects
+- reminders
+- health / activity records
+- AI summaries / suggestions / derived artifacts
 
-3. **Avoid cross‑leakage.**
-   - Do not mix private graph content into shared outputs.
-   - If a feature aggregates across graphs, require explicit configuration and enforce filters in code.
+Do not design core workflows as ad-hoc blobs when they are likely to become first-class product concepts.
 
----
+***
 
-## Backend & Database Conventions
+## Data scopes and privacy
 
-- **Postgres (`postgres-1`)**
-  - Used for:
-    - tasks and reminders,
-    - events and schedules,
-    - RSS/news/feed items,
-    - AI‑generated summaries/insights,
-    - other structured objects.
-  - Tables should include:
-    - references to Logseq pages/blocks (e.g., page name, block ID),
-    - the graph name or ID (`household`, `brandon-private`, etc.).
+Privacy boundaries should be modeled explicitly in the product, not inferred informally.
 
-- **Backend services**
-  - Provide HTTP/JSON APIs for:
-    - querying notes (via an index or precomputed views),
-    - managing tasks/events,
-    - triggering AI workflows (e.g., summarization, weekly reviews).
-  - Frontend UIs (including Logseq plugins) should use these APIs instead of talking directly to Postgres.
+### Expected data scopes
+- **Shared household data** – visible to the household according to role rules.
+- **Personal data** – visible only to the owning member/account unless explicitly shared.
+- **Sensitive data** – requires stricter handling, narrower visibility, and extra caution in AI workflows.
+- **Administrative data** – billing, configuration, audit, or system-management data.
 
-- **AI agent**
-  - Connects to the local LLM server on the gaming PC.
-  - Exposes tools that:
-    - read notes from specific graphs,
-    - call backend APIs for structured data,
-    - write back summaries or extracted tasks into:
-      - Logseq (as pages/blocks), and/or
-      - Postgres (as structured rows).
+### Privacy rules
+1. Never assume all household data is shared equally.
+2. Never leak personal or sensitive data into shared dashboards, notifications, summaries, or AI outputs.
+3. If a workflow aggregates across scopes, enforce scope filtering in code, not only in the UI.
+4. When uncertain, default to the narrowest visibility.
+5. Treat privacy mistakes as architecture bugs, not UX polish issues.
 
----
+Agents should explicitly call out privacy implications in designs that combine household-wide and member-specific information.
 
-## Logseq Usage and Extensions
+***
 
-### Dashboards
-- Dashboards should be **Logseq pages**, e.g.:
-  - `[[Household Dashboard]]` in the `household` graph.
-  - `[[Brandon Dashboard]]` in the `brandon-private` graph.
-- Use Logseq features for dashboards:
-  - `{{query}}` blocks to surface tasks, notes, and entries.
-  - Properties and tags to structure data for queries.
-  - Templates for recurring patterns (weekly review, project pages, etc.).
+## Identity and access model
 
-### Plugins
-When a feature goes beyond what native pages/queries can do:
-- Implement it as a **Logseq plugin** (ClojureScript/JS + React, consistent with Logseq's ecosystem) that:
-  - adds sidebar items, commands, or custom views;
-  - integrates with backend APIs and AI tools;
-  - operates within a specific graph or set of graphs.
+Agents must distinguish between these concepts:
 
-Agents should:
-- Prefer extending Logseq via plugins and configuration over building an entirely separate UI.
-- Keep plugin UI aligned with Logseq's defaults and patterns.
+- **Household member** – domain entity representing a person.
+- **Account** – authentication/login identity for synced modes.
+- **Local profile** – profile switch or PIN-based identity on one machine in local-only mode.
+- **Role** – authorization level.
+- **Session** – a current authenticated or active interaction context.
 
-### Themes / Custom CSS
-- Styling customizations should use Logseq theming and custom CSS.
-- Avoid heavy front‑end frameworks or design systems unless there is a clear, justified need.
+Important implications:
+- A household member may exist before that person has a synced account.
+- Local-only mode may have multiple household members but only one installed app instance.
+- Sync and mobile support should upgrade the access model without changing the household domain model.
 
----
+Avoid designs that entangle core product entities too tightly with a specific auth provider.
 
-## Data Migration Context
+***
 
-- Notion data is being migrated via export (Markdown + CSV) and conversion scripts into Logseq.
-- Split:
-  - household‑level content → `household` graph.
-  - personal content → `brandon-private` graph.
-- Agents modifying migration code should:
-  - preserve page names where possible,
-  - keep backlinks and references consistent,
-  - document any renaming or restructuring rules.
+## Storage and sync guidance
 
----
+Agents should assume storage may differ by mode.
 
-## AI‑Assisted Development Guidelines
+### Storage expectations
+- Local-only mode may use an embedded local database.
+- Self-hosted and hosted modes may use a server-backed relational database.
+- Import/export and migration are part of the product story, not an afterthought.
 
-When acting as a coding assistant on this project:
+### Sync expectations
+- Not every feature needs real-time sync on day one.
+- But core entities should be modeled so later sync is feasible.
+- A user should be able to start in local-only mode and later migrate into self-hosted or hosted sync with minimal conceptual breakage.
 
-1. **Reinforce the Logseq‑first approach.**
-   - Use Logseq graphs, queries, and plugins as primary tools.
-   - Only propose external UIs when Logseq cannot reasonably support a requirement.
+### Design guidance
+- Prefer durable identifiers over UI-derived identities.
+- Track ownership, scope, timestamps, and auditability in structured ways.
+- Avoid storage-specific assumptions leaking throughout the codebase.
 
-2. **Be explicit about graph usage.**
-   - In design docs / comments, always state which graph(s) a feature touches.
-   - When writing backend code, include clear parameters for graph selection.
+If proposing a schema or service, consider whether it works for:
+- local-only usage,
+- future multi-device sync,
+- and migration between modes.
 
-3. **Optimize for maintainability.**
-   - Prefer small, composable plugins and services over monolithic systems.
-   - Avoid introducing unnecessary infrastructure or dependencies.
+***
 
-4. **Respect privacy and boundaries.**
-   - Double‑check that private graph data never leaks into shared outputs.
-   - If unsure, ask for clarification or default to *not* including private data.
+## Backend conventions
 
----
+Backend code should expose clean, reusable service boundaries.
 
-## Priorities
+### Principles
+- Keep domain logic separate from transport/framework glue where practical.
+- Avoid pushing business logic into controllers, route handlers, or thin frontend wrappers.
+- Prefer typed schemas and explicit validation.
+- Keep write operations auditable.
+- Prefer reversible or approval-gated destructive operations where appropriate.
 
-If choices conflict, prioritize in this order:
+### Expected backend responsibilities
+- household and member management
+- chore/task/routine lifecycle management
+- permissions and visibility enforcement
+- integrations and background jobs
+- audit/event recording
+- AI workflow orchestration
+- migration/import/export support
 
-1. **Data safety and privacy** – no accidental leaks between private and shared graphs.
-2. **Local‑first, self‑hosted** – avoid new external SaaS dependencies.
-3. **Simplicity** – favor straightforward, inspectable code and configurations.
-4. **Good architecture over flashy UI** – this is a portfolio piece; design decisions should make sense to a senior engineer reviewing the repo.
+Frontend code should consume backend APIs or shared application services rather than reaching into storage directly.
+
+***
+
+## Frontend conventions
+
+The primary product experience should be delivered through the app itself, not through a note-taking tool or legacy plugin ecosystem.
+
+### Frontend guidance
+- Build around household workflows, not around a personal note system.
+- Represent local-only and synced capabilities clearly in the UX.
+- Keep role-based visibility and assignment logic aligned with backend enforcement.
+- Prefer maintainable component composition over premature abstraction.
+- Avoid UI patterns that make local-only mode feel fake or crippled.
+
+Agents should avoid automatically steering new feature work toward Logseq-specific UX unless explicitly asked.
+
+***
+
+## AI and automation guidance
+
+AI is an augmentation layer, not the product's source of truth.
+
+### Principles
+- Core data should remain in structured product models or intentional document storage.
+- AI should read from clear APIs/services and write back through controlled boundaries.
+- AI-generated suggestions should be attributable, reviewable, and ideally reversible.
+- Provider integration should remain modular.
+
+### Provider assumptions
+Design AI-related code so the product can support:
+- local LLMs,
+- bring-your-own-key cloud providers,
+- and future managed AI services.
+
+Do not hard-wire the product to one local inference setup or one commercial API unless explicitly directed.
+
+***
+
+## Open-core boundaries
+
+Agents should assume that the following are strong candidates for the open core:
+- core household domain model
+- chores, tasks, routines, and planning workflows
+- local-first operation
+- basic self-hosted deployment support
+- import/export and migration paths
+- basic automation hooks and BYOK-friendly integration points
+
+Strong candidates for premium or hosted layers include:
+- managed sync infrastructure
+- hosted deployment and operations
+- polished mobile distribution / push workflows
+- managed AI credits and premium automation features
+- premium integrations with recurring operational cost
+- admin/ops tooling specific to the hosted service
+
+Do not propose monetization by arbitrarily crippling the free/local experience. The better model is to make the local/core version genuinely useful and charge for convenience, sync, operations, and premium services.
+
+***
+
+## Migration context
+
+Older project context may still appear in docs, code, or conversation history, including:
+- Logseq-first architecture
+- NAS-specific paths and services
+- Markdown graphs as the center of the experience
+- a purely personal self-hosted dashboard framing
+
+Treat that as legacy or transitional context unless newer docs explicitly reaffirm it.
+
+If migration tooling is needed from prior systems, agents should:
+- preserve data meaning and identifiers where possible,
+- document transformation rules,
+- avoid one-off scripts that cannot be understood or rerun,
+- and keep migration logic clearly separated from long-term product runtime logic.
+
+***
+
+## Maintainability standards
+
+When working in this repo, agents should:
+- prefer small, composable modules and services,
+- add tests for non-trivial business rules,
+- keep logging structured and useful,
+- avoid unnecessary infrastructure or dependencies,
+- document important tradeoffs in plain language,
+- and write code a senior engineer could review without needing hidden context.
+
+When introducing complexity, explain why the simpler alternative is insufficient.
+
+***
+
+## Decision priorities
+
+If tradeoffs conflict, prioritize in this order:
+
+1. **Privacy and data safety**
+2. **Portability across local-only, self-hosted, and hosted modes**
+3. **A genuinely useful open-core experience**
+4. **Simplicity and maintainability**
+5. **Feature richness and polish**
+
+If a proposed change improves one mode but damages the overall product ladder, call that out explicitly.
+
+***
+
+## When unsure
+
+When uncertainty remains, agents should:
+
+1. State the ambiguity clearly.
+2. Offer the simplest viable approach first.
+3. Explain risks around privacy, migration, and deployment-mode lock-in.
+4. Prefer designs that keep future sync and hosting possible.
+5. Ask for clarification when the decision materially affects the product model or open-core boundary.
