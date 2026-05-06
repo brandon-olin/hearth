@@ -147,6 +147,23 @@ export interface paths {
         patch: operations["update_contact_contacts__contact_id__patch"];
         trace?: never;
     };
+    "/documents/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Documents */
+        post: operations["import_documents_documents_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents": {
         parameters: {
             query?: never;
@@ -1068,6 +1085,35 @@ export interface components {
             items: components["schemas"]["DocumentSummary"][];
             /** Total */
             total: number;
+        };
+        /** DocumentImportItem */
+        DocumentImportItem: {
+            /** Client Id */
+            client_id: string;
+            /** Client Parent Id */
+            client_parent_id?: string | null;
+            /** Title */
+            title: string;
+            /** Source Markdown */
+            source_markdown?: string | null;
+            /** Editor Json */
+            editor_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** DocumentImportRequest */
+        DocumentImportRequest: {
+            /** Items */
+            items: components["schemas"]["DocumentImportItem"][];
+        };
+        /** DocumentImportResponse */
+        DocumentImportResponse: {
+            /** Created */
+            created: number;
+            /** Skipped */
+            skipped: number;
+            /** Items */
+            items: components["schemas"]["DocumentSummary"][];
         };
         /** DocumentUpdate */
         DocumentUpdate: {
@@ -2704,6 +2750,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_documents_documents_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentImportResponse"];
                 };
             };
             /** @description Validation Error */

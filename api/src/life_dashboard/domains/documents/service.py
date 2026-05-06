@@ -9,6 +9,8 @@ from life_dashboard.domains.documents.models import Document
 from life_dashboard.domains.documents.schemas import (
     DocumentChildrenResponse,
     DocumentCreate,
+    DocumentImportRequest,
+    DocumentImportResponse,
     DocumentResponse,
     DocumentSummary,
     DocumentTreeResponse,
@@ -195,3 +197,87 @@ async def get_children(
 
     children = list((await db.execute(query)).scalars().all())
     return DocumentChildrenResponse(items=[_to_summary(c) for c in children])
+
+
+async def bulk_import_documents(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    request: DocumentImportRequest,
+) -> DocumentImportResponse:
+    """Create multiple documents in one request, preserving hierarchy.
+
+    Items may arrive in any order; the function topologically sorts them so
+    parents are always inserted before their children. client_id values are
+    temporary browser-assigned strings; they are mapped to real DB UUIDs once
+    each row is persisted.
+    """
+    items = request.items
+
+    # ── Topological sort (Kahn's algorithm) ──────────────────────────────────
+    # Build adjacency and in-degree from client IDs.
+    client_ids = {item.client_id for item in items}
+    children_of: dict[str, list[str]] = {cid: [] for cid in client_ids}
+    in_degree: dict[str, int] = {cid: 0 for cid in client_ids}
+
+    for item in items:
+        if item.client_parent_id and item.client_parent_id in client_ids:
+            children_of[item.client_parent_id].append(item.client_id)
+            in_degree[item.client_id] += 1
+
+    by_client_id = {item.client_id: item for item in items}
+    queue = [cid for cid, deg in in_degree.items() if deg == 0]
+    ordered: list[str] = []
+
+    while queue:
+        current = queue.pop(0)
+        ordered.append(current)
+        for child_id in children_of[current]:
+            in_degree[child_id] -= 1
+            if in_degree[child_id] == 0:
+                queue.append(child_id)
+
+    # Any remaining items have circular parents — skip them gracefully.
+    skipped_count = len(items) - len(ordered)
+
+    # ── Insert in topological order ───────────────────────────────────────────
+    client_to_db: dict[str, uuid.UUID] = {}
+    created_docs: list[Document] = []
+
+    for client_id in ordered:
+        item = by_client_id[client_id]
+
+        # Resolve parent: use real DB UUID if parent was already inserted,
+        # otherwise treat as root (parent outside the import set is not supported
+        # client-side currently, but could be added later).
+        parent_db_id: uuid.UUID | None = None
+        if item.client_parent_id and item.client_parent_id in client_to_db:
+            parent_db_id = client_to_db[item.client_parent_id]
+
+        slug = await _unique_slug(db, household_id, _slugify(item.title))
+
+        doc = Document(
+            household_id=household_id,
+            created_by_user_id=user_id,
+            parent_id=parent_db_id,
+            title=item.title,
+            slug=slug,
+            kind="page",
+            source_markdown=item.source_markdown,
+            editor_json=item.editor_json,
+        )
+        db.add(doc)
+        await db.flush()  # Populate doc.id without committing.
+
+        client_to_db[client_id] = doc.id
+        created_docs.append(doc)
+
+    await db.commit()
+    for doc in created_docs:
+        await db.refresh(doc)
+
+    return DocumentImportResponse(
+        created=len(created_docs),
+        skipped=skipped_count,
+        items=[_to_summary(d) for d in created_docs],
+    )

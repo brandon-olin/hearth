@@ -11,8 +11,10 @@ import {
   FileText,
   Plus,
   Loader2,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { NotionImportDialog } from "@/components/documents/notion-import-dialog";
 import type { components } from "@/lib/api/schema";
 
 type DocumentSummary = components["schemas"]["DocumentSummary"];
@@ -132,6 +134,7 @@ export function PageTree() {
   const pathname = usePathname();
   const qc = useQueryClient();
   const [isCreating, setIsCreating] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const { data, isLoading } = $api.useQuery("get", "/documents", {
     params: { query: { include_archived: false } },
@@ -162,26 +165,39 @@ export function PageTree() {
   }
 
   return (
+    <>
+    {showImport && <NotionImportDialog onClose={() => setShowImport(false)} />}
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3 border-b shrink-0">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Documents
         </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={() => handleCreate()}
-          disabled={isCreating}
-          title="New page"
-        >
-          {isCreating ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Plus className="h-3.5 w-3.5" />
-          )}
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setShowImport(true)}
+            title="Import from Notion"
+          >
+            <Upload className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => handleCreate()}
+            disabled={isCreating}
+            title="New page"
+          >
+            {isCreating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Tree */}
@@ -212,5 +228,6 @@ export function PageTree() {
         </ul>
       </div>
     </div>
+    </>
   );
 }

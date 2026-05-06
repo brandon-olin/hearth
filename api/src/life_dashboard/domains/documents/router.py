@@ -10,6 +10,8 @@ from life_dashboard.core.database import get_db
 from life_dashboard.domains.documents.schemas import (
     DocumentChildrenResponse,
     DocumentCreate,
+    DocumentImportRequest,
+    DocumentImportResponse,
     DocumentResponse,
     DocumentTreeResponse,
     DocumentUpdate,
@@ -17,6 +19,27 @@ from life_dashboard.domains.documents.schemas import (
 from life_dashboard.domains.documents import service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+@router.post(
+    "/import",
+    response_model=DocumentImportResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def import_documents(
+    data: DocumentImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentImportResponse:
+    """Bulk-create documents from an external source (e.g. a Notion export).
+
+    The client assigns temporary string IDs (client_id / client_parent_id) to
+    express hierarchy. The server resolves them to real UUIDs and persists the
+    pages in topological order.
+    """
+    return await service.bulk_import_documents(
+        db, current_user.household_id, current_user.id, data
+    )
 
 
 @router.get("", response_model=DocumentTreeResponse)

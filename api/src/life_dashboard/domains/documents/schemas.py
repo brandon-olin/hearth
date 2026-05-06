@@ -66,3 +66,29 @@ class DocumentTreeResponse(BaseModel):
 
 class DocumentChildrenResponse(BaseModel):
     items: list[DocumentSummary]
+
+
+# ── Bulk import ───────────────────────────────────────────────────────────────
+
+class DocumentImportItem(BaseModel):
+    """One page from a Notion (or other) export.
+
+    client_id / client_parent_id are temporary identifiers assigned by the
+    browser so the server can resolve parent → child relationships without
+    knowing real UUIDs in advance.
+    """
+    client_id: str = Field(min_length=1)
+    client_parent_id: str | None = None
+    title: str = Field(min_length=1)
+    source_markdown: str | None = None
+    editor_json: dict[str, Any] | None = None
+
+
+class DocumentImportRequest(BaseModel):
+    items: list[DocumentImportItem] = Field(min_length=1)
+
+
+class DocumentImportResponse(BaseModel):
+    created: int
+    skipped: int
+    items: list[DocumentSummary]
