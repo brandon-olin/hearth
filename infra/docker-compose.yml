@@ -3,9 +3,7 @@ networks:
     external: true
     name: life-dashboard
 
-volumes:
-  caddy_data:
-  caddy_logs:
+volumes: {}
 
 services:
   api:
@@ -38,30 +36,11 @@ services:
     restart: unless-stopped
     networks:
       - life-dashboard
+    ports:
+      # Exposed on the host so tailscale serve can reach it.
+      - "3000:3000"
     environment:
       - NODE_ENV=production
       - API_URL=http://api:8000
     depends_on:
       - api
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    networks:
-      - life-dashboard
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      # Set TS_HOSTNAME in infra/.env — e.g. nas.your-tailnet.ts.net
-      # Used by the Caddyfile for the server name and TLS cert paths.
-      - TS_HOSTNAME=${TS_HOSTNAME}
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Tailscale stores certs here on Synology DSM.
-      # Refresh with: sudo tailscale cert ${TS_HOSTNAME}
-      - /var/packages/Tailscale/var/certs:/etc/caddy/certs:ro
-      - caddy_data:/data
-      - caddy_logs:/var/log/caddy
-    depends_on:
-      - web
