@@ -32,32 +32,18 @@ export function ThemeCustomizerProvider({
 }) {
   const [config, setConfigState] = useState<ThemeConfig>(DEFAULT_CONFIG);
 
-  // On mount: load saved config and apply it
+  // On mount: load saved config and apply it immediately.
+  // Inline styles on <html> override both :root {} and .dark {} stylesheet rules.
   useEffect(() => {
     const saved = loadThemeConfig();
     setConfigState(saved);
-    const isDark = document.documentElement.classList.contains("dark");
-    applyThemeConfig(saved, isDark);
+    applyThemeConfig(saved);
   }, []);
-
-  // Re-apply whenever dark/light class toggles (next-themes changes the class)
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      const isDark = document.documentElement.classList.contains("dark");
-      applyThemeConfig(config, isDark);
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, [config]);
 
   const setConfig = useCallback((next: ThemeConfig) => {
     setConfigState(next);
     saveThemeConfig(next);
-    const isDark = document.documentElement.classList.contains("dark");
-    applyThemeConfig(next, isDark);
+    applyThemeConfig(next);
   }, []);
 
   return (

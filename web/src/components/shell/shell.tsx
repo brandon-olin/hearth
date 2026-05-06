@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/context";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { cn } from "@/lib/utils";
 import {
@@ -191,17 +190,14 @@ function SidebarContent({
           <span className="text-sm text-muted-foreground truncate">
             {user?.display_name ?? user?.email}
           </span>
-          <div className="flex items-center gap-0.5 shrink-0">
-            <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleLogout}
-              aria-label="Log out"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleLogout}
+            aria-label="Log out"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>

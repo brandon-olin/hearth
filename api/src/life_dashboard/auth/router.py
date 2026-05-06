@@ -32,7 +32,7 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
         secure=_COOKIE_SECURE,
         samesite="lax",
         max_age=_COOKIE_MAX_AGE,
-        path="/auth",
+        path="/",
     )
 
 
@@ -42,7 +42,7 @@ def _clear_refresh_cookie(response: Response) -> None:
         httponly=True,
         secure=_COOKIE_SECURE,
         samesite="lax",
-        path="/auth",
+        path="/",
     )
 
 

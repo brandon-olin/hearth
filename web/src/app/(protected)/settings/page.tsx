@@ -5,7 +5,8 @@ import { Settings, Eye, EyeOff, ChevronUp, ChevronDown, Palette, Layout } from "
 import { cn } from "@/lib/utils";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
-  THEME_PRESETS,
+  BASE_THEMES,
+  ACCENT_COLORS,
   RADIUS_OPTIONS,
   FONT_OPTIONS,
   type ThemeConfig,
@@ -14,7 +15,6 @@ import {
   ALL_NAV_ITEMS,
   loadSidebarConfig,
   saveSidebarConfig,
-  SIDEBAR_STORAGE_KEY,
   type SidebarConfig,
 } from "@/components/shell/shell";
 
@@ -51,7 +51,6 @@ function SidebarCustomizer() {
     window.dispatchEvent(new Event("ld-sidebar-update"));
   }
 
-  // Build ordered list: use saved order, appending any items not yet in it
   const allHrefs = ALL_NAV_ITEMS.map((n) => n.href);
   const orderedHrefs =
     config.order.length > 0
@@ -85,7 +84,7 @@ function SidebarCustomizer() {
   return (
     <div className="space-y-1">
       <p className="text-xs text-muted-foreground mb-3">
-        Show or hide sections in the sidebar. Drag the arrows to reorder.
+        Show or hide sections in the sidebar. Use the arrows to reorder.
       </p>
       {orderedItems.map((item, idx) => {
         const isHidden = config.hidden.includes(item.href);
@@ -101,35 +100,20 @@ function SidebarCustomizer() {
             <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 text-sm font-medium">{item.label}</span>
 
-            {/* Reorder */}
             <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => moveItem(item.href, "up")}
-                disabled={idx === 0}
-                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="Move up"
-              >
+              <button type="button" onClick={() => moveItem(item.href, "up")} disabled={idx === 0}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move up">
                 <ChevronUp className="h-3.5 w-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={() => moveItem(item.href, "down")}
-                disabled={idx === orderedItems.length - 1}
-                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="Move down"
-              >
+              <button type="button" onClick={() => moveItem(item.href, "down")} disabled={idx === orderedItems.length - 1}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move down">
                 <ChevronDown className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            {/* Show/hide */}
-            <button
-              type="button"
-              onClick={() => toggleHidden(item.href)}
+            <button type="button" onClick={() => toggleHidden(item.href)}
               className="text-muted-foreground hover:text-foreground ml-1"
-              aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}
-            >
+              aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}>
               {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
@@ -141,6 +125,14 @@ function SidebarCustomizer() {
 
 // ── Theme customizer ──────────────────────────────────────────────────────────
 
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+      {children}
+    </p>
+  );
+}
+
 function ThemeCustomizer() {
   const { config, setConfig } = useThemeCustomizer();
 
@@ -148,33 +140,86 @@ function ThemeCustomizer() {
     setConfig({ ...config, ...partial });
   }
 
+  const lightThemes = BASE_THEMES.filter((t) => t.category === "light");
+  const darkThemes  = BASE_THEMES.filter((t) => t.category === "dark");
+  const activeBase  = BASE_THEMES.find((t) => t.id === config.baseThemeId);
+
   return (
-    <div className="space-y-6">
-      {/* Preset swatches */}
+    <div className="space-y-7">
+
+      {/* Base theme — Light */}
       <div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-          Color theme
-        </p>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          {THEME_PRESETS.map((preset) => {
-            const active = config.presetId === preset.id;
+        <Label>Light themes</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {lightThemes.map((theme) => {
+            const active = config.baseThemeId === theme.id;
             return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => update({ presetId: preset.id })}
+              <button key={theme.id} type="button" onClick={() => update({ baseThemeId: theme.id })}
+                className={cn(
+                  "flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all cursor-pointer",
+                  active ? "border-primary" : "border-transparent hover:border-muted-foreground/30"
+                )}
+              >
+                {/* Mini preview */}
+                <span className="w-full h-10 rounded-md border border-border/60 relative overflow-hidden"
+                  style={{ background: theme.vars["--background"] }}>
+                  <span className="absolute inset-x-2 top-2 h-1.5 rounded-full"
+                    style={{ background: theme.vars["--foreground"], opacity: 0.5 }} />
+                  <span className="absolute inset-x-2 bottom-2 h-1.5 rounded-full"
+                    style={{ background: theme.vars["--muted"] }} />
+                </span>
+                <span className="text-xs text-muted-foreground">{theme.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Base theme — Dark */}
+      <div>
+        <Label>Dark themes</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {darkThemes.map((theme) => {
+            const active = config.baseThemeId === theme.id;
+            return (
+              <button key={theme.id} type="button" onClick={() => update({ baseThemeId: theme.id })}
+                className={cn(
+                  "flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all cursor-pointer",
+                  active ? "border-primary" : "border-transparent hover:border-muted-foreground/30"
+                )}
+              >
+                <span className="w-full h-10 rounded-md border border-white/10 relative overflow-hidden"
+                  style={{ background: theme.vars["--background"] }}>
+                  <span className="absolute inset-x-2 top-2 h-1.5 rounded-full opacity-70"
+                    style={{ background: theme.vars["--foreground"] }} />
+                  <span className="absolute inset-x-2 bottom-2 h-1.5 rounded-full opacity-40"
+                    style={{ background: theme.vars["--muted-foreground"] }} />
+                </span>
+                <span className="text-xs text-muted-foreground">{theme.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Accent color */}
+      <div>
+        <Label>Accent color</Label>
+        <div className="grid grid-cols-6 gap-2">
+          {ACCENT_COLORS.map((accent) => {
+            const active = config.accentId === accent.id;
+            const isDark = activeBase?.category === "dark";
+            const accentVars = isDark ? accent.dark : accent.light;
+            return (
+              <button key={accent.id} type="button" onClick={() => update({ accentId: accent.id })}
                 className={cn(
                   "flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all cursor-pointer",
                   active ? "border-primary" : "border-transparent hover:border-muted-foreground/30"
                 )}
               >
-                <span
-                  className="w-8 h-8 rounded-full border border-border"
-                  style={{ background: preset.swatch }}
-                />
-                <span className="text-xs text-muted-foreground leading-none">
-                  {preset.label}
-                </span>
+                <span className="w-8 h-8 rounded-full border border-border/40"
+                  style={{ background: accentVars["--primary"] }} />
+                <span className="text-[10px] text-muted-foreground leading-none">{accent.label}</span>
               </button>
             );
           })}
@@ -183,29 +228,23 @@ function ThemeCustomizer() {
 
       {/* Border radius */}
       <div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-          Border radius
-        </p>
+        <Label>Border radius</Label>
         <div className="flex gap-2">
           {RADIUS_OPTIONS.map((opt) => {
             const active = config.radius === opt.value;
             return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => update({ radius: opt.value })}
+              <button key={opt.value} type="button" onClick={() => update({ radius: opt.value })}
                 className={cn(
                   "flex-1 flex flex-col items-center gap-2 py-3 px-2 border-2 transition-all cursor-pointer",
                   active ? "border-primary" : "border-border hover:border-muted-foreground/40"
                 )}
-                style={{ borderRadius: `calc(${opt.value} + 2px)` }}
+                style={{ borderRadius: opt.value === "0rem" ? "0" : `calc(${opt.value} + 4px)` }}
               >
-                {/* Preview box */}
-                <span
-                  className="w-8 h-8 border-2 border-current"
+                <span className="w-8 h-8 border-2"
                   style={{
                     borderRadius: opt.value === "0rem" ? "0" : opt.value === "1rem" ? "9999px" : opt.value,
-                    color: active ? "hsl(var(--primary))" : "oklch(0.7 0 0)",
+                    borderColor: active ? "var(--primary)" : "var(--muted-foreground)",
+                    opacity: active ? 1 : 0.5,
                   }}
                 />
                 <span className="text-xs text-muted-foreground">{opt.label}</span>
@@ -217,28 +256,18 @@ function ThemeCustomizer() {
 
       {/* Font */}
       <div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-          Font
-        </p>
+        <Label>Font</Label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {FONT_OPTIONS.map((opt) => {
             const active = config.fontFamily === opt.value;
             return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => update({ fontFamily: opt.value })}
+              <button key={opt.value} type="button" onClick={() => update({ fontFamily: opt.value })}
                 className={cn(
                   "flex flex-col items-center gap-1.5 py-3 px-3 border-2 rounded-lg transition-all cursor-pointer",
                   active ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"
                 )}
               >
-                <span
-                  className="text-lg font-medium leading-none"
-                  style={{ fontFamily: opt.value }}
-                >
-                  Aa
-                </span>
+                <span className="text-xl font-medium leading-none" style={{ fontFamily: opt.value }}>Aa</span>
                 <span className="text-xs text-muted-foreground">{opt.label}</span>
               </button>
             );
@@ -248,44 +277,30 @@ function ThemeCustomizer() {
 
       {/* Live preview */}
       <div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-          Preview
-        </p>
-        <div className="border rounded-lg p-4 space-y-3 bg-background">
+        <Label>Preview</Label>
+        <div className="border rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
-              L
-            </div>
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold shrink-0">L</div>
             <div>
               <p className="text-sm font-semibold">Life Dashboard</p>
               <p className="text-xs text-muted-foreground">Your household OS</p>
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground">
-              Primary
-            </button>
-            <button className="px-3 py-1.5 text-xs font-medium rounded-md border bg-background">
-              Secondary
-            </button>
+            <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground">Primary</span>
+            <span className="px-3 py-1.5 text-xs font-medium rounded-md border bg-card">Secondary</span>
+            <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground">Muted</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            The quick brown fox jumps over the lazy dog.
+            The quick brown fox jumps over the lazy dog. 1234567890
           </p>
         </div>
       </div>
 
       {/* Reset */}
-      <div className="pt-1">
-        <button
-          type="button"
-          onClick={() =>
-            setConfig({
-              presetId: "default",
-              radius: "0.625rem",
-              fontFamily: "var(--font-geist-sans), sans-serif",
-            })
-          }
+      <div>
+        <button type="button"
+          onClick={() => setConfig({ baseThemeId: "clean", accentId: "neutral", radius: "0.625rem", fontFamily: "var(--font-geist-sans), sans-serif" })}
           className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
         >
           Reset to defaults

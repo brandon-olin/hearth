@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api/client";
-import { setAccessToken } from "./token";
+import { setAccessToken, loadStoredToken } from "./token";
 import type { components } from "@/lib/api/schema";
 
 type User = components["schemas"]["UserResponse"];
@@ -16,10 +16,10 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const REFRESH_INTERVAL_MS = 14 * 60 * 1000; // 1 min before the 15-min token expires
+const REFRESH_INTERVAL_MS = 14 * 60 * 1000; // fire 1 min before 15-min token expires
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function doRefresh() {
     const { data } = await apiClient.POST("/auth/refresh", {});
     if (data?.access_token) {
-      setAccessToken(data.access_token);
+      setAccessToken(data.access_token); // also persists to localStorage
       scheduleRefresh();
     } else {
       setAccessToken(null);
@@ -39,18 +39,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // On mount: try to restore session from the httpOnly refresh cookie.
+  // On mount: restore session.
+  //
+  // Strategy (fastest path first):
+  //   1. localStorage — if we have a non-expired token, verify it with /auth/me
+  //      and restore instantly with no extra round-trips.
+  //   2. Cookie refresh — if the stored token is missing or expired, POST to
+  //      /auth/refresh which uses the httpOnly refresh cookie.
+  //   3. Give up — user sees the login page.
   useEffect(() => {
     async function restore() {
+      // ── 1. Try stored access token ────────────────────────────────────────
+      const stored = loadStoredToken();
+      if (stored) {
+        setAccessToken(stored);
+        const { data: me } = await apiClient.GET("/auth/me");
+        if (me) {
+          setUser(me);
+          scheduleRefresh();
+          setIsLoading(false);
+          return;
+        }
+        // Token was rejected (expired on server or revoked) — clear it and fall through.
+        setAccessToken(null);
+      }
+
+      // ── 2. Try cookie refresh ─────────────────────────────────────────────
       const { data } = await apiClient.POST("/auth/refresh", {});
       if (data?.access_token) {
-        setAccessToken(data.access_token);
+        setAccessToken(data.access_token); // persists new token to localStorage
         const { data: me } = await apiClient.GET("/auth/me");
         if (me) setUser(me);
         scheduleRefresh();
       }
+
       setIsLoading(false);
     }
+
     restore();
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -66,14 +91,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const detail = (error as { detail?: string } | undefined)?.detail;
       throw new Error(detail ?? "Login failed");
     }
-    setAccessToken(data.access_token);
+    setAccessToken(data.access_token); // persists to localStorage
     setUser(data.user);
     scheduleRefresh();
   }
 
   async function logout() {
     await apiClient.POST("/auth/logout", {});
-    setAccessToken(null);
+    setAccessToken(null); // clears localStorage too
     setUser(null);
     if (timerRef.current) clearTimeout(timerRef.current);
   }
