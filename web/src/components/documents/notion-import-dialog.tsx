@@ -1,30 +1,28 @@
 "use client";
 
 /**
- * NotionImportDialog
+ * Markdown import dialog.
  *
- * Accepts a Notion "Export as Markdown & CSV" zip file, parses the folder
- * structure to reconstruct page hierarchy, converts each .md file to
- * BlockNote JSON, and POSTs the full set to POST /documents/import.
+ * Accepts a zip of markdown files (Notion, Obsidian, Bear, Logseq, …),
+ * reconstructs page hierarchy from the folder structure, strips unresolvable
+ * image references, and bulk-POSTs to POST /documents/import.
+ *
+ * Markdown→BlockNote conversion is intentionally deferred to first open so
+ * that the import is fast and doesn't trigger hundreds of image fetch attempts.
  *
  * Notion export structure:
  *   Export-<date>/
  *     Page Title <32-hex>.md
  *     Page Title <32-hex>/
  *       Sub Page <32-hex>.md
- *       ...
- *
- * Pages that have children have BOTH a .md sibling and a same-name directory.
  */
 
 import { useRef, useState } from "react";
 import JSZip from "jszip";
-import { useCreateBlockNote } from "@blocknote/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { $api } from "@/lib/api/query";
+import { getAccessToken } from "@/lib/auth/token";
 import { Upload, Loader2, CheckCircle2, AlertCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Block } from "@blocknote/core";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,10 +36,23 @@ interface ParsedPage {
 type ImportState =
   | { phase: "idle" }
   | { phase: "parsing" }
-  | { phase: "converting"; done: number; total: number }
   | { phase: "uploading" }
   | { phase: "done"; created: number; skipped: number }
   | { phase: "error"; message: string };
+
+// ── Markdown cleanup ──────────────────────────────────────────────────────────
+
+/**
+ * Remove image tags whose src is a local path (no http/https scheme).
+ * Notion embeds images as relative paths like `![](image.png)` or
+ * `![alt](Folder/image.jpeg)` that will never resolve outside the export.
+ * Keeping them causes the browser to fire hundreds of failing fetches when
+ * BlockNote later parses the markdown.
+ */
+function stripLocalImages(md: string): string {
+  // Matches ![alt](src) where src does NOT start with http/https/data/ftp.
+  return md.replace(/!\[[^\]]*\]\((?!https?:\/\/|data:|ftp:\/\/)[^)]*\)/g, "");
+}
 
 // ── Notion filename helpers ───────────────────────────────────────────────────
 
@@ -86,22 +97,41 @@ function normalisePath(filePath: string): string {
 
 // ── Zip parser ────────────────────────────────────────────────────────────────
 
+/**
+ * Recursively collects all .md entries from a JSZip instance.
+ * Notion wraps large exports as a zip-of-zips (Part-1.zip, Part-2.zip …
+ * inside an outer zip). We unpack those inner zips transparently.
+ */
+async function collectMdFiles(
+  zip: JSZip,
+  acc: Array<{ path: string; file: JSZip.JSZipObject }>,
+): Promise<void> {
+  const innerZips: JSZip.JSZipObject[] = [];
+
+  zip.forEach((relativePath, zipEntry) => {
+    if (zipEntry.dir || relativePath.startsWith("__MACOSX")) return;
+
+    if (relativePath.toLowerCase().endsWith(".zip")) {
+      innerZips.push(zipEntry);
+    } else if (relativePath.toLowerCase().endsWith(".md")) {
+      acc.push({ path: relativePath, file: zipEntry });
+    }
+  });
+
+  // Recurse into any nested zips (e.g. Notion's Part-1.zip wrapper).
+  for (const innerEntry of innerZips) {
+    const innerData = await innerEntry.async("arraybuffer");
+    const innerZip = await JSZip.loadAsync(innerData);
+    await collectMdFiles(innerZip, acc);
+  }
+}
+
 async function parseNotionZip(file: File): Promise<ParsedPage[]> {
   const zip = await JSZip.loadAsync(file);
   const pages: ParsedPage[] = [];
 
-  // Collect all .md files, ignoring CSV databases and __MACOSX junk.
   const mdFiles: Array<{ path: string; file: JSZip.JSZipObject }> = [];
-
-  zip.forEach((relativePath, zipEntry) => {
-    if (
-      !zipEntry.dir &&
-      relativePath.toLowerCase().endsWith(".md") &&
-      !relativePath.startsWith("__MACOSX")
-    ) {
-      mdFiles.push({ path: relativePath, file: zipEntry });
-    }
-  });
+  await collectMdFiles(zip, mdFiles);
 
   // Build a map of normalised directory path → client ID so children can find
   // their parent.  A page at "Export/My Page abc/Sub Page def.md" has its
@@ -134,7 +164,8 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
     const { path, file } = mdFiles[i];
     const { norm, id } = normalised[i];
 
-    const markdown = await file.async("string");
+    const raw = await file.async("string");
+    const markdown = stripLocalImages(raw);
     const title = parseTitleFromPath(path);
 
     // Determine parent: the normalised path without the last segment and ".md"
@@ -164,17 +195,11 @@ interface Props {
 export function NotionImportDialog({ onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<ImportState>({ phase: "idle" });
-  const editor = useCreateBlockNote();
   const qc = useQueryClient();
-
-  const { mutateAsync: importDocuments } = $api.useMutation(
-    "post",
-    "/documents/import"
-  );
 
   async function handleFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".zip")) {
-      setState({ phase: "error", message: "Please select a .zip file exported from Notion." });
+      setState({ phase: "error", message: "Please select a .zip file containing markdown pages." });
       return;
     }
 
@@ -184,47 +209,43 @@ export function NotionImportDialog({ onClose }: Props) {
       const pages = await parseNotionZip(file);
 
       if (pages.length === 0) {
-        setState({ phase: "error", message: "No markdown pages found in this zip." });
+        setState({
+          phase: "error",
+          message:
+            "No markdown (.md) files found in this zip. Open the browser console (⌘⌥J) to see what paths were detected.",
+        });
         return;
       }
 
-      // 2. Convert markdown → BlockNote JSON for each page
-      setState({ phase: "converting", done: 0, total: pages.length });
-
-      const items: Array<{
-        client_id: string;
-        client_parent_id: string | null;
-        title: string;
-        source_markdown: string;
-        editor_json: { blocks: Block[] } | null;
-      }> = [];
-
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        let blocks: Block[] | null = null;
-        try {
-          blocks = editor.tryParseMarkdownToBlocks(page.markdown) as Block[];
-        } catch {
-          // If conversion fails, we still import with source_markdown only.
-        }
-
-        items.push({
-          client_id: page.clientId,
-          client_parent_id: page.clientParentId,
-          title: page.title,
-          source_markdown: page.markdown,
-          editor_json: blocks && blocks.length > 0 ? { blocks } : null,
-        });
-
-        setState({ phase: "converting", done: i + 1, total: pages.length });
-      }
-
-      // 3. POST to API
+      // 2. POST to API — plain fetch so we control method/headers exactly.
+      //    markdown→BlockNote conversion is deferred to first open.
       setState({ phase: "uploading" });
 
-      const result = await importDocuments({
-        body: { items },
+      const token = getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch("/api/documents/bulk-import", {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+        body: JSON.stringify({
+          items: pages.map((p) => ({
+            client_id: p.clientId,
+            client_parent_id: p.clientParentId,
+            title: p.title,
+            source_markdown: p.markdown,
+            editor_json: null,
+          })),
+        }),
       });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        throw new Error(`Import failed (${res.status}): ${text}`);
+      }
+
+      const result = await res.json() as { created: number; skipped: number };
 
       qc.invalidateQueries({ queryKey: ["get", "/documents"] });
 
@@ -247,7 +268,6 @@ export function NotionImportDialog({ onClose }: Props) {
 
   const isWorking =
     state.phase === "parsing" ||
-    state.phase === "converting" ||
     state.phase === "uploading";
 
   return (
@@ -258,7 +278,7 @@ export function NotionImportDialog({ onClose }: Props) {
       >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Import from Notion</h2>
+          <h2 className="text-base font-semibold">Import pages</h2>
           <button
             type="button"
             onClick={onClose}
@@ -271,11 +291,20 @@ export function NotionImportDialog({ onClose }: Props) {
 
         {/* Instructions */}
         {state.phase === "idle" && (
-          <p className="text-sm text-muted-foreground">
-            Export your Notion pages as <strong>Markdown &amp; CSV</strong>{" "}
-            (Settings → Export → Markdown &amp; CSV), then upload the zip here.
-            Pages and their hierarchy are preserved.
-          </p>
+          <div className="text-sm text-muted-foreground space-y-2">
+            <p>
+              Upload a zip of markdown files. Page hierarchy is inferred from
+              folder structure. Works with exports from:
+            </p>
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs pl-1">
+              <li>• Notion <span className="text-muted-foreground/60">(Markdown &amp; CSV)</span></li>
+              <li>• Obsidian</li>
+              <li>• Logseq</li>
+              <li>• Bear</li>
+              <li>• Craft</li>
+              <li>• Any markdown zip</li>
+            </ul>
+          </div>
         )}
 
         {/* Drop zone */}
@@ -288,7 +317,7 @@ export function NotionImportDialog({ onClose }: Props) {
           >
             <Upload className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-center text-muted-foreground">
-              Drop your Notion export zip here, or click to browse
+              Drop your export zip here, or click to browse
             </p>
             <input
               ref={inputRef}
@@ -314,13 +343,6 @@ export function NotionImportDialog({ onClose }: Props) {
         {/* Progress states */}
         {state.phase === "parsing" && (
           <ProgressRow icon={<Loader2 className="h-4 w-4 animate-spin" />} label="Reading zip…" />
-        )}
-
-        {state.phase === "converting" && (
-          <ProgressRow
-            icon={<Loader2 className="h-4 w-4 animate-spin" />}
-            label={`Converting pages… ${state.done} / ${state.total}`}
-          />
         )}
 
         {state.phase === "uploading" && (

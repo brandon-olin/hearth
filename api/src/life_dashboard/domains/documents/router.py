@@ -22,7 +22,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.post(
-    "/import",
+    "/bulk-import",
     response_model=DocumentImportResponse,
     status_code=http_status.HTTP_201_CREATED,
 )

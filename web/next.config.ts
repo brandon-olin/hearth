@@ -12,15 +12,8 @@ const nextConfig: NextConfig = {
   // This keeps cookies same-origin so SameSite=Lax refresh cookies work.
   // Set API_URL (server-side only) to the backend address visible from this
   // server process — defaults to localhost:8000 for local dev.
-  async rewrites() {
-    const apiUrl = process.env.API_URL ?? "http://localhost:8000";
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${apiUrl}/:path*`,
-      },
-    ];
-  },
+  // /api/* is handled by the catch-all Route Handler at app/api/[...path]/route.ts,
+  // which proxies requests to the FastAPI backend. No rewrites needed.
 };
 
 export default nextConfig;

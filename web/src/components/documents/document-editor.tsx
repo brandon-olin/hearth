@@ -46,9 +46,24 @@ function EditorInner({ documentId }: { documentId: string }) {
 
     const blocks = (data.editor_json as { blocks?: Block[] } | null)?.blocks;
     if (blocks?.length) {
+      // Already converted — load directly.
       editor.replaceBlocks(editor.document, blocks);
+    } else if (data.source_markdown) {
+      // Imported from markdown — convert on first open and save back so
+      // subsequent loads are instant.
+      const converted = editor.tryParseMarkdownToBlocks(data.source_markdown);
+      if (converted.length) {
+        editor.replaceBlocks(editor.document, converted);
+        // Persist the converted JSON so we don't re-parse on every open.
+        patchDocument({
+          params: { path: { doc_id: documentId } },
+          body: {
+            editor_json: { blocks: editor.document as unknown as Record<string, unknown>[] },
+          },
+        }).catch(() => {/* best-effort */});
+      }
     }
-  }, [data, editor]);
+  }, [data, editor, documentId, patchDocument]);
 
   // Debounced save — reads from refs to avoid stale closures.
   const scheduleSave = useCallback(() => {

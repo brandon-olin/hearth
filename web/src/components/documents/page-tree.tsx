@@ -179,7 +179,7 @@ export function PageTree() {
             size="icon"
             className="h-6 w-6"
             onClick={() => setShowImport(true)}
-            title="Import from Notion"
+            title="Import pages"
           >
             <Upload className="h-3.5 w-3.5" />
           </Button>

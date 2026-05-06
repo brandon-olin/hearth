@@ -147,7 +147,7 @@ export interface paths {
         patch: operations["update_contact_contacts__contact_id__patch"];
         trace?: never;
     };
-    "/documents/import": {
+    "/documents/bulk-import": {
         parameters: {
             query?: never;
             header?: never;
@@ -157,7 +157,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Import Documents */
-        post: operations["import_documents_documents_import_post"];
+        post: operations["import_documents_documents_bulk_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2763,7 +2763,7 @@ export interface operations {
             };
         };
     };
-    import_documents_documents_import_post: {
+    import_documents_documents_bulk_import_post: {
         parameters: {
             query?: never;
             header?: never;
