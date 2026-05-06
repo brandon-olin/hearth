@@ -131,18 +131,18 @@
 
 /* Applied for ~350ms during theme toggle — gives smooth color transitions
    without slowing down normal hover/focus effects.
-   transform + translate are included so the toggle thumb still slides. */
+   Longhands with individual !important are used so that every declaration
+   wins the cascade against Tailwind's transition-colors (150ms). The shorthand
+   `transition: ... !important` only marks the last comma-separated item as
+   important, not the whole list — longhands are the reliable approach. */
 html.theme-switching,
 html.theme-switching *,
 html.theme-switching *::before,
 html.theme-switching *::after {
-  transition:
-    background-color 350ms ease,
-    color 350ms ease,
-    border-color 350ms ease,
-    fill 350ms ease,
-    transform 300ms ease,
-    translate 300ms ease !important;
+  transition-property: color, background-color, border-color, fill, stroke, transform, translate !important;
+  transition-duration: 350ms !important;
+  transition-timing-function: ease !important;
+  transition-delay: 0s !important;
 }
 
 /* ── BlockNote theme bridge ────────────────────────────────────────────────────

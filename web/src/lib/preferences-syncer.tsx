@@ -55,8 +55,8 @@ export function PreferencesSyncer() {
       const dbTheme = prefs.theme as ThemeConfig;
       const localTheme = loadThemeConfig();
       if (JSON.stringify(dbTheme) !== JSON.stringify(localTheme)) {
-        // Apply DB theme without animation to avoid flash on load.
-        setThemeConfig(dbTheme, /* animate = */ false);
+        // Animate the transition so the remote theme fades in rather than snapping.
+        setThemeConfig(dbTheme, /* animate = */ true);
       }
     }
 

@@ -16,10 +16,7 @@ services:
     restart: unless-stopped
     networks:
       - life-dashboard
-    # Caddy proxies; bind only to loopback on the host so the port is not
-    # directly reachable without going through Caddy.
-    ports:
-      - "8000:8000"
+    # Not exposed to the host — Caddy reaches it via the Docker network.
     env_file:
       - .env
     healthcheck:
@@ -30,6 +27,23 @@ services:
       start_period: 15s
     depends_on: []   # postgres-1 is external; healthcheck handles readiness
 
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Next.js uses this server-side to proxy /api/* to the API container.
+        API_URL: http://api:8000
+    image: life-dashboard-web:latest
+    restart: unless-stopped
+    networks:
+      - life-dashboard
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -38,10 +52,16 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Set TS_HOSTNAME in infra/.env — e.g. nas.your-tailnet.ts.net
+      # Used by the Caddyfile for the server name and TLS cert paths.
+      - TS_HOSTNAME=${TS_HOSTNAME}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Tailscale stores certs here on Synology DSM.
-      # Refresh with: sudo tailscale cert YOUR_NAS.tailnet-name.ts.net
+      # Refresh with: sudo tailscale cert ${TS_HOSTNAME}
       - /var/packages/Tailscale/var/certs:/etc/caddy/certs:ro
       - caddy_data:/data
       - caddy_logs:/var/log/caddy
+    depends_on:
+      - web

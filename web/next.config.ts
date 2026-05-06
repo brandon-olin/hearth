@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Produces a self-contained build in .next/standalone — required for the
+  // Docker image so node_modules don't need to be copied in full.
+  output: "standalone",
   allowedDevOrigins: ["192.168.68.59"],
   devIndicators: {
     position: "bottom-right",

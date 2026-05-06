@@ -1,15 +1,36 @@
-# Replace YOUR_NAS.tailnet-name.ts.net with your actual Tailscale hostname.
-# Refresh the cert on the NAS host when it expires (valid ~90 days):
-#   sudo tailscale cert YOUR_NAS.tailnet-name.ts.net
-# The cert files land in /var/packages/Tailscale/var/certs/ and are
-# bind-mounted read-only into the caddy container.
+# ── life-dashboard Caddyfile ───────────────────────────────────────────────────
+#
+# Caddy sits in front of the Next.js container and terminates TLS using the
+# certificate that Tailscale provisions for this machine.
+#
+# Prerequisites (run once on the NAS):
+#   sudo tailscale cert {$TS_HOSTNAME}
+#
+# The cert files land at /var/packages/Tailscale/var/certs/ on Synology DSM,
+# which is bind-mounted into this container at /etc/caddy/certs (read-only).
+#
+# TS_HOSTNAME is read from infra/.env (e.g. nas.your-tailnet.ts.net).
 
-YOUR_NAS.tailnet-name.ts.net {
-    tls /etc/caddy/certs/YOUR_NAS.tailnet-name.ts.net.crt \
-        /etc/caddy/certs/YOUR_NAS.tailnet-name.ts.net.key
+{$TS_HOSTNAME} {
+  # Use the Tailscale-issued certificate directly.
+  # Caddy won't attempt ACME — the cert is already on disk.
+  tls /etc/caddy/certs/{$TS_HOSTNAME}.crt /etc/caddy/certs/{$TS_HOSTNAME}.key
 
-    # Phase 1: API only — all traffic proxied to the FastAPI backend.
-    # Phase 2: split /api/* → api:8000 and /* → web:3000 when the
-    # Next.js frontend is added.
-    reverse_proxy api:8000
+  # All traffic -> Next.js, which internally rewrites /api/* to the API
+  # container. This keeps cookie handling identical to the local dev setup
+  # (same-origin relative to the browser, no cross-origin cookie issues).
+  reverse_proxy web:3000
+
+  # Access log for debugging -- written to the named volume.
+  log {
+    output file /var/log/caddy/access.log {
+      roll_size 10mb
+      roll_keep 5
+    }
+  }
+}
+
+# Redirect bare HTTP to HTTPS.
+http://{$TS_HOSTNAME} {
+  redir https://{$TS_HOSTNAME}{uri} permanent
 }
