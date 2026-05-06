@@ -19,7 +19,15 @@ import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-type Habit = components["schemas"]["HabitResponse"];
+// HabitResponse extended with optional cadence sub-fields so formFromHabit
+// can read them. The API stores these inside the `cadence` JSONB column.
+type Habit = components["schemas"]["HabitResponse"] & {
+  is_active?: boolean;
+  times_per_period?: number | null;
+  period_unit?: string | null;
+  preferred_time?: string | null;
+  start_date?: string | null;
+};
 type Occurrence = components["schemas"]["OccurrenceResponse"];
 
 // ── date helpers ──────────────────────────────────────────────────────────────
@@ -61,9 +69,9 @@ function WeekTracker({ habitId }: { habitId: string }) {
     }
   );
 
-  const { mutateAsync: generateOccs } = $api.useMutation(
+  const { mutateAsync: createOcc } = $api.useMutation(
     "post",
-    "/habits/{habit_id}/occurrences/generate"
+    "/habits/{habit_id}/occurrences"
   );
   const { mutateAsync: updateOcc } = $api.useMutation(
     "patch",
@@ -81,12 +89,13 @@ function WeekTracker({ habitId }: { habitId: string }) {
     try {
       let occ = occByDate.get(date) ?? null;
       if (!occ) {
-        await generateOccs({
+        // Create an occurrence for this date and mark it completed immediately
+        const created = await createOcc({
           params: { path: { habit_id: habitId } },
-          body: { from_date: date, to_date: date },
+          body: { scheduled_date: date, status: "completed" },
         });
-        const fresh = await refetch();
-        occ = fresh.data?.items.find((o) => o.scheduled_date === date) ?? null;
+        refetch();
+        if (created) return;
       }
       if (occ) {
         await updateOcc({
@@ -195,15 +204,17 @@ function blankForm(): FormState {
 }
 
 function formFromHabit(habit: Habit): FormState {
+  // The API stores sub-fields inside the cadence JSONB blob.
+  const c = (habit.cadence ?? {}) as Record<string, unknown>;
   return {
     name: habit.name,
     description: habit.description ?? "",
     frequency: habit.frequency as Frequency,
-    times_per_period: String(habit.times_per_period ?? 1),
-    period_unit: habit.period_unit ?? "",
-    preferred_time: (habit.preferred_time ?? "") as PreferredTime,
-    start_date: habit.start_date,
-    is_active: habit.is_active,
+    times_per_period: String(c.times_per_period ?? habit.times_per_period ?? 1),
+    period_unit: (c.period_unit as string | undefined) ?? habit.period_unit ?? "",
+    preferred_time: ((c.preferred_time ?? habit.preferred_time ?? "") as PreferredTime),
+    start_date: (c.start_date as string | undefined) ?? habit.start_date ?? "",
+    is_active: habit.status === "active",
   };
 }
 
@@ -252,24 +263,24 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
     setSaving(true);
     setError(null);
     try {
-      const body = {
-        name: form.name.trim(),
-        description: form.description.trim() || null,
-        frequency: form.frequency,
+      // Pack cadence sub-fields into the JSONB cadence blob the API expects
+      const cadence: Record<string, unknown> = {
         times_per_period:
           form.frequency !== "daily" && form.times_per_period
             ? Number(form.times_per_period)
             : null,
         period_unit:
           form.frequency === "custom" ? form.period_unit.trim() || null : null,
-        preferred_time: (form.preferred_time || null) as
-          | "morning"
-          | "afternoon"
-          | "evening"
-          | "night"
-          | null,
-        start_date: form.start_date,
-        is_active: form.is_active,
+        preferred_time: form.preferred_time || null,
+        start_date: form.start_date || null,
+      };
+
+      const body = {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        frequency: form.frequency,
+        cadence,
+        status: (form.is_active ? "active" : "paused") as "active" | "paused" | "archived",
       };
 
       if (isEdit) {
@@ -278,7 +289,7 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
           body,
         });
       } else {
-        await createHabit({ body: { ...body, tag_ids: [] } });
+        await createHabit({ body });
       }
 
       qc.invalidateQueries({ queryKey: ["get", "/habits"] });

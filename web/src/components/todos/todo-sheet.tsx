@@ -23,7 +23,7 @@ type Todo = components["schemas"]["TodoResponse"];
 type FormState = {
   title: string;
   description: string;
-  status: "todo" | "in_progress" | "done" | "cancelled";
+  status: "pending" | "in_progress" | "done" | "cancelled";
   priority: "low" | "medium" | "high" | "urgent" | "";
   due_date: string;
 };
@@ -32,7 +32,7 @@ function blankForm(): FormState {
   return {
     title: "",
     description: "",
-    status: "todo",
+    status: "pending",
     priority: "medium",
     due_date: "",
   };
@@ -96,19 +96,14 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
         title: form.title.trim(),
         description: form.description.trim() || null,
         status: form.status,
-        priority: (form.priority || null) as
-          | "low"
-          | "medium"
-          | "high"
-          | "urgent"
-          | null,
+        priority: (form.priority || null) as "low" | "medium" | "high" | null,
         due_date: form.due_date || null,
       };
 
       if (isEdit) {
         await updateTodo({ params: { path: { todo_id: todo.id } }, body });
       } else {
-        await createTodo({ body: { ...body, tag_ids: [] } });
+        await createTodo({ body });
       }
 
       qc.invalidateQueries({ queryKey: ["get", "/todos"] });
@@ -184,7 +179,7 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
                   set("status", e.target.value as FormState["status"])
                 }
               >
-                <option value="todo">To-do</option>
+                <option value="pending">To-do</option>
                 <option value="in_progress">In progress</option>
                 <option value="done">Done</option>
                 <option value="cancelled">Cancelled</option>

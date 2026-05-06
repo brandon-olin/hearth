@@ -70,7 +70,7 @@ export function TodosWidget({ today }: { today: string }) {
   );
 
   async function handleToggle(id: string, currentStatus: string) {
-    const newStatus = currentStatus === "done" ? "todo" : "done";
+    const newStatus = currentStatus === "done" ? "pending" : "done";
     setTogglingIds((prev) => new Set(prev).add(id));
     try {
       await updateTodo({
@@ -89,7 +89,7 @@ export function TodosWidget({ today }: { today: string }) {
 
   const items = data?.items ?? [];
   const active = items.filter(
-    (t) => t.status === "todo" || t.status === "in_progress"
+    (t) => t.status === "pending" || t.status === "in_progress"
   );
   const done = items.filter((t) => t.status === "done");
   const remaining = active.length;
@@ -159,6 +159,6 @@ export function todosRemainingFromData(
 ): number {
   if (!data) return 0;
   return data.items.filter(
-    (t) => t.status === "todo" || t.status === "in_progress"
+    (t) => t.status === "pending" || t.status === "in_progress"
   ).length;
 }

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { Plus, Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-type Habit = components["schemas"]["HabitResponse"];
+type Habit = components["schemas"]["HabitResponse"] & { is_active?: boolean };
 type Filter = "active" | "all" | "inactive";
 
 function toLocalDateString(d: Date) {
@@ -23,8 +23,8 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 function applyFilter(habits: Habit[], filter: Filter): Habit[] {
-  if (filter === "active") return habits.filter((h) => h.is_active);
-  if (filter === "inactive") return habits.filter((h) => !h.is_active);
+  if (filter === "active") return habits.filter((h) => h.status === "active");
+  if (filter === "inactive") return habits.filter((h) => h.status !== "active");
   return habits;
 }
 
@@ -71,9 +71,9 @@ export default function HabitsPage() {
         {FILTERS.map(({ key, label }) => {
           const count =
             key === "active"
-              ? (data?.items ?? []).filter((h) => h.is_active).length
+              ? (data?.items ?? []).filter((h) => h.status === "active").length
               : key === "inactive"
-              ? (data?.items ?? []).filter((h) => !h.is_active).length
+              ? (data?.items ?? []).filter((h) => h.status !== "active").length
               : (data?.items ?? []).length;
 
           return (

@@ -146,6 +146,63 @@ export interface paths {
         patch: operations["update_contact_contacts__contact_id__patch"];
         trace?: never;
     };
+    "/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Documents */
+        get: operations["list_documents_documents_get"];
+        put?: never;
+        /** Create Document */
+        post: operations["create_document_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document */
+        get: operations["get_document_documents__doc_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Archive Document
+         * @description Soft-delete: sets archived_at. Returns the archived document.
+         */
+        delete: operations["archive_document_documents__doc_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Document */
+        patch: operations["update_document_documents__doc_id__patch"];
+        trace?: never;
+    };
+    "/documents/{doc_id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Children */
+        get: operations["get_children_documents__doc_id__children_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goals": {
         parameters: {
             query?: never;
@@ -233,8 +290,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update Item */
-        patch: operations["update_item_grocery_lists__list_id__items__item_id__patch"];
+        /** Update Grocery Item */
+        patch: operations["update_grocery_item_grocery_lists__list_id__items__item_id__patch"];
         trace?: never;
     };
     "/habits": {
@@ -274,23 +331,6 @@ export interface paths {
         patch: operations["update_habit_habits__habit_id__patch"];
         trace?: never;
     };
-    "/habits/{habit_id}/occurrences/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Generate Occurrences */
-        post: operations["generate_occurrences_habits__habit_id__occurrences_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/habits/{habit_id}/occurrences": {
         parameters: {
             query?: never;
@@ -325,43 +365,6 @@ export interface paths {
         head?: never;
         /** Update Occurrence */
         patch: operations["update_occurrence_habits__habit_id__occurrences__occurrence_id__patch"];
-        trace?: never;
-    };
-    "/notes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Notes */
-        get: operations["list_notes_notes_get"];
-        put?: never;
-        /** Create Note */
-        post: operations["create_note_notes_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/notes/{note_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Note */
-        get: operations["get_note_notes__note_id__get"];
-        put?: never;
-        post?: never;
-        /** Delete Note */
-        delete: operations["delete_note_notes__note_id__delete"];
-        options?: never;
-        head?: never;
-        /** Update Note */
-        patch: operations["update_note_notes__note_id__patch"];
         trace?: never;
     };
     "/recipes": {
@@ -399,6 +402,24 @@ export interface paths {
         head?: never;
         /** Update Recipe */
         patch: operations["update_recipe_recipes__recipe_id__patch"];
+        trace?: never;
+    };
+    "/recipes/{recipe_id}/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Add Tag */
+        put: operations["add_tag_recipes__recipe_id__tags__tag_id__put"];
+        post?: never;
+        /** Remove Tag */
+        delete: operations["remove_tag_recipes__recipe_id__tags__tag_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/tags": {
@@ -473,6 +494,78 @@ export interface paths {
         head?: never;
         /** Update Todo */
         patch: operations["update_todo_todos__todo_id__patch"];
+        trace?: never;
+    };
+    "/workouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workouts */
+        get: operations["list_workouts_workouts_get"];
+        put?: never;
+        /** Create Workout */
+        post: operations["create_workout_workouts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/{workout_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workout */
+        get: operations["get_workout_workouts__workout_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Workout */
+        delete: operations["delete_workout_workouts__workout_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Workout */
+        patch: operations["update_workout_workouts__workout_id__patch"];
+        trace?: never;
+    };
+    "/workouts/{workout_id}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Entry */
+        post: operations["create_entry_workouts__workout_id__entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/{workout_id}/entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Entry */
+        delete: operations["delete_entry_workouts__workout_id__entries__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Entry */
+        patch: operations["update_entry_workouts__workout_id__entries__entry_id__patch"];
         trace?: never;
     };
     "/health": {
@@ -857,6 +950,141 @@ export interface components {
             /** Phones */
             phones?: components["schemas"]["PhoneData"][] | null;
         };
+        /** DocumentChildrenResponse */
+        DocumentChildrenResponse: {
+            /** Items */
+            items: components["schemas"]["DocumentSummary"][];
+        };
+        /** DocumentCreate */
+        DocumentCreate: {
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Kind
+             * @default page
+             * @enum {string}
+             */
+            kind: "page" | "template";
+            /** Source Markdown */
+            source_markdown?: string | null;
+            /** Editor Json */
+            editor_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** DocumentResponse */
+        DocumentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Title */
+            title: string;
+            /** Slug */
+            slug: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "page" | "template";
+            /** Source Markdown */
+            source_markdown: string | null;
+            /** Editor Json */
+            editor_json: {
+                [key: string]: unknown;
+            } | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DocumentSummary
+         * @description Lightweight shape used in tree listings — omits large content fields.
+         */
+        DocumentSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Title */
+            title: string;
+            /** Slug */
+            slug: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "page" | "template";
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DocumentTreeResponse
+         * @description Flat list of all unarchived documents; client builds the tree from parent_id.
+         */
+        DocumentTreeResponse: {
+            /** Items */
+            items: components["schemas"]["DocumentSummary"][];
+            /** Total */
+            total: number;
+        };
+        /** DocumentUpdate */
+        DocumentUpdate: {
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Kind */
+            kind?: ("page" | "template") | null;
+            /** Source Markdown */
+            source_markdown?: string | null;
+            /** Editor Json */
+            editor_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** EmailData */
         EmailData: {
             /** Email */
@@ -886,55 +1114,101 @@ export interface components {
              */
             id: string;
         };
-        /** GenerateOccurrencesRequest */
-        GenerateOccurrencesRequest: {
+        /** ExerciseEntryCreate */
+        ExerciseEntryCreate: {
+            /** Name */
+            name: string;
             /**
-             * From Date
-             * Format: date
+             * Type
+             * @enum {string}
              */
-            from_date: string;
+            type: "strength" | "cardio" | "hiit" | "flexibility" | "other";
             /**
-             * To Date
-             * Format: date
+             * Sort Order
+             * @default 0
              */
-            to_date: string;
-            /**
-             * Default Time
-             * @description HH:MM time to set as scheduled_start on generated occurrences
-             */
-            default_time?: string | null;
+            sort_order: number;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Notes */
+            notes?: string | null;
         };
-        /** GenerateOccurrencesResponse */
-        GenerateOccurrencesResponse: {
-            /** Created */
-            created: number;
-            /** Skipped */
-            skipped: number;
+        /** ExerciseEntryResponse */
+        ExerciseEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Workout Id
+             * Format: uuid
+             */
+            workout_id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Sort Order */
+            sort_order: number;
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            } | null;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ExerciseEntryUpdate */
+        ExerciseEntryUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Type */
+            type?: ("strength" | "cardio" | "hiit" | "flexibility" | "other") | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** GoalCreate */
         GoalCreate: {
+            /** Parent Id */
+            parent_id?: string | null;
             /** Title */
             title: string;
             /** Description */
             description?: string | null;
-            /** Category */
-            category?: string | null;
-            /** @default active */
-            status: components["schemas"]["GoalStatus"];
-            /** @default medium */
-            priority: components["schemas"]["PriorityLevel"] | null;
-            /** Parent Id */
-            parent_id?: string | null;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "completed" | "paused" | "archived";
+            /** Priority */
+            priority?: ("low" | "medium" | "high") | null;
             /** Target Value */
-            target_value?: number | null;
+            target_value?: number | string | null;
             /** Current Value */
-            current_value?: number | null;
+            current_value?: number | string | null;
             /** Unit */
             unit?: string | null;
-            /** Start Date */
-            start_date?: string | null;
-            /** Target Date */
-            target_date?: string | null;
+            /** Due Date */
+            due_date?: string | null;
         };
         /** GoalListResponse */
         GoalListResponse: {
@@ -967,21 +1241,18 @@ export interface components {
             title: string;
             /** Description */
             description: string | null;
-            /** Category */
-            category: string | null;
             /** Status */
             status: string;
-            priority: components["schemas"]["PriorityLevel"] | null;
+            /** Priority */
+            priority: ("low" | "medium" | "high") | null;
             /** Target Value */
-            target_value: number | null;
+            target_value: string | null;
             /** Current Value */
-            current_value: number | null;
+            current_value: string | null;
             /** Unit */
             unit: string | null;
-            /** Start Date */
-            start_date: string | null;
-            /** Target Date */
-            target_date: string | null;
+            /** Due Date */
+            due_date: string | null;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -994,72 +1265,36 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * Children
-             * @default []
-             */
-            children: components["schemas"]["GoalSummary"][];
         };
-        /**
-         * GoalStatus
-         * @enum {string}
-         */
-        GoalStatus: "active" | "paused" | "completed" | "abandoned";
-        /**
-         * GoalSummary
-         * @description Lightweight goal reference used in children lists.
-         */
-        GoalSummary: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Title */
-            title: string;
-            /** Status */
-            status: string;
-            priority: components["schemas"]["PriorityLevel"] | null;
-            /** Target Date */
-            target_date: string | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /**
-         * GoalUpdate
-         * @description All fields optional — only fields present in the request body are applied (true PATCH).
-         */
+        /** GoalUpdate */
         GoalUpdate: {
+            /** Parent Id */
+            parent_id?: string | null;
             /** Title */
             title?: string | null;
             /** Description */
             description?: string | null;
-            /** Category */
-            category?: string | null;
-            status?: components["schemas"]["GoalStatus"] | null;
-            priority?: components["schemas"]["PriorityLevel"] | null;
-            /** Parent Id */
-            parent_id?: string | null;
+            /** Status */
+            status?: ("active" | "completed" | "paused" | "archived") | null;
+            /** Priority */
+            priority?: ("low" | "medium" | "high") | null;
             /** Target Value */
-            target_value?: number | null;
+            target_value?: number | string | null;
             /** Current Value */
-            current_value?: number | null;
+            current_value?: number | string | null;
             /** Unit */
             unit?: string | null;
-            /** Start Date */
-            start_date?: string | null;
-            /** Target Date */
-            target_date?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
         };
         /** GroceryItemData */
         GroceryItemData: {
             /** Name */
             name: string;
             /** Quantity */
-            quantity?: number | null;
+            quantity?: number | string | null;
             /** Unit */
             unit?: string | null;
             /** Category */
@@ -1081,7 +1316,7 @@ export interface components {
             /** Name */
             name: string;
             /** Quantity */
-            quantity?: number | null;
+            quantity?: string | null;
             /** Unit */
             unit?: string | null;
             /** Category */
@@ -1123,7 +1358,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Quantity */
-            quantity?: number | null;
+            quantity?: number | string | null;
             /** Unit */
             unit?: string | null;
             /** Category */
@@ -1135,20 +1370,18 @@ export interface components {
         };
         /** GroceryListCreate */
         GroceryListCreate: {
-            /** Name */
-            name?: string | null;
-            /** Store */
-            store?: string | null;
-            /** Planned Date */
-            planned_date?: string | null;
-            /**
-             * Status
-             * @default open
-             * @enum {string}
-             */
-            status: "open" | "completed" | "cancelled";
             /** Todo Id */
             todo_id?: string | null;
+            /** Name */
+            name: string;
+            /** Store */
+            store?: string | null;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "completed" | "archived";
             /**
              * Items
              * @default []
@@ -1183,11 +1416,9 @@ export interface components {
             /** Todo Id */
             todo_id: string | null;
             /** Name */
-            name: string | null;
+            name: string;
             /** Store */
             store: string | null;
-            /** Planned Date */
-            planned_date: string | null;
             /** Status */
             status: string;
             /**
@@ -1208,16 +1439,14 @@ export interface components {
         };
         /** GroceryListUpdate */
         GroceryListUpdate: {
+            /** Todo Id */
+            todo_id?: string | null;
             /** Name */
             name?: string | null;
             /** Store */
             store?: string | null;
-            /** Planned Date */
-            planned_date?: string | null;
             /** Status */
-            status?: ("open" | "completed" | "cancelled") | null;
-            /** Todo Id */
-            todo_id?: string | null;
+            status?: ("active" | "completed" | "archived") | null;
             /** Items */
             items?: components["schemas"]["GroceryItemData"][] | null;
         };
@@ -1228,40 +1457,28 @@ export interface components {
         };
         /** HabitCreate */
         HabitCreate: {
+            /** Goal Id */
+            goal_id?: string | null;
             /** Name */
             name: string;
             /** Description */
             description?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
             /**
              * Frequency
+             * @default daily
              * @enum {string}
              */
             frequency: "daily" | "weekly" | "monthly" | "custom";
-            /** Times Per Period */
-            times_per_period?: number | null;
-            /** Period Unit */
-            period_unit?: string | null;
-            /** Preferred Time */
-            preferred_time?: ("morning" | "afternoon" | "evening" | "night") | null;
+            /** Cadence */
+            cadence?: {
+                [key: string]: unknown;
+            } | null;
             /**
-             * Start Date
-             * Format: date
+             * Status
+             * @default active
+             * @enum {string}
              */
-            start_date: string;
-            /** End Date */
-            end_date?: string | null;
-            /**
-             * Is Active
-             * @default true
-             */
-            is_active: boolean;
-            /**
-             * Tag Ids
-             * @default []
-             */
-            tag_ids: string[];
+            status: "active" | "paused" | "archived";
         };
         /** HabitListResponse */
         HabitListResponse: {
@@ -1296,21 +1513,12 @@ export interface components {
             description: string | null;
             /** Frequency */
             frequency: string;
-            /** Times Per Period */
-            times_per_period: number | null;
-            /** Period Unit */
-            period_unit: string | null;
-            /** Preferred Time */
-            preferred_time: string | null;
-            /**
-             * Start Date
-             * Format: date
-             */
-            start_date: string;
-            /** End Date */
-            end_date: string | null;
-            /** Is Active */
-            is_active: boolean;
+            /** Cadence */
+            cadence: {
+                [key: string]: unknown;
+            } | null;
+            /** Status */
+            status: string;
             /**
              * Created At
              * Format: date-time
@@ -1321,72 +1529,55 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: components["schemas"]["TagSummary"][];
         };
         /** HabitUpdate */
         HabitUpdate: {
+            /** Goal Id */
+            goal_id?: string | null;
             /** Name */
             name?: string | null;
             /** Description */
             description?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
             /** Frequency */
             frequency?: ("daily" | "weekly" | "monthly" | "custom") | null;
-            /** Times Per Period */
-            times_per_period?: number | null;
-            /** Period Unit */
-            period_unit?: string | null;
-            /** Preferred Time */
-            preferred_time?: ("morning" | "afternoon" | "evening" | "night") | null;
-            /** Start Date */
-            start_date?: string | null;
-            /** End Date */
-            end_date?: string | null;
-            /** Is Active */
-            is_active?: boolean | null;
-            /** Tag Ids */
-            tag_ids?: string[] | null;
+            /** Cadence */
+            cadence?: {
+                [key: string]: unknown;
+            } | null;
+            /** Status */
+            status?: ("active" | "paused" | "archived") | null;
         };
         /** IngredientData */
         IngredientData: {
             /** Name */
             name: string;
             /** Quantity */
-            quantity?: number | null;
+            quantity?: number | string | null;
             /** Unit */
             unit?: string | null;
-            /** Preparation */
-            preparation?: string | null;
-            /**
-             * Optional
-             * @default false
-             */
-            optional: boolean;
             /** Notes */
             notes?: string | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
         };
         /** IngredientResponse */
         IngredientResponse: {
             /** Name */
             name: string;
             /** Quantity */
-            quantity?: number | null;
+            quantity?: string | null;
             /** Unit */
             unit?: string | null;
-            /** Preparation */
-            preparation?: string | null;
-            /**
-             * Optional
-             * @default false
-             */
-            optional: boolean;
             /** Notes */
             notes?: string | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
             /**
              * Id
              * Format: uuid
@@ -1419,197 +1610,23 @@ export interface components {
             token_type: string;
             user: components["schemas"]["UserResponse"];
         };
-        /** NoteCreate */
-        NoteCreate: {
-            /** @default note */
-            type: components["schemas"]["NoteType"];
-            /** Title */
-            title?: string | null;
-            /** Content Md */
-            content_md: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Journal Date */
-            journal_date?: string | null;
-            /** Mood */
-            mood?: string | null;
-            /** Parent Note Id */
-            parent_note_id?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
-            /** Todo Id */
-            todo_id?: string | null;
-            /** Contact Id */
-            contact_id?: string | null;
-            /**
-             * Tag Ids
-             * @default []
-             */
-            tag_ids: string[];
-            /**
-             * Note Link Ids
-             * @default []
-             */
-            note_link_ids: string[];
-        };
-        /** NoteListResponse */
-        NoteListResponse: {
-            /** Items */
-            items: components["schemas"]["NoteResponse"][];
-            /** Total */
-            total: number;
-            /** Limit */
-            limit: number;
-            /** Offset */
-            offset: number;
-        };
-        /** NoteResponse */
-        NoteResponse: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            type: components["schemas"]["NoteType"];
-            /** Title */
-            title: string | null;
-            /** Content Md */
-            content_md: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Journal Date */
-            journal_date: string | null;
-            /** Mood */
-            mood: string | null;
-            /** Parent Note Id */
-            parent_note_id: string | null;
-            /** Goal Id */
-            goal_id: string | null;
-            /** Todo Id */
-            todo_id: string | null;
-            /** Contact Id */
-            contact_id: string | null;
-            /** Source */
-            source: string | null;
-            /**
-             * Household Id
-             * Format: uuid
-             */
-            household_id: string;
-            /** Created By User Id */
-            created_by_user_id: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: components["schemas"]["TagSummary"][];
-            /**
-             * Children
-             * @default []
-             */
-            children: components["schemas"]["NoteSummary"][];
-            /**
-             * Links
-             * @default []
-             */
-            links: components["schemas"]["NoteSummary"][];
-            /**
-             * Backlinks
-             * @default []
-             */
-            backlinks: components["schemas"]["NoteSummary"][];
-        };
-        /**
-         * NoteSummary
-         * @description Lightweight note reference used in children, links, and backlinks lists.
-         *
-         *     Carries just enough to render a link chip or sidebar entry without loading
-         *     the full note content.
-         */
-        NoteSummary: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            type: components["schemas"]["NoteType"];
-            /** Title */
-            title: string | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /**
-         * NoteType
-         * @enum {string}
-         */
-        NoteType: "note" | "journal" | "idea" | "log" | "template";
-        /**
-         * NoteUpdate
-         * @description All fields optional — only fields present in the request body are applied (true PATCH).
-         *
-         *     Use model_fields_set in the service to distinguish "not sent" from "sent as null".
-         */
-        NoteUpdate: {
-            type?: components["schemas"]["NoteType"] | null;
-            /** Title */
-            title?: string | null;
-            /** Content Md */
-            content_md?: string | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Journal Date */
-            journal_date?: string | null;
-            /** Mood */
-            mood?: string | null;
-            /** Parent Note Id */
-            parent_note_id?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
-            /** Todo Id */
-            todo_id?: string | null;
-            /** Contact Id */
-            contact_id?: string | null;
-            /** Tag Ids */
-            tag_ids?: string[] | null;
-            /** Note Link Ids */
-            note_link_ids?: string[] | null;
-        };
         /** OccurrenceCreate */
         OccurrenceCreate: {
+            /** Todo Id */
+            todo_id?: string | null;
             /**
              * Scheduled Date
              * Format: date
              */
             scheduled_date: string;
-            /** Scheduled Start */
-            scheduled_start?: string | null;
-            /** Scheduled End */
-            scheduled_end?: string | null;
             /**
              * Status
              * @default pending
              * @enum {string}
              */
-            status: "pending" | "skipped" | "completed" | "missed";
+            status: "pending" | "completed" | "skipped";
+            /** Notes */
+            notes?: string | null;
         };
         /** OccurrenceListResponse */
         OccurrenceListResponse: {
@@ -1634,23 +1651,19 @@ export interface components {
              * Format: uuid
              */
             habit_id: string;
+            /** Todo Id */
+            todo_id: string | null;
             /**
              * Scheduled Date
              * Format: date
              */
             scheduled_date: string;
-            /** Scheduled Start */
-            scheduled_start: string | null;
-            /** Scheduled End */
-            scheduled_end: string | null;
             /** Status */
             status: string;
             /** Completed At */
             completed_at: string | null;
-            /** Todo Id */
-            todo_id: string | null;
-            /** Event Id */
-            event_id: string | null;
+            /** Notes */
+            notes: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1664,16 +1677,14 @@ export interface components {
         };
         /** OccurrenceUpdate */
         OccurrenceUpdate: {
-            /** Scheduled Start */
-            scheduled_start?: string | null;
-            /** Scheduled End */
-            scheduled_end?: string | null;
-            /** Status */
-            status?: ("pending" | "skipped" | "completed" | "missed") | null;
             /** Todo Id */
             todo_id?: string | null;
-            /** Event Id */
-            event_id?: string | null;
+            /** Status */
+            status?: ("pending" | "completed" | "skipped") | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** PhoneData */
         PhoneData: {
@@ -1704,40 +1715,24 @@ export interface components {
              */
             id: string;
         };
-        /**
-         * PriorityLevel
-         * @enum {string}
-         */
-        PriorityLevel: "low" | "medium" | "high" | "urgent";
         /** RecipeCreate */
         RecipeCreate: {
-            /** Title */
-            title: string;
-            /** Description */
-            description?: string | null;
-            /** Source */
-            source?: string | null;
-            /** Source Url */
-            source_url?: string | null;
-            /** Servings */
-            servings?: number | null;
-            /** Prep Time Min */
-            prep_time_min?: number | null;
-            /** Cook Time Min */
-            cook_time_min?: number | null;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: string[];
-            /** Cuisine */
-            cuisine?: string | null;
-            /** Difficulty */
-            difficulty?: string | null;
             /** Goal Id */
             goal_id?: string | null;
-            /** Notes Id */
-            notes_id?: string | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Prep Time Minutes */
+            prep_time_minutes?: number | null;
+            /** Cook Time Minutes */
+            cook_time_minutes?: number | null;
+            /** Servings */
+            servings?: number | null;
+            /** Notes */
+            notes?: string | null;
             /**
              * Ingredients
              * @default []
@@ -1776,28 +1771,20 @@ export interface components {
             created_by_user_id: string | null;
             /** Goal Id */
             goal_id: string | null;
-            /** Notes Id */
-            notes_id: string | null;
-            /** Title */
-            title: string;
+            /** Name */
+            name: string;
             /** Description */
             description: string | null;
-            /** Source */
-            source: string | null;
             /** Source Url */
             source_url: string | null;
+            /** Prep Time Minutes */
+            prep_time_minutes: number | null;
+            /** Cook Time Minutes */
+            cook_time_minutes: number | null;
             /** Servings */
             servings: number | null;
-            /** Prep Time Min */
-            prep_time_min: number | null;
-            /** Cook Time Min */
-            cook_time_min: number | null;
-            /** Tags */
-            tags: string[];
-            /** Cuisine */
-            cuisine: string | null;
-            /** Difficulty */
-            difficulty: string | null;
+            /** Notes */
+            notes: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1818,84 +1805,52 @@ export interface components {
              * @default []
              */
             steps: components["schemas"]["StepResponse"][];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["TagSummary"][];
         };
         /** RecipeUpdate */
         RecipeUpdate: {
-            /** Title */
-            title?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Source */
-            source?: string | null;
-            /** Source Url */
-            source_url?: string | null;
-            /** Servings */
-            servings?: number | null;
-            /** Prep Time Min */
-            prep_time_min?: number | null;
-            /** Cook Time Min */
-            cook_time_min?: number | null;
-            /** Tags */
-            tags?: string[] | null;
-            /** Cuisine */
-            cuisine?: string | null;
-            /** Difficulty */
-            difficulty?: string | null;
             /** Goal Id */
             goal_id?: string | null;
-            /** Notes Id */
-            notes_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Prep Time Minutes */
+            prep_time_minutes?: number | null;
+            /** Cook Time Minutes */
+            cook_time_minutes?: number | null;
+            /** Servings */
+            servings?: number | null;
+            /** Notes */
+            notes?: string | null;
             /** Ingredients */
             ingredients?: components["schemas"]["IngredientData"][] | null;
             /** Steps */
             steps?: components["schemas"]["StepData"][] | null;
         };
-        /**
-         * RecurringFreq
-         * @enum {string}
-         */
-        RecurringFreq: "daily" | "weekly" | "monthly" | "yearly";
-        /**
-         * RecurringRule
-         * @description iCal-inspired recurrence rule stored as JSONB on the todo.
-         *
-         *     Examples:
-         *       {"freq": "daily", "interval": 1}                          — every day
-         *       {"freq": "weekly", "interval": 2, "days": ["MON", "THU"]} — every other Mon + Thu
-         *       {"freq": "monthly", "interval": 1, "end_date": "2026-12-31"}
-         */
-        RecurringRule: {
-            freq: components["schemas"]["RecurringFreq"];
-            /**
-             * Interval
-             * @default 1
-             */
-            interval: number;
-            /**
-             * Days
-             * @default []
-             */
-            days: string[];
-            /** End Date */
-            end_date?: string | null;
-        };
         /** StepData */
         StepData: {
-            /** Position */
-            position: number;
-            /** Instructions */
-            instructions: string;
-            /** Duration Min */
-            duration_min?: number | null;
+            /** Step Number */
+            step_number: number;
+            /** Instruction */
+            instruction: string;
+            /** Notes */
+            notes?: string | null;
         };
         /** StepResponse */
         StepResponse: {
-            /** Position */
-            position: number;
-            /** Instructions */
-            instructions: string;
-            /** Duration Min */
-            duration_min?: number | null;
+            /** Step Number */
+            step_number: number;
+            /** Instruction */
+            instruction: string;
+            /** Notes */
+            notes?: string | null;
             /**
              * Id
              * Format: uuid
@@ -1971,33 +1926,28 @@ export interface components {
         };
         /** TodoCreate */
         TodoCreate: {
-            /** Title */
-            title: string;
-            /** Description */
-            description?: string | null;
-            /** @default todo */
-            status: components["schemas"]["TodoStatus"];
-            /**
-             * Priority
-             * @default medium
-             */
-            priority: ("low" | "medium" | "high" | "urgent") | null;
-            /** Due Date */
-            due_date?: string | null;
-            /** Due Time */
-            due_time?: string | null;
             /** Parent Id */
             parent_id?: string | null;
             /** Goal Id */
             goal_id?: string | null;
-            /** Position */
-            position?: number | null;
-            recurring?: components["schemas"]["RecurringRule"] | null;
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
             /**
-             * Tag Ids
-             * @default []
+             * Status
+             * @default pending
+             * @enum {string}
              */
-            tag_ids: string[];
+            status: "pending" | "in_progress" | "done" | "cancelled";
+            /** Priority */
+            priority?: ("low" | "medium" | "high") | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Recurring */
+            recurring?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TodoListResponse */
         TodoListResponse: {
@@ -2035,16 +1985,15 @@ export interface components {
             /** Status */
             status: string;
             /** Priority */
-            priority: string | null;
+            priority: ("low" | "medium" | "high") | null;
             /** Due Date */
             due_date: string | null;
-            /** Due Time */
-            due_time: string | null;
-            /** Position */
-            position: number | null;
-            recurring: components["schemas"]["RecurringRule"] | null;
             /** Completed At */
             completed_at: string | null;
+            /** Recurring */
+            recurring: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Created At
              * Format: date-time
@@ -2055,73 +2004,29 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: components["schemas"]["TagSummary"][];
-            /**
-             * Children
-             * @default []
-             */
-            children: components["schemas"]["TodoSummary"][];
         };
-        /**
-         * TodoStatus
-         * @enum {string}
-         */
-        TodoStatus: "todo" | "in_progress" | "done" | "cancelled";
-        /**
-         * TodoSummary
-         * @description Lightweight todo reference used in children lists.
-         */
-        TodoSummary: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Title */
-            title: string;
-            /** Status */
-            status: string;
-            /** Priority */
-            priority: string | null;
-            /** Due Date */
-            due_date: string | null;
-            /** Position */
-            position: number | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /**
-         * TodoUpdate
-         * @description All fields optional — only fields present in the request body are applied (true PATCH).
-         */
+        /** TodoUpdate */
         TodoUpdate: {
-            /** Title */
-            title?: string | null;
-            /** Description */
-            description?: string | null;
-            status?: components["schemas"]["TodoStatus"] | null;
-            /** Priority */
-            priority?: ("low" | "medium" | "high" | "urgent") | null;
-            /** Due Date */
-            due_date?: string | null;
-            /** Due Time */
-            due_time?: string | null;
             /** Parent Id */
             parent_id?: string | null;
             /** Goal Id */
             goal_id?: string | null;
-            /** Position */
-            position?: number | null;
-            recurring?: components["schemas"]["RecurringRule"] | null;
-            /** Tag Ids */
-            tag_ids?: string[] | null;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Status */
+            status?: ("pending" | "in_progress" | "done" | "cancelled") | null;
+            /** Priority */
+            priority?: ("low" | "medium" | "high") | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Recurring */
+            recurring?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TokenResponse
@@ -2171,6 +2076,119 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkoutCreate */
+        WorkoutCreate: {
+            /**
+             * Workout Date
+             * Format: date
+             */
+            workout_date: string;
+            /** Name */
+            name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["ExerciseEntryCreate"][];
+        };
+        /** WorkoutListResponse */
+        WorkoutListResponse: {
+            /** Items */
+            items: components["schemas"]["WorkoutResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** WorkoutResponse */
+        WorkoutResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Workout Date
+             * Format: date
+             */
+            workout_date: string;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** WorkoutUpdate */
+        WorkoutUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Workout Date */
+            workout_date?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * WorkoutWithEntriesResponse
+         * @description Single-workout detail view — includes the ordered exercise list.
+         */
+        WorkoutWithEntriesResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Workout Date
+             * Format: date
+             */
+            workout_date: string;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["ExerciseEntryResponse"][];
         };
     };
     responses: never;
@@ -2619,15 +2637,205 @@ export interface operations {
             };
         };
     };
+    list_documents_documents_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_document_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_documents__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_document_documents__doc_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_document_documents__doc_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_children_documents__doc_id__children_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentChildrenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_goals_goals_get: {
         parameters: {
             query?: {
-                status?: components["schemas"]["GoalStatus"] | null;
-                priority?: components["schemas"]["PriorityLevel"] | null;
-                category?: string | null;
+                status?: string | null;
                 parent_id?: string | null;
-                root_only?: boolean;
-                search?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -2788,9 +2996,7 @@ export interface operations {
     list_grocery_lists_grocery_lists_get: {
         parameters: {
             query?: {
-                status?: ("open" | "completed" | "cancelled") | null;
-                planned_after?: string | null;
-                planned_before?: string | null;
+                status?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -2948,7 +3154,7 @@ export interface operations {
             };
         };
     };
-    update_item_grocery_lists__list_id__items__item_id__patch: {
+    update_grocery_item_grocery_lists__list_id__items__item_id__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -2987,9 +3193,7 @@ export interface operations {
     list_habits_habits_get: {
         parameters: {
             query?: {
-                is_active?: boolean | null;
-                goal_id?: string | null;
-                search?: string | null;
+                status?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3147,47 +3351,12 @@ export interface operations {
             };
         };
     };
-    generate_occurrences_habits__habit_id__occurrences_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                habit_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GenerateOccurrencesRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GenerateOccurrencesResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_occurrences_habits__habit_id__occurrences_get: {
         parameters: {
             query?: {
-                status?: ("pending" | "skipped" | "completed" | "missed") | null;
                 from_date?: string | null;
                 to_date?: string | null;
+                status?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3320,179 +3489,10 @@ export interface operations {
             };
         };
     };
-    list_notes_notes_get: {
-        parameters: {
-            query?: {
-                type?: components["schemas"]["NoteType"] | null;
-                search?: string | null;
-                parent_note_id?: string | null;
-                root_only?: boolean;
-                goal_id?: string | null;
-                todo_id?: string | null;
-                contact_id?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NoteListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_note_notes_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NoteCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NoteResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_note_notes__note_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                note_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NoteResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_note_notes__note_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                note_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_note_notes__note_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                note_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NoteUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NoteResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_recipes_recipes_get: {
         parameters: {
             query?: {
                 search?: string | null;
-                cuisine?: string | null;
-                difficulty?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3638,6 +3638,66 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecipeResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_tag_recipes__recipe_id__tags__tag_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_tag_recipes__recipe_id__tags__tag_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3814,14 +3874,9 @@ export interface operations {
     list_todos_todos_get: {
         parameters: {
             query?: {
-                status?: components["schemas"]["TodoStatus"] | null;
-                priority?: string | null;
-                parent_id?: string | null;
-                root_only?: boolean;
+                status?: string | null;
                 goal_id?: string | null;
-                due_before?: string | null;
-                due_after?: string | null;
-                search?: string | null;
+                parent_id?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3966,6 +4021,269 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workouts_workouts_get: {
+        parameters: {
+            query?: {
+                from_date?: string | null;
+                to_date?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workout_workouts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkoutCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutWithEntriesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workout_workouts__workout_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutWithEntriesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workout_workouts__workout_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_workout_workouts__workout_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkoutUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_entry_workouts__workout_id__entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExerciseEntryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExerciseEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_entry_workouts__workout_id__entries__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_entry_workouts__workout_id__entries__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workout_id: string;
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExerciseEntryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExerciseEntryResponse"];
                 };
             };
             /** @description Validation Error */

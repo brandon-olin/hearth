@@ -31,7 +31,7 @@ function useDebounced(value: string, delay: number) {
 const DOMAINS = {
   todo: { label: "To-do", icon: CheckSquare, href: "/todos" },
   goal: { label: "Goal", icon: Target, href: "/goals" },
-  note: { label: "Note", icon: FileText, href: "/notes" },
+  note: { label: "Document", icon: FileText, href: "/documents" },
   habit: { label: "Habit", icon: Repeat, href: "/habits" },
 } as const;
 
@@ -128,46 +128,61 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => document.removeEventListener("keydown", handle);
   }, [open, onClose]);
 
-  // Parallel search queries
+  // None of the list endpoints support full-text search, so we fetch all
+  // (capped at 200) and filter client-side by the debounced query string.
   const { data: todosData, isFetching: loadingTodos } = $api.useQuery(
     "get",
     "/todos",
-    { params: { query: { search: dq, limit: 5 } } },
+    { params: { query: { limit: 200 } } },
     { enabled }
   );
   const { data: goalsData, isFetching: loadingGoals } = $api.useQuery(
     "get",
     "/goals",
-    { params: { query: { search: dq, limit: 5 } } },
+    { params: { query: { limit: 200 } } },
     { enabled }
   );
   const { data: notesData, isFetching: loadingNotes } = $api.useQuery(
     "get",
-    "/notes",
-    { params: { query: { search: dq, limit: 5 } } },
+    "/documents",
+    { params: { query: { include_archived: false } } },
     { enabled }
   );
   const { data: habitsData, isFetching: loadingHabits } = $api.useQuery(
     "get",
     "/habits",
-    { params: { query: { search: dq, limit: 5 } } },
+    { params: { query: { limit: 200 } } },
     { enabled }
   );
 
   const isLoading =
     enabled && (loadingTodos || loadingGoals || loadingNotes || loadingHabits);
 
-  // Collate results into labelled groups
+  function matchesQuery(text: string | null | undefined) {
+    return text?.toLowerCase().includes(dq.toLowerCase()) ?? false;
+  }
+
+  // Collate results into labelled groups, filtering client-side
   type Group = { domain: Domain; results: Result[] };
   const groups: Group[] = [];
-  if (todosData?.items.length)
-    groups.push({ domain: "todo", results: toResults("todo", todosData.items) });
-  if (goalsData?.items.length)
-    groups.push({ domain: "goal", results: toResults("goal", goalsData.items) });
-  if (notesData?.items.length)
-    groups.push({ domain: "note", results: toResults("note", notesData.items) });
-  if (habitsData?.items.length)
-    groups.push({ domain: "habit", results: toResults("habit", habitsData.items) });
+
+  const matchingTodos = (todosData?.items ?? []).filter((t) => matchesQuery(t.title));
+  if (matchingTodos.length)
+    groups.push({ domain: "todo", results: toResults("todo", matchingTodos.slice(0, 5)) });
+
+  const matchingGoals = (goalsData?.items ?? []).filter((g) => matchesQuery(g.title));
+  if (matchingGoals.length)
+    groups.push({ domain: "goal", results: toResults("goal", matchingGoals.slice(0, 5)) });
+
+  const matchingDocs = (notesData?.items ?? []).filter((d) =>
+    matchesQuery(d.title)
+  );
+  if (matchingDocs.length)
+    groups.push({ domain: "note", results: toResults("note", matchingDocs.slice(0, 5)) });
+
+  const matchingHabits = (habitsData?.items ?? []).filter((h) => matchesQuery(h.name));
+  if (matchingHabits.length)
+    groups.push({ domain: "habit", results: toResults("habit", matchingHabits.slice(0, 5)) });
 
   const allResults = groups.flatMap((g) => g.results);
 
@@ -194,8 +209,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   function navigate(result: Result) {
     const base = DOMAINS[result.domain].href;
-    // For todos, pass the ID so the page can auto-open the edit sheet
-    const url = result.domain === "todo" ? `${base}?edit=${result.id}` : base;
+    // Todos: open edit sheet; documents: navigate to specific doc; others: list page
+    const url =
+      result.domain === "todo"
+        ? `${base}?edit=${result.id}`
+        : result.domain === "note"
+          ? `${base}/${result.id}`
+          : base;
     router.push(url);
     onClose();
   }

@@ -13,8 +13,10 @@ import {
 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-type Todo = components["schemas"]["TodoResponse"];
-type TodoSummary = components["schemas"]["TodoSummary"];
+// TodoResponse extended with an optional children field.
+// The API doesn't return children yet; this allows the component to compile
+// and the subtask section will simply never render until the API supports it.
+type Todo = components["schemas"]["TodoResponse"] & { children?: Todo[] };
 
 // ── date helpers ──────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ function PriorityChip({ priority }: { priority: string | null }) {
 
 // ── subtask row ───────────────────────────────────────────────────────────────
 
-function SubtaskRow({ child }: { child: TodoSummary }) {
+function SubtaskRow({ child }: { child: Todo }) {
   const qc = useQueryClient();
   const [toggling, setToggling] = useState(false);
   const { mutateAsync: updateTodo } = $api.useMutation(
@@ -95,7 +97,7 @@ function SubtaskRow({ child }: { child: TodoSummary }) {
     try {
       await updateTodo({
         params: { path: { todo_id: child.id } },
-        body: { status: isDone ? "todo" : "done" },
+        body: { status: isDone ? "pending" : "done" },
       });
       qc.invalidateQueries({ queryKey: ["get", "/todos"] });
     } finally {
@@ -160,7 +162,7 @@ export function TodoRow({ todo, onEdit }: TodoRowProps) {
   );
 
   const isDone = todo.status === "done" || todo.status === "cancelled";
-  const hasChildren = todo.children.length > 0;
+  const hasChildren = (todo.children ?? []).length > 0;
   const dueInfo = todo.due_date ? dueDateDisplay(todo.due_date) : null;
 
   async function handleToggle(e: React.MouseEvent) {
@@ -169,7 +171,7 @@ export function TodoRow({ todo, onEdit }: TodoRowProps) {
     try {
       await updateTodo({
         params: { path: { todo_id: todo.id } },
-        body: { status: isDone ? "todo" : "done" },
+        body: { status: isDone ? "pending" : "done" },
       });
       qc.invalidateQueries({ queryKey: ["get", "/todos"] });
     } finally {
@@ -242,7 +244,7 @@ export function TodoRow({ todo, onEdit }: TodoRowProps) {
               ) : (
                 <ChevronRight className="h-3 w-3" />
               )}
-              {todo.children.length}
+              {(todo.children ?? []).length}
             </button>
           )}
         </div>
@@ -251,7 +253,7 @@ export function TodoRow({ todo, onEdit }: TodoRowProps) {
       {/* Subtasks */}
       {expanded && hasChildren && (
         <div className="pb-1">
-          {todo.children.map((child) => (
+          {(todo.children ?? []).map((child) => (
             <SubtaskRow key={child.id} child={child} />
           ))}
         </div>

@@ -31,7 +31,7 @@ const SORT_CYCLE: Sort[] = ["default", "due_asc", "due_desc"];
 function applyFilter(todos: Todo[], filter: Filter): Todo[] {
   if (filter === "active")
     return todos.filter(
-      (t) => t.status === "todo" || t.status === "in_progress"
+      (t) => t.status === "pending" || t.status === "in_progress"
     );
   if (filter === "done")
     return todos.filter(
@@ -62,7 +62,7 @@ export default function TodosPage() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
 
   const { data, isLoading, isError } = $api.useQuery("get", "/todos", {
-    params: { query: { root_only: true, limit: 100 } },
+    params: { query: { limit: 100 } },
   });
 
   // Auto-open sheet when navigated here with ?edit=<id> (e.g. from command palette)
@@ -117,7 +117,7 @@ export default function TodosPage() {
             const count =
               key === "active"
                 ? (data?.items ?? []).filter(
-                    (t) => t.status === "todo" || t.status === "in_progress"
+                    (t) => t.status === "pending" || t.status === "in_progress"
                   ).length
                 : key === "done"
                 ? (data?.items ?? []).filter(

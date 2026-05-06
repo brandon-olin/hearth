@@ -6,7 +6,16 @@ import { cn } from "@/lib/utils";
 import { Circle, CheckCircle2, Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-type Habit = components["schemas"]["HabitResponse"];
+// HabitResponse extended with optional cadence sub-fields.
+// The actual API stores these inside the `cadence` JSONB blob; these optional
+// fields let the component compile until the habits UI is rebuilt in task 22.
+type Habit = components["schemas"]["HabitResponse"] & {
+  is_active?: boolean;
+  times_per_period?: number | null;
+  period_unit?: string | null;
+  preferred_time?: string | null;
+  start_date?: string | null;
+};
 type Occurrence = components["schemas"]["OccurrenceResponse"];
 
 export function frequencyLabel(habit: Habit): string {
@@ -49,9 +58,9 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
     }
   );
 
-  const { mutateAsync: generateOccs } = $api.useMutation(
+  const { mutateAsync: createOcc } = $api.useMutation(
     "post",
-    "/habits/{habit_id}/occurrences/generate"
+    "/habits/{habit_id}/occurrences"
   );
   const { mutateAsync: updateOcc } = $api.useMutation(
     "patch",
@@ -68,12 +77,13 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
     try {
       let occ = occurrence;
       if (!occ) {
-        await generateOccs({
+        // Create occurrence for today and mark it completed immediately
+        const created = await createOcc({
           params: { path: { habit_id: habit.id } },
-          body: { from_date: today, to_date: today },
+          body: { scheduled_date: today, status: "completed" },
         });
-        const fresh = await refetch();
-        occ = fresh.data?.items[0] ?? null;
+        refetch();
+        if (created) return;
       }
       if (occ) {
         await updateOcc({
