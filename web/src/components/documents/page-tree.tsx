@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   ChevronRight,
   ChevronDown,
+  SquareMinus,
   FileText,
   Plus,
   Loader2,
@@ -58,7 +59,7 @@ function TreeNodeRow({
 }) {
   const router = useRouter();
   const isActive = activePath === `/documents/${node.doc.id}`;
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const hasChildren = node.children.length > 0;
 
   return (
@@ -138,6 +139,8 @@ export function PageTree() {
   const [showImport, setShowImport] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Incrementing this remounts all TreeNodeRows, resetting their expanded state to false.
+  const [collapseKey, setCollapseKey] = useState(0);
 
   const { data, isLoading } = $api.useQuery("get", "/documents", {
     params: { query: { include_archived: false } },
@@ -224,6 +227,15 @@ export function PageTree() {
             variant="ghost"
             size="icon"
             className="h-6 w-6"
+            onClick={() => setCollapseKey((k) => k + 1)}
+            title="Collapse all"
+          >
+            <SquareMinus className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
             onClick={() => setShowImport(true)}
             title="Import pages"
           >
@@ -264,7 +276,7 @@ export function PageTree() {
         <ul>
           {tree.map((node) => (
             <TreeNodeRow
-              key={node.doc.id}
+              key={`${node.doc.id}-${collapseKey}`}
               node={node}
               depth={0}
               activePath={pathname}

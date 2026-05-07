@@ -99,3 +99,16 @@ class DocumentImportResponse(BaseModel):
     created: int
     skipped: int
     items: list[DocumentImportResultItem]
+
+
+# ── Search ────────────────────────────────────────────────────────────────────
+
+class DocumentSearchResult(DocumentSummary):
+    """DocumentSummary with match metadata for ranked search results."""
+    match_type: Literal["title", "body"]
+    snippet: str | None = None  # Short excerpt around the body match
+
+
+class DocumentSearchResponse(BaseModel):
+    items: list[DocumentSearchResult]
+    has_more: bool

@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.domains.documents.models import Document
@@ -13,6 +13,8 @@ from life_dashboard.domains.documents.schemas import (
     DocumentImportResponse,
     DocumentImportResultItem,
     DocumentResponse,
+    DocumentSearchResponse,
+    DocumentSearchResult,
     DocumentSummary,
     DocumentTreeResponse,
     DocumentUpdate,
@@ -300,3 +302,87 @@ async def delete_all_documents(
         delete(Document).where(Document.household_id == household_id)
     )
     await db.commit()
+
+
+# ── Search ────────────────────────────────────────────────────────────────────
+
+_SNIPPET_CONTEXT = 60  # characters of context around a body match
+
+
+def _make_snippet(text: str, term: str) -> str:
+    """Return a short excerpt around the first occurrence of term in text."""
+    pos = text.lower().find(term.lower())
+    if pos < 0:
+        return text[:_SNIPPET_CONTEXT * 2].strip()
+    start = max(0, pos - _SNIPPET_CONTEXT)
+    end = min(len(text), pos + len(term) + _SNIPPET_CONTEXT)
+    snippet = text[start:end].strip()
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(text):
+        snippet = snippet + "…"
+    return snippet
+
+
+async def search_documents(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    q: str,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+) -> DocumentSearchResponse:
+    """Search documents by title and body (source_markdown).
+
+    Priority order:
+      1. Title exact match (case-insensitive)
+      2. Title contains match
+      3. Body (source_markdown) contains match
+
+    Returns up to limit+1 items so the caller can determine has_more.
+    """
+    q_lower = q.lower()
+    q_like = f"%{q}%"
+
+    stmt = (
+        select(Document)
+        .where(
+            Document.household_id == household_id,
+            Document.archived_at.is_(None),
+            or_(
+                Document.title.ilike(q_like),
+                Document.source_markdown.ilike(q_like),
+            ),
+        )
+        .order_by(
+            case(
+                (func.lower(Document.title) == q_lower, 1),
+                (Document.title.ilike(q_like), 2),
+                else_=3,
+            ),
+            Document.title.asc(),
+        )
+        .limit(limit + 1)
+        .offset(offset)
+    )
+
+    docs = list((await db.execute(stmt)).scalars().all())
+    has_more = len(docs) > limit
+    docs = docs[:limit]
+
+    items: list[DocumentSearchResult] = []
+    for doc in docs:
+        title_match = q_lower in (doc.title or "").lower()
+        match_type = "title" if title_match else "body"
+        snippet: str | None = None
+        if match_type == "body" and doc.source_markdown:
+            snippet = _make_snippet(doc.source_markdown, q)
+        items.append(
+            DocumentSearchResult(
+                match_type=match_type,
+                snippet=snippet,
+                **_to_summary(doc).model_dump(),
+            )
+        )
+
+    return DocumentSearchResponse(items=items, has_more=has_more)

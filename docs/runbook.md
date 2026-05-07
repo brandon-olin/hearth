@@ -2,8 +2,6 @@
 
 Operational reference for deploying and maintaining life-dashboard on self-hosted infrastructure.
 
-> **Local-only mode** (no server required) is planned for Phase 3. This runbook covers the self-hosted Postgres path that is active today.
-
 ---
 
 ## Prerequisites
@@ -23,13 +21,13 @@ Operational reference for deploying and maintaining life-dashboard on self-hoste
 life-dashboard/
 ├── api/                # FastAPI backend
 ├── web/                # Next.js frontend
-├── agent/              # AI/automation tooling (Phase 4)
+├── agent/              # AI/automation tooling (planned)
 ├── infra/              # Docker Compose and Caddy config
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   └── caddy/
 │       └── Caddyfile
-└── api/migrations/     # Alembic migration files
+└── migrations/         # Alembic migration files
 ```
 
 ---
@@ -69,7 +67,7 @@ docker compose up -d
 docker compose exec api alembic upgrade head
 ```
 
-The first startup seeds a default user account. On first login, set your password using `BOOTSTRAP_PASSWORD` from `.env`.
+The first startup seeds a default user account. On first login, use the password from `BOOTSTRAP_PASSWORD` in your `.env`.
 
 ### 4. Verify
 
@@ -127,6 +125,13 @@ docker compose up -d
 docker compose exec api alembic upgrade head
 ```
 
+To rebuild a single service (faster when only one layer changed):
+
+```bash
+docker compose build api && docker compose up -d   # Python/API changes only
+docker compose build web && docker compose up -d   # Next.js changes only
+```
+
 ---
 
 ## Backup
@@ -164,14 +169,14 @@ docker compose logs -f web
 
 ## TLS with Caddy
 
-The `infra/caddy/Caddyfile` is a template for TLS termination via Caddy. Replace `YOUR_HOST` with your actual hostname (e.g., a Tailscale MagicDNS name or a public domain).
+The `infra/caddy/Caddyfile` is a template for TLS termination via Caddy. Replace `YOUR_HOST` with your actual hostname (a public domain or Tailscale MagicDNS name).
 
 ```bash
 # Start Caddy alongside the app
 docker compose --profile caddy up -d
 ```
 
-Caddy handles certificate acquisition automatically when pointed at a public domain. For private network access via Tailscale, use a Tailscale MagicDNS hostname.
+Caddy handles certificate acquisition automatically via ACME/Let's Encrypt for public domains. For private network access, use a Tailscale MagicDNS hostname.
 
 ---
 
@@ -180,7 +185,7 @@ Caddy handles certificate acquisition automatically when pointed at a public dom
 - Passwords are hashed with argon2.
 - Access tokens: 15-minute lifetime, stored in memory on the client.
 - Refresh tokens: long-lived, stored in httpOnly cookies with rotation on every use.
-- `BOOTSTRAP_PASSWORD` is the password for the seeded default user on first startup. Once set, it is hashed and the env variable is no longer read. Clear it from `.env` after first login.
+- `BOOTSTRAP_PASSWORD` is used only on first startup to set the default user's password. Once written, the env variable is no longer read — clear it from `.env` after first login.
 
 ---
 
@@ -205,44 +210,33 @@ Caddy handles certificate acquisition automatically when pointed at a public dom
 
 ---
 
-## Brandon's NAS (personal reference)
+## NAS-specific notes (Synology)
 
-> This section records the specific setup on Brandon's Synology NAS. It is not part of the generic self-hosted guide.
+> Personal reference for the Synology NAS deployment.
 
 | Item | Value |
 |---|---|
-| NAS model | Synology |
-| Postgres container | `postgres-1` |
 | Postgres port | 5433 external / 5432 internal |
-| App path | `/volume1/docker/life-dashboard-app/` |
-| Docker network | `life-dashboard` (external, manually created) |
+| App path | `/volume1/docker/life-dashboard/` |
+| Infra path | `/volume1/docker/life-dashboard/infra/` |
 
-**File transfer to NAS**
-
-rsync is blocked on Synology SSH (no SFTP subsystem, rsync server mode not available). Use tar over SSH:
+**All Docker commands require `sudo` on Synology.**
 
 ```bash
-tar czf - -C ~/Code/Personal/life-dashboard --exclude='.git' . \
-  | ssh brandon.olin@192.168.68.58 \
-    "tar xzf - -C /volume1/docker/life-dashboard-app/"
+cd /volume1/docker/life-dashboard/infra
+sudo docker compose build && sudo docker compose up -d
 ```
 
-**SCP note**: Synology requires the `-O` flag:
+**Postgres shell access:**
 
 ```bash
-scp -O file.txt brandon.olin@192.168.68.58:/volume1/docker/life-dashboard-app/
+sudo docker compose exec postgres psql -U USERNAME -d life_dashboard
 ```
 
-**Sudo requirement**: All Docker commands on the NAS require `sudo`.
+**Tailscale** is installed for secure remote access without port-forwarding. Caddy uses the Tailscale MagicDNS hostname for TLS.
+
+**SCP to NAS** requires the `-O` flag on newer SSH clients:
 
 ```bash
-sudo docker compose -f /volume1/docker/life-dashboard-app/infra/docker-compose.yml logs -f api
+scp -O file.txt USER@NAS_IP:/volume1/docker/life-dashboard/
 ```
-
-**Postgres access from NAS shell**
-
-```bash
-sudo docker exec -it postgres-1 psql -U brandon -d life_dashboard
-```
-
-**Tailscale**: Not yet installed on this NAS. Remote access currently requires being on the local network or using the NAS VPN. See Task 25 in the roadmap for Tailscale + Caddy TLS setup.

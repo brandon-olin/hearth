@@ -98,6 +98,15 @@ function rewriteNotionLinks(
 
 // ── Notion filename helpers ───────────────────────────────────────────────────
 
+/**
+ * Notion-generated system pages that should never be imported.
+ * Matched case-insensitively against the resolved title.
+ */
+const NOTION_SYSTEM_PAGE_TITLES = new Set([
+  "home",
+  "teamspace home",
+]);
+
 const NOTION_UUID_RE = /\s+[0-9a-f]{32}$/i;
 
 function stripNotionId(name: string): string {
@@ -243,21 +252,32 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
     const { path, file } = mdFiles[i];
     const { norm, id } = normalised[i];
 
-    const raw = await file.async("string");
-    const stripped = stripLocalImages(raw);
-
-    // Fix 1 — skip database-row pages.
-    if (isDatabaseRow(stripped)) continue;
-
-    // Fix 3 — rewrite Notion inter-page links to DOCREF: placeholders.
-    const markdown = rewriteNotionLinks(stripped, hexToClientId);
+    // Resolve parent before any filtering so stubs get the correct clientParentId.
+    const normParts = norm.split("/");
+    normParts.pop();
+    const parentDir = normParts.join("/");
+    const clientParentId = parentDir ? (dirToId.get(parentDir) ?? null) : null;
 
     const title = parseTitleFromPath(path);
 
-    const parts = norm.split("/");
-    parts.pop();
-    const parentDir = parts.join("/");
-    const clientParentId = parentDir ? (dirToId.get(parentDir) ?? null) : null;
+    // Filter Notion-generated system pages entirely (Home, Teamspace Home, etc.).
+    // Their children are reparented to root because these containers aren't part
+    // of the user's content tree.
+    if (NOTION_SYSTEM_PAGE_TITLES.has(title.toLowerCase())) continue;
+
+    const raw = await file.async("string");
+    const stripped = stripLocalImages(raw);
+
+    // Fix 1 — database-row pages become empty stubs instead of being skipped.
+    // Skipping would leave their clientId in dirToId without a corresponding
+    // upload entry, causing all children of that page to land at root.
+    if (isDatabaseRow(stripped)) {
+      pages.push({ clientId: id, clientParentId, title, markdown: "" });
+      continue;
+    }
+
+    // Fix 3 — rewrite Notion inter-page links to DOCREF: placeholders.
+    const markdown = rewriteNotionLinks(stripped, hexToClientId);
 
     pages.push({ clientId: id, clientParentId, title, markdown });
   }

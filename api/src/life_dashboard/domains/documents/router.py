@@ -13,6 +13,7 @@ from life_dashboard.domains.documents.schemas import (
     DocumentImportRequest,
     DocumentImportResponse,
     DocumentResponse,
+    DocumentSearchResponse,
     DocumentTreeResponse,
     DocumentUpdate,
 )
@@ -69,6 +70,23 @@ async def create_document(
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
     return await service.create_document(db, current_user.household_id, current_user.id, data)
+
+
+@router.get("/search", response_model=DocumentSearchResponse)
+async def search_documents(
+    q: str = Query(min_length=2, description="Search query (title and body)"),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentSearchResponse:
+    """Full-text search across document titles and body (source_markdown).
+
+    Results are ranked: title exact match > title contains > body contains.
+    """
+    return await service.search_documents(
+        db, current_user.household_id, q, limit=limit, offset=offset
+    )
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
