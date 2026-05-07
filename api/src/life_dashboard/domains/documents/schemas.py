@@ -88,7 +88,14 @@ class DocumentImportRequest(BaseModel):
     items: list[DocumentImportItem] = Field(min_length=1)
 
 
+class DocumentImportResultItem(DocumentSummary):
+    """DocumentSummary extended with the browser-assigned client_id so the
+    client can reconcile imported pages with its pre-upload state (e.g. to
+    rewrite inter-page links after receiving real UUIDs)."""
+    client_id: str
+
+
 class DocumentImportResponse(BaseModel):
     created: int
     skipped: int
-    items: list[DocumentSummary]
+    items: list[DocumentImportResultItem]

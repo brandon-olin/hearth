@@ -11,6 +11,7 @@ from life_dashboard.domains.documents.schemas import (
     DocumentCreate,
     DocumentImportRequest,
     DocumentImportResponse,
+    DocumentImportResultItem,
     DocumentResponse,
     DocumentSummary,
     DocumentTreeResponse,
@@ -242,7 +243,9 @@ async def bulk_import_documents(
 
     # ── Insert in topological order ───────────────────────────────────────────
     client_to_db: dict[str, uuid.UUID] = {}
-    created_docs: list[Document] = []
+    # Track (client_id, doc) so we can return client_id in the response for
+    # the browser to reconcile imported pages with pre-upload state.
+    created_pairs: list[tuple[str, Document]] = []
 
     for client_id in ordered:
         item = by_client_id[client_id]
@@ -270,16 +273,21 @@ async def bulk_import_documents(
         await db.flush()  # Populate doc.id without committing.
 
         client_to_db[client_id] = doc.id
-        created_docs.append(doc)
+        created_pairs.append((client_id, doc))
 
     await db.commit()
-    for doc in created_docs:
+    for _, doc in created_pairs:
         await db.refresh(doc)
 
+    result_items = [
+        DocumentImportResultItem(client_id=cid, **_to_summary(doc).model_dump())
+        for cid, doc in created_pairs
+    ]
+
     return DocumentImportResponse(
-        created=len(created_docs),
+        created=len(created_pairs),
         skipped=skipped_count,
-        items=[_to_summary(d) for d in created_docs],
+        items=result_items,
     )
 
 
