@@ -5,63 +5,165 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useAuth } from "@/lib/auth/context";
-import { useSidebarConfig } from "@/lib/sidebar/context";
+import { useSidebarConfig, useFolderOpen, type SidebarConfig, type SidebarFolder } from "@/lib/sidebar/context";
+import { ALL_NAV_ITEMS, type NavItem } from "@/lib/sidebar/nav-items";
+import { resolveFolderIcon, DEFAULT_FOLDER_ICON } from "@/lib/sidebar/folder-icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard,
-  CheckSquare,
-  Target,
-  Repeat,
-  FileText,
-  BookOpen,
-  Calendar,
-  Users,
-  ChefHat,
-  ShoppingCart,
-  Dumbbell,
+  ChevronRight,
   Settings,
   Menu,
   MessageSquare,
   LogOut,
   Search,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ── nav items ─────────────────────────────────────────────────────────────────
-// Settings lives in the sidebar footer; it is intentionally excluded from this
-// list so it doesn't appear in the main nav or the sidebar customizer.
+// Defined in lib/sidebar/nav-items.ts — import from there directly.
+// Settings lives in the sidebar footer; it is intentionally excluded from
+// ALL_NAV_ITEMS so it doesn't appear in the sidebar customizer.
+export { ALL_NAV_ITEMS } from "@/lib/sidebar/nav-items";
 
-export const ALL_NAV_ITEMS = [
-  { href: "/",              label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/documents",     label: "Documents",     icon: FileText        },
-  { href: "/notes",         label: "Notes",         icon: BookOpen        },
-  { href: "/todos",         label: "Tasks",         icon: CheckSquare     },
-  { href: "/habits",        label: "Habits",        icon: Repeat          },
-  { href: "/goals",         label: "Goals",         icon: Target          },
-  { href: "/calendar",      label: "Calendar",      icon: Calendar        },
-  { href: "/recipes",       label: "Recipes",       icon: ChefHat         },
-  { href: "/grocery-lists", label: "Grocery Lists", icon: ShoppingCart    },
-  { href: "/workouts",      label: "Workouts",      icon: Dumbbell        },
-  { href: "/contacts",      label: "Contacts",      icon: Users           },
-] as const;
+// ── root render list ──────────────────────────────────────────────────────────
+// Builds the ordered list of things to render at the root of the nav:
+// a mix of NavItem (direct links) and SidebarFolder (collapsible groups).
+// Items assigned to a folder are excluded from the root level.
 
-function getOrderedVisibleItems(
-  config: { hidden: string[]; order: string[] }
-) {
+type RenderEntry = NavItem | SidebarFolder;
+
+function isFolder(entry: RenderEntry): entry is SidebarFolder {
+  return "hrefs" in entry;
+}
+
+function getRootRenderList(config: SidebarConfig): RenderEntry[] {
+  const folderedHrefs = new Set(config.folders.flatMap((f) => f.hrefs));
   const allHrefs = ALL_NAV_ITEMS.map((n) => n.href);
-  const orderedHrefs =
-    config.order.length > 0
-      ? [
-          ...config.order.filter((h) => allHrefs.includes(h as typeof allHrefs[number])),
-          ...allHrefs.filter((h) => !config.order.includes(h)),
-        ]
-      : allHrefs;
+  const folderIds = config.folders.map((f) => f.id);
 
-  return orderedHrefs
+  let order: string[];
+  if (config.order.length > 0) {
+    // Use stored order. Append anything new (new nav items or folders) at the end.
+    const unknownNavHrefs = allHrefs.filter(
+      (h) => !config.order.includes(h) && !folderedHrefs.has(h),
+    );
+    const unknownFolderIds = folderIds.filter((id) => !config.order.includes(id));
+    order = [...config.order, ...unknownNavHrefs, ...unknownFolderIds];
+  } else {
+    // Default: unfoldred nav items in definition order, then folders
+    order = [
+      ...allHrefs.filter((h) => !folderedHrefs.has(h)),
+      ...folderIds,
+    ];
+  }
+
+  // Resolve IDs → entries, deduplicating and filtering hidden / missing items
+  const seen = new Set<string>();
+  const result: RenderEntry[] = [];
+
+  for (const id of order) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    if (id.startsWith("/")) {
+      // Nav item href
+      if (folderedHrefs.has(id)) continue; // assigned to a folder — skip at root
+      if (config.hidden.includes(id)) continue;
+      const item = ALL_NAV_ITEMS.find((n) => n.href === id);
+      if (item) result.push(item);
+    } else {
+      // Folder ID
+      const folder = config.folders.find((f) => f.id === id);
+      if (folder) result.push(folder);
+    }
+  }
+
+  return result;
+}
+
+// ── folder nav item ───────────────────────────────────────────────────────────
+
+function FolderNavItem({
+  folder,
+  hidden,
+  onNavigate,
+}: {
+  folder: SidebarFolder;
+  hidden: string[];
+  onNavigate?: () => void;
+}) {
+  const pathname = usePathname();
+  const { folderOpen, toggleFolder } = useFolderOpen();
+  const isOpen = folderOpen[folder.id] ?? false;
+
+  const visibleItems = folder.hrefs
     .map((href) => ALL_NAV_ITEMS.find((n) => n.href === href))
-    .filter((n): n is typeof ALL_NAV_ITEMS[number] => !!n && !config.hidden.includes(n.href));
+    .filter((n): n is NavItem => !!n && !hidden.includes(n.href));
+
+  const hasActive = visibleItems.some((item) =>
+    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href),
+  );
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => toggleFolder(folder.id)}
+        className={cn(
+          "flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer select-none",
+          hasActive && !isOpen
+            ? "text-primary"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        {(() => {
+          const ResolvedIcon = resolveFolderIcon(folder.icon) ?? resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
+          return <ResolvedIcon className="h-4 w-4 shrink-0" />;
+        })()}
+        <span className="flex-1 text-left truncate">{folder.label}</span>
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform duration-150",
+            isOpen && "rotate-90",
+          )}
+        />
+      </button>
+
+      {isOpen && visibleItems.length > 0 && (
+        <div className="ml-3 mt-0.5 pl-3 border-l border-border/50 space-y-0.5 pb-0.5">
+          {visibleItems.map((item) => {
+            const active =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── nav links ─────────────────────────────────────────────────────────────────
@@ -75,33 +177,68 @@ function NavLinks({
 }) {
   const pathname = usePathname();
   const { sidebarConfig } = useSidebarConfig();
-  const visibleItems = getOrderedVisibleItems(sidebarConfig);
+  const renderList = getRootRenderList(sidebarConfig);
 
   return (
     <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
       {/* Search + Ask AI — compact icon row */}
-      <div className="flex items-center gap-0.5 mb-0.5">
-        <button
-          type="button"
-          onClick={() => { onNavigate?.(); onSearchOpen(); }}
-          title="Search (⌘P)"
-          className="flex-1 flex items-center justify-center h-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-        >
-          <Search className="h-4 w-4 shrink-0" />
-        </button>
-        <button
-          type="button"
-          disabled
-          title="Ask AI (coming soon)"
-          className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground opacity-40 cursor-not-allowed"
-        >
-          <MessageSquare className="h-4 w-4 shrink-0" />
-        </button>
-      </div>
+      <TooltipProvider delayDuration={500}>
+        <div className="flex items-center justify-between gap-0.5 mb-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.();
+                  onSearchOpen();
+                }}
+                className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              >
+                <Search className="h-4 w-4 shrink-0" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>
+                Search <kbd className="ml-1 font-mono opacity-60">⌘P</kbd>
+              </p>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled
+                className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground opacity-40 cursor-not-allowed"
+              >
+                <MessageSquare className="h-4 w-4 shrink-0" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>
+                Ask AI <span className="ml-1 opacity-60">(coming soon)</span>
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
 
       <div className="my-1 border-t" />
 
-      {visibleItems.map(({ href, label, icon: Icon }) => {
+      {renderList.map((entry) => {
+        if (isFolder(entry)) {
+          return (
+            <FolderNavItem
+              key={entry.id}
+              folder={entry}
+              hidden={sidebarConfig.hidden}
+              onNavigate={onNavigate}
+            />
+          );
+        }
+
+        // Plain nav item
+        const { href, label, icon: Icon } = entry;
         const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
           <Link
@@ -112,7 +249,7 @@ function NavLinks({
               "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
               active
                 ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <Icon className="h-4 w-4 shrink-0" />
@@ -157,7 +294,10 @@ function SidebarContent({
           {/* Avatar — initials, links to Account section of settings */}
           <button
             type="button"
-            onClick={() => { onNavigate?.(); router.push("/settings"); }}
+            onClick={() => {
+              onNavigate?.();
+              router.push("/settings");
+            }}
             title={user?.display_name ?? user?.email ?? "Account settings"}
             className="h-7 w-7 shrink-0 rounded-full bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer"
           >
@@ -176,7 +316,10 @@ function SidebarContent({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => { onNavigate?.(); router.push("/settings"); }}
+            onClick={() => {
+              onNavigate?.();
+              router.push("/settings");
+            }}
             title="Settings"
           >
             <Settings className="h-4 w-4" />
@@ -252,19 +395,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <SheetContent side="left" className="w-64 p-0">
               <SidebarContent
                 onNavigate={() => setMobileOpen(false)}
-                onSearchOpen={() => { setMobileOpen(false); setPaletteOpen(true); }}
+                onSearchOpen={() => {
+                  setMobileOpen(false);
+                  setPaletteOpen(true);
+                }}
               />
             </SheetContent>
           </Sheet>
           <span className="font-semibold text-sm">Life Dashboard</span>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
 
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }

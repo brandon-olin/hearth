@@ -4,11 +4,11 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.hashing import hash_password, is_sentinel, needs_rehash, verify_password
-from life_dashboard.auth.models import RefreshToken, User
+from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, RefreshToken, User
 from life_dashboard.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -46,21 +46,62 @@ async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User | None:
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 async def run_bootstrap_if_needed(db: AsyncSession) -> bool:
-    """Called at startup. If sentinel users exist and BOOTSTRAP_PASSWORD is set,
-    hashes the password and writes it. Returns True if bootstrap was performed."""
+    """Called at startup. Returns True if bootstrap was performed.
+
+    Two cases:
+
+    1. NAS / existing install — sentinel users with password_hash='!' exist
+       (created by the raw-SQL Phase-0 migration). Hash the bootstrap password
+       and write it so those accounts become usable.
+
+    2. Fresh install — no users exist at all (Alembic baseline didn't seed any).
+       Create a default household and owner account using BOOTSTRAP_PASSWORD,
+       BOOTSTRAP_EMAIL, and BOOTSTRAP_DISPLAY_NAME from the environment.
+    """
     if not settings.bootstrap_password:
         return False
 
+    # ── Case 1: sentinel users from NAS Phase-0 migration ─────────────────────
     result = await db.execute(select(User).where(User.password_hash == "!"))
     sentinel_users = result.scalars().all()
-    if not sentinel_users:
+    if sentinel_users:
+        new_hash = hash_password(settings.bootstrap_password)
+        for user in sentinel_users:
+            user.password_hash = new_hash
+            logger.info("Bootstrap: password set for %s", user.email)
+        await db.commit()
+        return True
+
+    # ── Case 2: fresh install with no users at all ────────────────────────────
+    count_result = await db.execute(select(func.count()).select_from(User))
+    if count_result.scalar_one() > 0:
+        # Real users exist — nothing to bootstrap.
         return False
 
-    new_hash = hash_password(settings.bootstrap_password)
-    for user in sentinel_users:
-        user.password_hash = new_hash
-        logger.info("Bootstrap: password set for %s", user.email)
+    household = Household(name="My Household")
+    db.add(household)
+    await db.flush()  # populate household.id before referencing it
+
+    user = User(
+        email=settings.bootstrap_email,
+        password_hash=hash_password(settings.bootstrap_password),
+        display_name=settings.bootstrap_display_name,
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()  # populate user.id before referencing it
+
+    db.add(HouseholdMembership(
+        household_id=household.id,
+        user_id=user.id,
+        role=MembershipRole.owner,
+    ))
     await db.commit()
+    logger.info(
+        "Bootstrap: created household '%s' and owner account %s",
+        household.name,
+        settings.bootstrap_email,
+    )
     return True
 
 

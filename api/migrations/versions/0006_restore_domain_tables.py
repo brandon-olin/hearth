@@ -39,13 +39,42 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _table_exists(conn, name: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = :name"
+        ),
+        {"name": name},
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
+    conn = op.get_bind()
+
+    # ── Ensure update_updated_at() trigger function exists ────────────────────
+    # On NAS installs this function was created by the raw-SQL 0001 baseline.
+    # On fresh installs that baseline never ran, so we create it here before
+    # any of the tables below register triggers against it.
+    op.execute(sa.text("""
+        CREATE OR REPLACE FUNCTION update_updated_at()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = now();
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """))
+
     # ── Drop logseq_index ─────────────────────────────────────────────────────
     # Functional GIN indexes must be dropped before the table.
-    op.drop_index("idx_logseq_index_content_fts", table_name="logseq_index")
-    op.drop_index("idx_logseq_index_tags", table_name="logseq_index")
-    op.drop_index("idx_logseq_index_graph", table_name="logseq_index")
-    op.drop_table("logseq_index")
+    # Made defensive: logseq_index won't exist on a fresh install.
+    if _table_exists(conn, "logseq_index"):
+        op.drop_index("idx_logseq_index_content_fts", table_name="logseq_index")
+        op.drop_index("idx_logseq_index_tags", table_name="logseq_index")
+        op.drop_index("idx_logseq_index_graph", table_name="logseq_index")
+        op.drop_table("logseq_index")
 
     # ── goals ─────────────────────────────────────────────────────────────────
     # priority_level enum is created by the goals.priority column below

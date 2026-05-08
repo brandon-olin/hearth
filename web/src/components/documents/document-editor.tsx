@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import { isThemeDark } from "@/lib/theme/presets";
 import { $api } from "@/lib/api/query";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
+import { DocumentSideMenuController } from "./document-side-menu";
 import { Loader2, Check } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import "@blocknote/core/fonts/inter.css";
@@ -14,9 +16,39 @@ import "@blocknote/shadcn/style.css";
 
 type SaveState = "idle" | "saving" | "saved";
 
+/**
+ * BlockNote stores toggle open/close state in localStorage under the key
+ * `toggle-{blockId}`, defaulting to closed when no entry exists.
+ *
+ * On first open of a document, pre-populate localStorage so all toggle
+ * blocks that the user hasn't explicitly interacted with start expanded.
+ * We only write if there is no existing entry — so user collapses are
+ * respected across navigations.
+ */
+function preOpenToggleBlocks(blocks: Block[]): void {
+  for (const block of blocks) {
+    const isToggle =
+      block.type === "toggleListItem" ||
+      // Toggleable headings store isToggleable in their props
+      (block.type === "heading" && (block.props as Record<string, unknown>).isToggleable === true);
+
+    if (isToggle) {
+      const key = `toggle-${block.id}`;
+      if (localStorage.getItem(key) === null) {
+        localStorage.setItem(key, "true");
+      }
+    }
+
+    if (block.children?.length) {
+      preOpenToggleBlocks(block.children as Block[]);
+    }
+  }
+}
+
 // Inner component is keyed on documentId so it fully remounts on navigation.
 function EditorInner({ documentId }: { documentId: string }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { config } = useThemeCustomizer();
   const bnTheme = isThemeDark(config) ? "dark" : "light";
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -50,6 +82,8 @@ function EditorInner({ documentId }: { documentId: string }) {
 
     const blocks = (data.editor_json as { blocks?: Block[] } | null)?.blocks;
     if (blocks?.length) {
+      // Pre-open toggle blocks before loading so they start expanded.
+      preOpenToggleBlocks(blocks);
       // Already converted — load directly.
       editor.replaceBlocks(editor.document, blocks);
     } else if (data.source_markdown) {
@@ -57,6 +91,7 @@ function EditorInner({ documentId }: { documentId: string }) {
       // subsequent loads are instant.
       const converted = editor.tryParseMarkdownToBlocks(data.source_markdown);
       if (converted.length) {
+        preOpenToggleBlocks(converted as Block[]);
         editor.replaceBlocks(editor.document, converted);
         // Persist the converted JSON so we don't re-parse on every open.
         patchDocument({
@@ -142,12 +177,28 @@ function EditorInner({ documentId }: { documentId: string }) {
       </div>
 
       {/* BlockNote editor */}
-      <div className="flex-1 overflow-auto px-6 pb-10">
+      <div
+        className="flex-1 overflow-auto px-6 pb-10"
+        onClick={(e) => {
+          // Intercept clicks on internal /documents/ links so Next.js handles
+          // them as client-side navigations instead of full page reloads.
+          const anchor = (e.target as Element).closest("a");
+          if (!anchor) return;
+          const href = anchor.getAttribute("href") ?? "";
+          if (href.startsWith("/documents/")) {
+            e.preventDefault();
+            router.push(href);
+          }
+        }}
+      >
         <BlockNoteView
           editor={editor}
           onChange={scheduleSave}
           theme={bnTheme}
-        />
+          sideMenu={false}
+        >
+          <DocumentSideMenuController />
+        </BlockNoteView>
       </div>
     </div>
   );

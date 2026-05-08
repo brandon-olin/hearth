@@ -1,57 +1,71 @@
 # Roadmap
 
-## Current state (as of May 2026)
-
-The core infrastructure and several feature domains are fully working in self-hosted mode (Docker on NAS + Tailscale + Caddy TLS).
-
-**Completed:**
-- Auth — JWT access tokens, httpOnly refresh cookies, argon2 hashing, first-run bootstrap
-- Shell — responsive sidebar nav with drag-to-resize, command palette (⌘P), themed scrollbars
-- Theme system — full palette presets (light + dark categories), per-variable color customization, synced to user profile across devices
-- Sidebar customization — show/hide and reorder nav items, persisted to user profile
-- Documents — hierarchical page tree, BlockNote rich-text editor, drag-to-resize tree panel, markdown import (Notion, Obsidian, Bear, Logseq, and any markdown zip)
-- Stub feature pages — Tasks, Habits, Goals, Recipes, Grocery Lists, Workouts, Contacts, Calendar
-- Basic API domains — todos, habits, goals, recipes, grocery lists, workouts, contacts, calendar events, tags
+Implementation details for everything in **Completed** live in the `CLAUDE.md` hierarchy — this file tracks direction, not architecture.
 
 ---
 
-## Near-term (next sessions)
+## Completed
+
+Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
+
+- **Auth** — JWT access/refresh tokens, httpOnly cookies, argon2, first-run bootstrap
+- **Shell** — responsive sidebar with drag-to-resize, command palette (⌘P), themed scrollbars
+- **Theme system** — palette presets (light + dark), per-variable CSS customization, synced to user profile
+- **Sidebar customization** — show/hide/reorder nav items, persisted to user profile
+- **Documents** — hierarchical page tree (collapse state persisted), BlockNote rich-text editor, document icons (emoji), drag-to-resize panel
+- **Notion import** — HTML + markdown zip; toggle lists, page icons, inter-page link rewriting
+- **Stub pages** — Tasks, Habits, Goals, Recipes, Grocery Lists, Workouts, Contacts, Calendar (routes + basic API domains exist, no UI built yet)
+
+---
+
+## In progress
+
+- **Notion import edge case** — checkbox items nested inside toggle blocks trigger a BlockNote `blockContainer` parse error; debug logging added, fix pending
+
+---
+
+## Near-term
+
+### Documents
+- [ ] Fix Notion HTML import: checkbox-inside-toggle parse error
+- [ ] Image upload — inline media attachments in BlockNote editor
+- [ ] Archive/delete individual pages
+- [ ] Drag-to-reorder pages in the tree
+
+### Notes / Zettelkasten
+- [ ] Notes domain — atomic notes, tags (many-to-many), `[[wikilink]]` backlinks stored in a backlinks table and populated on save
+- [ ] Notes UI — tag browser, backlinks panel, visually distinct from Documents
+
+### Calendar
+- [ ] Build out the existing stub — event creation, month/week/day views, recurrence, member assignment
+
+### Sidebar folders
+- [ ] Single-level folder grouping in sidebar nav (e.g. a "Writing" folder containing Documents, Notes, Journal links)
+- [ ] Design TBD: named sections vs collapsible folders, persistence model
 
 ### UI polish
 - [ ] Compress sidebar — search to icon-only (⌘P trigger), Ask AI + Settings to footer icon buttons
 - [ ] Settings page left-nav shell (Appearance, Account, Household sections)
-- [ ] Per-variable color pickers in Appearance settings (themes as presets, full override capability)
-
-### Notes / Zettelkasten
-- [ ] Notes stub added to sidebar nav
-- [ ] Notes domain — atomic notes, tags (many-to-many), `[[wikilink]]` backlinks (stored in a backlinks table, populated on save)
-- [ ] Notes UI — tag browser, backlinks panel, distinct from Documents
-
-### Documents polish
-- [ ] Archive/delete individual pages
-- [ ] Drag-to-reorder pages in the tree
 
 ---
 
 ## Medium-term
 
-### Core domains — build out the stubs
-Priority order (highest daily value first):
-1. **Tasks** — full CRUD UI, due dates, recurrence, member assignment, completion
+### Core domain UIs (priority order)
+1. **Tasks** — full CRUD, due dates, recurrence, member assignment, completion
 2. **Habits** — streak tracking, completion calendar, frequency config
-3. **Goals** — progress tracking, milestones, linking to tasks
+3. **Goals** — progress tracking, milestones, task linking
 4. **Recipes** — full UI, ingredients, steps, URL import via JSON-LD
-5. **Grocery Lists** — linked to recipes, household-shared lists
+5. **Grocery Lists** — linked to recipes, household-shared
 6. **Workouts** — log entries, exercise library, strength/cardio metrics
-7. **Calendar** — event creation, recurrence, member assignment views
 
 ### Household multi-member
-- [ ] Invite flow — create additional household accounts
+- [ ] Invite flow — create additional accounts in a household
 - [ ] Role enforcement in UI (owner vs member)
 - [ ] Per-member views for tasks and habits
 
 ### Search
-- [ ] Full-text search across documents and notes (Postgres `tsvector` or pg_search)
+- [ ] Full-text search across documents and notes (Postgres `tsvector`)
 - [ ] Command palette integration
 
 ---
@@ -59,26 +73,24 @@ Priority order (highest daily value first):
 ## Later
 
 ### AI layer (`agent/`)
-- [ ] MCP server exposing domain services as tools
-- [ ] Claude integration — household context, task suggestions, weekly summaries
-- [ ] BYOK configuration (OpenAI, Anthropic key)
-- [ ] Local LLM option (Ollama)
-- [ ] Audit log for all AI-triggered writes
+- MCP server exposing domain services as tools
+- Claude integration — household context, task suggestions, weekly summaries
+- BYOK configuration (OpenAI, Anthropic key)
+- Local LLM option (Ollama)
+- Audit log for all AI-triggered writes
 
 ### Cloud-hosted tier
-- [ ] Multi-tenant infrastructure design
-- [ ] Tiered pricing (free self-hosted forever; paid for managed hosting, backups, managed AI)
-- [ ] Automated backup service
-- [ ] Migration path: self-hosted → cloud-hosted
+- Multi-tenant infrastructure, tiered pricing (free self-hosted forever; paid for managed hosting, backups, managed AI)
+- Automated backup service, migration path from self-hosted
 
 ### Mobile
-- [ ] Mobile-responsive polish on existing web app
-- [ ] Native mobile apps (push notifications, offline) — premium tier
+- Mobile-responsive polish on existing web app
+- Native mobile apps (push notifications, offline) — premium tier
 
 ### Integrations
-- [ ] iCal export for calendar events
-- [ ] Recipe import from URLs (JSON-LD scraping)
-- [ ] External calendar sync (Google Calendar, etc.) — premium
+- iCal export for calendar events
+- Recipe import from URLs (JSON-LD scraping)
+- External calendar sync (Google Calendar, etc.) — premium
 
 ---
 

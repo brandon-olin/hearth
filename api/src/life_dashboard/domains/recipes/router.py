@@ -31,6 +31,38 @@ async def list_recipes(
     )
 
 
+@router.get("/import", response_model=RecipeCreate)
+async def import_recipe_preview(
+    url: str = Query(..., min_length=8, description="Public URL of a recipe page with JSON-LD markup"),
+    current_user: User = Depends(get_current_user),
+) -> RecipeCreate:
+    """
+    Fetch a recipe page and return a pre-populated RecipeCreate from its
+    Schema.org JSON-LD data.  Nothing is written to the database — the client
+    should POST the returned payload to ``POST /recipes`` to save it.
+    """
+    import httpx
+    from life_dashboard.domains.recipes.importer import (
+        RecipeImportError,
+        fetch_recipe_preview,
+    )
+
+    try:
+        return await fetch_recipe_preview(url)
+    except RecipeImportError as exc:
+        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"The page returned HTTP {exc.response.status_code}.",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Failed to import recipe from that URL.",
+        )
+
+
 @router.get("/{recipe_id}", response_model=RecipeResponse)
 async def get_recipe(
     recipe_id: uuid.UUID,

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "./auth/context";
 import { ThemeCustomizerProvider } from "./theme/context";
-import { SidebarConfigProvider } from "./sidebar/context";
+import { SidebarConfigProvider, FolderOpenProvider } from "./sidebar/context";
 import { PreferencesSyncer } from "./preferences-syncer";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -34,6 +34,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <ThemeCustomizerProvider>
         <SidebarConfigProvider>
+          <FolderOpenProvider>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
               {/* Syncs theme + sidebar to/from user.preferences in DB */}
@@ -41,6 +42,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               {children}
             </AuthProvider>
           </QueryClientProvider>
+          </FolderOpenProvider>
         </SidebarConfigProvider>
       </ThemeCustomizerProvider>
     </ThemeProvider>

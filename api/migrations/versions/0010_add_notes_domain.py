@@ -4,6 +4,11 @@ Revision ID: 0010
 Revises: 0009
 Create Date: 2026-05-07
 
+Earlier migration revisions (0002, 0003) created notes-related tables with a
+different schema. This migration drops those legacy tables and recreates them
+with the canonical Zettelkasten schema. The downgrade restores the canonical
+tables (without legacy data — this is a schema reset, not a data migration).
+
 """
 from __future__ import annotations
 
@@ -17,7 +22,26 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(conn, name: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = :name"
+        ),
+        {"name": name},
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
+    conn = op.get_bind()
+
+    # Drop legacy notes-related tables if they exist from older migrations.
+    # Use CASCADE so any dependent FKs or views are cleaned up automatically.
+    for table in ("note_backlinks", "note_tags", "notes"):
+        if _table_exists(conn, table):
+            op.execute(sa.text(f'DROP TABLE "{table}" CASCADE'))
+
     # ── notes ─────────────────────────────────────────────────────────────────
     op.create_table(
         "notes",

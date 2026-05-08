@@ -8,6 +8,10 @@ import {
   Palette,
   User,
   Home,
+  FolderPlus,
+  Trash2,
+  X,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useThemeCustomizer } from "@/lib/theme/context";
@@ -19,8 +23,13 @@ import {
   CUSTOM_VAR_OPTIONS,
   type ThemeConfig,
 } from "@/lib/theme/presets";
-import { useSidebarConfig } from "@/lib/sidebar/context";
-import { ALL_NAV_ITEMS } from "@/components/shell/shell";
+import { useSidebarConfig, newFolderId, type SidebarFolder } from "@/lib/sidebar/context";
+import { ALL_NAV_ITEMS, type NavItem } from "@/lib/sidebar/nav-items";
+import {
+  FOLDER_ICON_GROUPS,
+  resolveFolderIcon,
+  DEFAULT_FOLDER_ICON,
+} from "@/lib/sidebar/folder-icons";
 
 // ── Left nav ──────────────────────────────────────────────────────────────────
 
@@ -92,91 +101,534 @@ function Label({ children }: { children: React.ReactNode }) {
 
 // ── Sidebar customizer ────────────────────────────────────────────────────────
 
-function SidebarCustomizer() {
-  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
-  const dragHrefRef = useRef<string | null>(null);
-  const [dragOverHref, setDragOverHref] = useState<string | null>(null);
+// ── Icon picker ───────────────────────────────────────────────────────────────
 
-  const allHrefs = ALL_NAV_ITEMS.map((n) => n.href);
-  const orderedHrefs =
-    sidebarConfig.order.length > 0
-      ? [
-          ...sidebarConfig.order.filter((h) => allHrefs.includes(h as (typeof allHrefs)[number])),
-          ...allHrefs.filter((h) => !sidebarConfig.order.includes(h)),
-        ]
-      : [...allHrefs];
+function InlineIconPicker({
+  currentIcon,
+  onSelect,
+  onClose,
+}: {
+  currentIcon: string;
+  onSelect: (name: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
 
-  const orderedItems = orderedHrefs
-    .map((href) => ALL_NAV_ITEMS.find((n) => n.href === href))
-    .filter((n): n is (typeof ALL_NAV_ITEMS)[number] => !!n);
-
-  function toggleHidden(href: string) {
-    const hidden = sidebarConfig.hidden.includes(href)
-      ? sidebarConfig.hidden.filter((h) => h !== href)
-      : [...sidebarConfig.hidden, href];
-    setSidebarConfig({ ...sidebarConfig, hidden });
-  }
-
-  function handleDragStart(href: string) { dragHrefRef.current = href; }
-
-  function handleDragOver(e: React.DragEvent, targetHref: string) {
-    e.preventDefault();
-    if (dragHrefRef.current !== targetHref) setDragOverHref(targetHref);
-  }
-
-  function handleDrop(targetHref: string) {
-    const fromHref = dragHrefRef.current;
-    if (!fromHref || fromHref === targetHref) { setDragOverHref(null); return; }
-    const next = [...orderedHrefs];
-    const fromIdx = next.indexOf(fromHref);
-    const toIdx   = next.indexOf(targetHref);
-    if (fromIdx === -1 || toIdx === -1) { setDragOverHref(null); return; }
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromHref);
-    setSidebarConfig({ ...sidebarConfig, order: next });
-    dragHrefRef.current = null;
-    setDragOverHref(null);
-  }
-
-  function handleDragEnd() { dragHrefRef.current = null; setDragOverHref(null); }
+  const filteredGroups = search
+    ? FOLDER_ICON_GROUPS
+        .map((g) => ({
+          ...g,
+          icons: g.icons.filter((n) => n.toLowerCase().includes(search.toLowerCase())),
+        }))
+        .filter((g) => g.icons.length > 0)
+    : FOLDER_ICON_GROUPS;
 
   return (
-    <div className="space-y-1">
-      <p className="text-xs text-muted-foreground mb-3">
-        Drag to reorder. Toggle the eye icon to show or hide sections.
-      </p>
-      {orderedItems.map((item) => {
-        const isHidden   = sidebarConfig.hidden.includes(item.href);
-        const isDragOver = dragOverHref === item.href;
-        const Icon = item.icon;
-        return (
-          <div
-            key={item.href}
-            draggable
-            onDragStart={() => handleDragStart(item.href)}
-            onDragOver={(e) => handleDragOver(e, item.href)}
-            onDrop={() => handleDrop(item.href)}
-            onDragEnd={handleDragEnd}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
-              isHidden && "opacity-40",
-              isDragOver && "border-primary bg-primary/5 scale-[1.01]"
-            )}
-          >
-            <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
-            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">{item.label}</span>
+    <div className="border border-t-0 rounded-b-md bg-muted/20 px-3 pt-2 pb-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search icons…"
+          autoFocus
+          className="flex-1 text-xs bg-background border border-border rounded-md px-2 py-1.5 outline-none"
+        />
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="max-h-48 overflow-y-auto space-y-2.5 pr-1">
+        {filteredGroups.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No icons match</p>
+        )}
+        {filteredGroups.map((group) => (
+          <div key={group.label}>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-0.5 mb-1">
+              {group.label}
+            </p>
+            <div className="flex flex-wrap gap-0.5">
+              {group.icons.map((iconName) => {
+                const IconComp = resolveFolderIcon(iconName);
+                if (!IconComp) return null;
+                return (
+                  <button
+                    key={iconName}
+                    type="button"
+                    title={iconName}
+                    onClick={() => onSelect(iconName)}
+                    className={cn(
+                      "flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer",
+                      currentIcon === iconName
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    <IconComp className="h-4 w-4" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SidebarCustomizer() {
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+
+  // Unified drag state — works for both nav item hrefs and folder IDs
+  const dragIdRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // New-folder form state
+  const [addingFolder, setAddingFolder] = useState(false);
+  const [newFolderIcon, setNewFolderIcon] = useState(DEFAULT_FOLDER_ICON);
+  const [newFolderLabel, setNewFolderLabel] = useState("");
+
+  // Inline folder editing
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editIcon, setEditIcon] = useState("");
+  const [editLabel, setEditLabel] = useState("");
+
+  // Icon picker — "new" targets the new-folder form; a folder ID targets that folder's edit row
+  const [iconPickerTarget, setIconPickerTarget] = useState<"new" | string | null>(null);
+
+  // Which folder's contents are expanded in the settings list
+  const [expandedFolderId, setExpandedFolderId] = useState<string | null>(null);
+
+  const { folders, hidden, order } = sidebarConfig;
+
+  // ── Build unified ordered root list (nav items + folders interleaved) ───────
+  const folderedHrefs = new Set(folders.flatMap((f) => f.hrefs));
+  const allHrefs      = ALL_NAV_ITEMS.map((n) => n.href);
+  const rootNavHrefs  = allHrefs.filter((h) => !folderedHrefs.has(h));
+  const folderIds     = folders.map((f) => f.id);
+  const allRootIds    = [...rootNavHrefs, ...folderIds];
+
+  const orderedIds =
+    order.length > 0
+      ? [
+          ...order.filter((id) => allRootIds.includes(id)),
+          ...allRootIds.filter((id) => !order.includes(id)),
+        ]
+      : allRootIds;
+
+  type RootEntry =
+    | { kind: "nav";    item:   NavItem       }
+    | { kind: "folder"; folder: SidebarFolder };
+
+  const rootEntries: RootEntry[] = orderedIds.flatMap((id): RootEntry[] => {
+    if (id.startsWith("/")) {
+      const item = ALL_NAV_ITEMS.find((n) => n.href === id);
+      return item ? [{ kind: "nav" as const, item }] : [];
+    }
+    const folder = folders.find((f) => f.id === id);
+    return folder ? [{ kind: "folder" as const, folder }] : [];
+  });
+
+  // ── mutations ───────────────────────────────────────────────────────────────
+
+  function toggleHidden(href: string) {
+    const nextHidden = hidden.includes(href)
+      ? hidden.filter((h) => h !== href)
+      : [...hidden, href];
+    setSidebarConfig({ ...sidebarConfig, hidden: nextHidden });
+  }
+
+  function addFolder() {
+    if (!newFolderLabel.trim()) return;
+    const folder: SidebarFolder = {
+      id: newFolderId(),
+      label: newFolderLabel.trim(),
+      icon: newFolderIcon || DEFAULT_FOLDER_ICON,
+      hrefs: [],
+    };
+    setSidebarConfig({ ...sidebarConfig, folders: [...folders, folder] });
+    setAddingFolder(false);
+    setNewFolderLabel("");
+    setNewFolderIcon(DEFAULT_FOLDER_ICON);
+    setIconPickerTarget(null);
+  }
+
+  function deleteFolder(id: string) {
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: folders.filter((f) => f.id !== id),
+      order:   order.filter((o) => o !== id),
+    });
+  }
+
+  function startEditFolder(folder: SidebarFolder) {
+    setEditingFolderId(folder.id);
+    setEditIcon(folder.icon);
+    setEditLabel(folder.label);
+  }
+
+  function saveEditFolder(id: string) {
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: folders.map((f) =>
+        f.id === id
+          ? { ...f, label: editLabel.trim() || f.label, icon: editIcon || f.icon }
+          : f,
+      ),
+    });
+    setEditingFolderId(null);
+    setIconPickerTarget(null);
+  }
+
+  function removeFromFolder(folderId: string, href: string) {
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: folders.map((f) =>
+        f.id === folderId ? { ...f, hrefs: f.hrefs.filter((h) => h !== href) } : f,
+      ),
+    });
+  }
+
+  function moveToFolder(href: string, targetFolderId: string) {
+    const updatedFolders = folders
+      .map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== href) }))
+      .map((f) => f.id === targetFolderId ? { ...f, hrefs: [...f.hrefs, href] } : f);
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: updatedFolders,
+      order: order.filter((o) => o !== href), // remove from root order
+    });
+  }
+
+  // ── unified drag-to-reorder ─────────────────────────────────────────────────
+
+  function handleDragStart(id: string) { dragIdRef.current = id; }
+
+  function handleDragOver(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    if (dragIdRef.current !== targetId) setDragOverId(targetId);
+  }
+
+  function handleDrop(targetId: string) {
+    const fromId = dragIdRef.current;
+    if (!fromId || fromId === targetId) { setDragOverId(null); return; }
+    const next = [...orderedIds];
+    const fromIdx = next.indexOf(fromId);
+    const toIdx   = next.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) { setDragOverId(null); return; }
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, fromId);
+    setSidebarConfig({ ...sidebarConfig, order: next });
+    dragIdRef.current = null;
+    setDragOverId(null);
+  }
+
+  function handleDragEnd() { dragIdRef.current = null; setDragOverId(null); }
+
+  // ── render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Drag to reorder. Folders are collapsible groups in the sidebar.
+        </p>
+        <button
+          type="button"
+          onClick={() => setAddingFolder(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 ml-3"
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          Add folder
+        </button>
+      </div>
+
+      {/* New folder form */}
+      {addingFolder && (
+        <div className={cn(
+          "border bg-muted/30",
+          iconPickerTarget === "new" ? "rounded-t-lg" : "rounded-lg",
+        )}>
+          <div className="flex items-center gap-2 p-2.5">
+            {/* Icon picker trigger */}
             <button
               type="button"
-              onClick={() => toggleHidden(item.href)}
-              className="text-muted-foreground hover:text-foreground ml-1 cursor-pointer"
-              aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+              title="Choose icon"
+              onClick={() => setIconPickerTarget(iconPickerTarget === "new" ? null : "new")}
+              className={cn(
+                "w-8 h-8 flex items-center justify-center rounded-md border shrink-0 transition-colors cursor-pointer",
+                iconPickerTarget === "new"
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
             >
-              {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {(() => {
+                const IconComp = resolveFolderIcon(newFolderIcon) ?? resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
+                return <IconComp className="h-4 w-4" />;
+              })()}
+            </button>
+            <input
+              type="text"
+              value={newFolderLabel}
+              onChange={(e) => setNewFolderLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addFolder();
+                if (e.key === "Escape") { setAddingFolder(false); setIconPickerTarget(null); }
+              }}
+              placeholder="Folder name…"
+              autoFocus
+              className="flex-1 text-sm bg-transparent outline-none border-b border-border pb-0.5"
+            />
+            <button
+              type="button"
+              onClick={addFolder}
+              disabled={!newFolderLabel.trim()}
+              className="text-xs px-2.5 py-1 rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default shrink-0"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAddingFolder(false); setIconPickerTarget(null); }}
+              className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+            >
+              <X className="h-4 w-4" />
             </button>
           </div>
-        );
-      })}
+          {iconPickerTarget === "new" && (
+            <InlineIconPicker
+              currentIcon={newFolderIcon}
+              onSelect={(name) => { setNewFolderIcon(name); setIconPickerTarget(null); }}
+              onClose={() => setIconPickerTarget(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Unified drag list */}
+      <div className="space-y-1">
+        {rootEntries.map((entry) => {
+          const entryId    = entry.kind === "nav" ? entry.item.href : entry.folder.id;
+          const isDragOver = dragOverId === entryId;
+
+          // ── nav item row ──────────────────────────────────────────────────
+          if (entry.kind === "nav") {
+            const { item } = entry;
+            const isHidden = hidden.includes(item.href);
+            const Icon     = item.icon;
+            return (
+              <div
+                key={entryId}
+                draggable
+                onDragStart={() => handleDragStart(entryId)}
+                onDragOver={(e) => handleDragOver(e, entryId)}
+                onDrop={() => handleDrop(entryId)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
+                  isHidden && "opacity-40",
+                  isDragOver && "border-primary bg-primary/5 scale-[1.01]",
+                )}
+              >
+                <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1 text-sm font-medium">{item.label}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleHidden(item.href)}
+                  className="text-muted-foreground hover:text-foreground cursor-pointer"
+                  aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+                >
+                  {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            );
+          }
+
+          // ── folder row ────────────────────────────────────────────────────
+          const { folder } = entry;
+          const isEditing  = editingFolderId === folder.id;
+          const isExpanded = expandedFolderId === folder.id;
+          const folderItems = folder.hrefs
+            .map((href) => ALL_NAV_ITEMS.find((n) => n.href === href))
+            .filter((n): n is NavItem => !!n);
+          const available = ALL_NAV_ITEMS.filter((n) => !folder.hrefs.includes(n.href));
+
+          return (
+            <div key={entryId}>
+              <div
+                draggable={!isEditing}
+                onDragStart={() => handleDragStart(entryId)}
+                onDragOver={(e) => handleDragOver(e, entryId)}
+                onDrop={() => handleDrop(entryId)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
+                  isDragOver && "border-primary bg-primary/5 scale-[1.01]",
+                  (isExpanded || (isEditing && iconPickerTarget === folder.id)) && "rounded-b-none border-b-0",
+                )}
+              >
+                <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
+
+                {isEditing ? (
+                  <>
+                    {/* Icon picker trigger for edit row */}
+                    <button
+                      type="button"
+                      title="Choose icon"
+                      onClick={() => setIconPickerTarget(iconPickerTarget === folder.id ? null : folder.id)}
+                      className={cn(
+                        "w-8 h-8 flex items-center justify-center rounded-md border shrink-0 transition-colors cursor-pointer",
+                        iconPickerTarget === folder.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      {(() => {
+                        const IconComp = resolveFolderIcon(editIcon) ?? resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
+                        return <IconComp className="h-4 w-4" />;
+                      })()}
+                    </button>
+                    <input
+                      type="text"
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveEditFolder(folder.id);
+                        if (e.key === "Escape") { setEditingFolderId(null); setIconPickerTarget(null); }
+                      }}
+                      autoFocus
+                      className="flex-1 text-sm bg-muted border border-border rounded px-2 py-0.5 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveEditFolder(folder.id)}
+                      className="text-xs px-2 py-0.5 rounded bg-primary text-primary-foreground cursor-pointer shrink-0"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingFolderId(null); setIconPickerTarget(null); }}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {(() => {
+                      const FolderIcon = resolveFolderIcon(folder.icon) ?? resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
+                      return <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />;
+                    })()}
+                    <span className="flex-1 text-sm font-medium">{folder.label}</span>
+                    <span className="text-[10px] font-medium text-muted-foreground border rounded px-1.5 py-0.5 shrink-0">
+                      FOLDER
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEditFolder(folder)}
+                      className="text-xs text-muted-foreground hover:text-foreground cursor-pointer underline underline-offset-2 shrink-0"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteFolder(folder.id)}
+                      className="text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
+                      title="Delete folder (items return to root)"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedFolderId(isExpanded ? null : folder.id)}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+                      title={isExpanded ? "Collapse" : "Manage contents"}
+                    >
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 transition-transform duration-150",
+                          isExpanded && "rotate-180",
+                        )}
+                      />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Icon picker panel for edit row */}
+              {isEditing && iconPickerTarget === folder.id && (
+                <InlineIconPicker
+                  currentIcon={editIcon}
+                  onSelect={(name) => { setEditIcon(name); setIconPickerTarget(null); }}
+                  onClose={() => setIconPickerTarget(null)}
+                />
+              )}
+
+              {/* Folder contents panel */}
+              {isExpanded && (
+                <div className="border border-t-0 rounded-b-md bg-muted/20 px-3 py-2 space-y-1">
+                  {folderItems.map((item) => {
+                    const Icon     = item.icon;
+                    const isHidden = hidden.includes(item.href);
+                    return (
+                      <div
+                        key={item.href}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm",
+                          isHidden && "opacity-40",
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 text-muted-foreground">{item.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleHidden(item.href)}
+                          className="text-muted-foreground hover:text-foreground cursor-pointer"
+                          title={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+                        >
+                          {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeFromFolder(folder.id, item.href)}
+                          className="text-muted-foreground hover:text-foreground cursor-pointer"
+                          title="Remove from folder"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {available.length > 0 && (
+                    <div className="relative mt-1">
+                      <select
+                        className="w-full text-xs text-muted-foreground bg-background border border-border rounded-md px-2 py-1.5 cursor-pointer appearance-none pr-6 outline-none hover:bg-muted/50 transition-colors"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) moveToFolder(e.target.value, folder.id);
+                        }}
+                      >
+                        <option value="">+ Add item to folder…</option>
+                        {available.map((n) => (
+                          <option key={n.href} value={n.href}>{n.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="h-3 w-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

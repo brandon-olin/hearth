@@ -26,7 +26,7 @@ src/life_dashboard/
     settings.py         Pydantic Settings — reads from .env
   auth/                 JWT auth: tokens, hashing, session management
   domains/
-    documents/          Long-form writing pages (BlockNote JSON + markdown)
+    documents/          Long-form writing pages (BlockNote JSON + markdown + icon)
     todos/              Tasks with due dates and household assignment
     habits/             Recurring habit tracking
     goals/              Goal definitions and progress
@@ -59,6 +59,8 @@ Each domain follows the same four-file pattern:
 **Soft deletes:** use `archived_at: datetime | None` rather than hard deletes where data should be recoverable. Hard deletes are only for dev/test reset endpoints.
 
 **JSONB fields:** use `dict[str, Any] | None` typed as `JSON` in the ORM column. The `editor_json` field on documents stores BlockNote's block tree; `source_markdown` stores the original import markdown for lazy conversion.
+
+**Document icon:** documents have an `icon TEXT` column (nullable) storing a single emoji or short string. It flows through all four layers: `DocumentCreate`, `DocumentUpdate`, `DocumentResponse`, and `DocumentImportItem`. Migration: `0002_document_icon.up.sql`.
 
 **No bare `except`:** catch specific exceptions; let unexpected errors bubble to FastAPI's default 500 handler.
 

@@ -24,7 +24,7 @@
 
 import { useRef, useState } from "react";
 import JSZip from "jszip";
-import { BlockNoteEditor } from "@blocknote/core";
+import { BlockNoteEditor, type Block } from "@blocknote/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAccessToken } from "@/lib/auth/token";
 import { Upload, Loader2, CheckCircle2, AlertCircle, X } from "lucide-react";
@@ -142,20 +142,330 @@ function parseIconFromHtml(html: string): string | null {
 }
 
 /**
+ * Unwraps Notion's structural wrapper divs in-place.
+ *
+ * Notion's HTML export wraps child blocks in two kinds of divs that produce
+ * invalid BlockNote structures (blockContainer with no blockContent):
+ *
+ *  1. <div style="display:contents" dir="auto"> — wraps every individual
+ *     to-do / toggle <ul> at each nesting level. BlockNote sees the div as a
+ *     block element with no own text, creating blockContainer(blockGroup(…)).
+ *
+ *  2. <div class="indented"> — wraps the children of a to-do item that itself
+ *     has nested children (e.g. "Work" → sub-tasks). Empty <div class="indented">
+ *     appears at the end of leaf items too (harmless but noisy).
+ *
+ * Both must be unwrapped so BlockNote sees <ul> elements directly inside their
+ * parent <li> or <details> without any intermediate div layer.
+ *
+ * We process innermost first (reverse document order) so each removal is safe.
+ */
+function unwrapNotionDivs(root: Element): void {
+  // 1. display:contents divs (the outer per-item wrappers)
+  const contentsDivs = [...root.querySelectorAll("div")].filter((el) => {
+    const style = el.getAttribute("style") ?? "";
+    return /display\s*:\s*contents/i.test(style);
+  }).reverse();
+  for (const div of contentsDivs) {
+    while (div.firstChild) div.parentNode?.insertBefore(div.firstChild, div);
+    div.remove();
+  }
+
+  // 2. class="indented" divs (the children wrappers)
+  const indentedDivs = [...root.querySelectorAll("div.indented")].reverse();
+  for (const div of indentedDivs) {
+    while (div.firstChild) div.parentNode?.insertBefore(div.firstChild, div);
+    div.remove();
+  }
+}
+
+/**
+ * Converts Notion's checkbox divs to standard <input type="checkbox"> elements
+ * so BlockNote's checkListItem parser can recognise them.
+ *
+ * Notion HTML exports use:
+ *   <div class="checkbox checkbox-on">   (checked)
+ *   <div class="checkbox checkbox-off">  (unchecked)
+ * instead of <input type="checkbox">.
+ *
+ * IMPORTANT: Only convert div.checkbox elements that are DIRECT children of
+ * <li> elements which do NOT also have a direct <details> child. Toggle list
+ * items (<li><details>…) must NOT get a checkbox injected — BlockNote's
+ * checkListItem parser uses `querySelector("input[type=checkbox]")` (not
+ * `:scope >`) so it would match any nested checkbox and steal the <li> away
+ * from the toggleListItem parser.
+ */
+function normalizeNotionCheckboxes(root: Element): void {
+  root.querySelectorAll("li").forEach((li) => {
+    // Skip toggle items — they have a direct <details> child.
+    if (li.querySelector(":scope > details")) return;
+
+    // Only act on <li> elements that have a direct div.checkbox child.
+    const checkboxDiv = li.querySelector(":scope > div.checkbox");
+    if (!checkboxDiv) return;
+
+    const isChecked = checkboxDiv.classList.contains("checkbox-on");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    if (isChecked) input.checked = true;
+    checkboxDiv.replaceWith(input);
+  });
+}
+
+/**
+ * Removes <img> elements whose src is a local relative path (not http/https/data/ftp).
+ * Notion HTML exports reference image files stored alongside the HTML in the zip —
+ * we never load those files, so keeping the tags just produces 404 console errors.
+ */
+function stripLocalImagesFromDom(root: Element): void {
+  root.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") ?? "";
+    if (!/^(https?|data|ftp):/i.test(src)) {
+      img.remove();
+    }
+  });
+}
+
+/**
+ * Merges consecutive sibling <ul> or <ol> elements that share the same class
+ * into a single list element by moving their <li> children into the first one.
+ *
+ * Notion's HTML export places every block-level item in its own <ul>, so after
+ * unwrapping the display:contents wrapper divs we end up with many consecutive
+ * same-class <ul> elements. BlockNote creates a blockContainer wrapper for each
+ * separate <ul>, producing invalid blockContainer(blockGroup(…)) structures with
+ * no blockContent. Collapsing them into one <ul> per group gives BlockNote a
+ * single, well-formed list to parse.
+ *
+ * The check `!ul.parentNode` guards against elements that have already been
+ * merged away in the same pass (DOM mutations are live, so previousElementSibling
+ * updates immediately after a sibling is removed).
+ */
+function mergeSiblingLists(root: Element): void {
+  [...root.querySelectorAll("ul, ol")].forEach((ul) => {
+    if (!ul.parentNode) return; // already merged/removed
+    const prev = ul.previousElementSibling;
+    if (
+      prev &&
+      prev.tagName === ul.tagName &&
+      prev.className === ul.className
+    ) {
+      while (ul.firstChild) prev.appendChild(ul.firstChild);
+      ul.remove();
+    }
+  });
+}
+
+/**
+ * Hoists <details> elements out of <li> elements when they appear alongside a
+ * sibling <ul> or <ol>.
+ *
+ * BlockNote cannot parse <details> as a toggleListItem when it is a direct child
+ * of a <li> that ALSO has a sibling <ul>/<ol>. In that situation the parser
+ * produces an invalid blockContainer(blockGroup(…)) with no blockContent node,
+ * which throws a hard error. Moving the <details> to after the parent list makes
+ * it a standalone sibling block that BlockNote can parse correctly as a
+ * toggleListItem.
+ *
+ * Example (Notion "Chores:" with a nested "Completed:" toggle):
+ *   Before: <li><input>Chores:<ul>…</ul><details>Completed:…</details></li>
+ *   After:  <li><input>Chores:<ul>…</ul></li> [then] <details>Completed:…</details>
+ */
+function hoistDetailsFromListItems(root: Element): void {
+  // Reverse so DOM mutations from later hoists don't invalidate earlier refs.
+  [...root.querySelectorAll("li > details")].reverse().forEach((details) => {
+    const li = details.parentElement;
+    if (!li) return;
+    const parentList = li.parentElement;
+    if (!parentList) return;
+    // Place the <details> after the entire parent list so it becomes a sibling
+    // block at the same level as the list, not a child inside it.
+    // BlockNote cannot reliably parse <details> as a toggleListItem when it
+    // appears as a direct child of a <li> — it produces an invalid
+    // blockContainer(blockGroup(…)) with no blockContent node, which throws.
+    parentList.after(details);
+  });
+}
+
+/**
+ * Converts Notion's <ul class="toggle"><li><details>…</details></li></ul>
+ * wrapper into bare <details> elements.
+ *
+ * Root cause: BlockNote's checkListItem HTML parser uses
+ *   li.querySelector("input[type=checkbox]")
+ * which finds checkboxes ANYWHERE in the subtree, including nested deep inside
+ * the toggle's <details> content (the task items). This causes every toggle <li>
+ * that contains to-do children to be misidentified as a checkListItem instead of
+ * a toggleListItem.
+ *
+ * BlockNote's toggleListItem parser has a clean, unambiguous rule:
+ *   if (e.tagName === "DETAILS") return …
+ * By stripping the <ul.toggle><li> wrapper and leaving bare <details> elements,
+ * we ensure toggleListItem always wins over checkListItem for toggles.
+ *
+ * Processed innermost-first so nested toggles (week → day) are handled correctly.
+ */
+function unwrapToggleLists(root: Element): void {
+  [...root.querySelectorAll("ul.toggle")].reverse().forEach((ul) => {
+    [...ul.children].forEach((li) => {
+      const details = li.querySelector(":scope > details");
+      if (details) {
+        ul.before(details);
+      } else {
+        // Non-toggle <li> — promote its content directly
+        while (li.firstChild) ul.before(li.firstChild);
+      }
+    });
+    ul.remove();
+  });
+}
+
+/**
+ * Unwraps <p> elements that are direct children of <li> elements.
+ * Notion HTML exports often wrap list-item text in a <p> tag:
+ *   <li><div class="checkbox …"/><p>Task text</p></li>
+ * BlockNote treats <p> as a block-level element, so it creates a new paragraph
+ * block for the text instead of recognising it as the list item's inline content.
+ * Unwrapping puts the text nodes directly inside the <li> where BlockNote
+ * correctly identifies them as inline content.
+ */
+function unwrapParagraphsInListItems(root: Element): void {
+  root.querySelectorAll("li > p").forEach((p) => {
+    while (p.firstChild) {
+      p.parentNode?.insertBefore(p.firstChild, p);
+    }
+    p.remove();
+  });
+}
+
+/**
+ * Rewrites <a href="…PageTitle 32hex.html"> links to DOCREF:{clientId} so they
+ * can be resolved to real /documents/{uuid} paths after the bulk-import completes.
+ * Links not matching a known Notion hex ID are left untouched.
+ */
+function rewriteNotionHtmlLinks(
+  root: Element,
+  hexToClientId: Map<string, string>,
+): void {
+  root.querySelectorAll("a[href]").forEach((a) => {
+    const href = a.getAttribute("href") ?? "";
+    // Notion inter-page hrefs: relative paths ending in 32-hex.html[#anchor]
+    const m = href.match(/([0-9a-f]{32})\.html?(?:#[^"]*)?$/i);
+    if (!m) return;
+    const targetClientId = hexToClientId.get(m[1].toLowerCase());
+    if (targetClientId) {
+      a.setAttribute("href", `DOCREF:${targetClientId}`);
+    }
+  });
+}
+
+/**
  * Extracts the body content from a Notion HTML page for BlockNote parsing.
  * Strips the title heading so it doesn't duplicate the page title.
+ *
+ * Uses DOMParser so nested divs don't confuse the extraction — the old regex
+ * approach truncated at the first inner </div> inside the page-body element.
+ *
+ * If hexToClientId is provided, inter-page links are rewritten to DOCREF:
+ * placeholders for post-import resolution.
  */
-function extractNotionHtmlBody(html: string): string {
-  // Prefer the dedicated page-body div
-  const bodyMatch = html.match(
-    /<div[^>]+class="[^"]*page-body[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/article>/i,
-  );
-  if (bodyMatch) return bodyMatch[1];
+function extractNotionHtmlBody(
+  html: string,
+  hexToClientId?: Map<string, string>,
+): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
 
-  // Fallback: strip <head>, then strip the first <h1> (the title)
-  const bodyTag = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  const bodyContent = bodyTag ? bodyTag[1] : html;
-  return bodyContent.replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, "").trim();
+  // Prefer the dedicated page-body div (Notion HTML export)
+  const pageBody =
+    doc.querySelector("[class*='page-body']") ??
+    doc.querySelector("article");
+
+  if (pageBody) {
+    pageBody.querySelector("h1")?.remove();
+    // 1. Remove structural wrappers so genuine toggle <li> items (which still
+    //    have <details> as a direct child) are visible to step 2.
+    unwrapNotionDivs(pageBody);
+    // 1b. Merge consecutive same-class <ul>/<ol> siblings that were split by
+    //     the now-removed structural wrappers (e.g. each Notion to-do item
+    //     lives in its own <ul class="to-do-list">; after unwrapping they're
+    //     adjacent siblings and BlockNote wraps each in a blockContainer, which
+    //     produces invalid blockContainer(blockGroup(checkListItem)) nodes).
+    mergeSiblingLists(pageBody);
+    unwrapParagraphsInListItems(pageBody);
+    // 2. Convert div.checkbox → <input> BEFORE unwrapToggleLists so that
+    //    to-do items whose children include a toggle (e.g. "Chores:" → "Completed:"
+    //    sub-toggle) are correctly identified. After unwrapToggleLists the toggle
+    //    <details> becomes a direct child of the to-do <li>, which would make
+    //    normalizeNotionCheckboxes skip it (thinking it's a toggle item itself).
+    normalizeNotionCheckboxes(pageBody);
+    // 3. Strip <ul class="toggle"><li> wrappers, leaving bare <details> elements
+    //    so BlockNote's unambiguous DETAILS→toggleListItem rule wins over the
+    //    greedy checkListItem querySelector("input[type=checkbox]") rule.
+    unwrapToggleLists(pageBody);
+    // 3b. Merge again: unwrapToggleLists may expose sibling <ul> elements that
+    //     were previously nested inside toggle wrappers (e.g. each to-do item
+    //     inside a "Completed:" toggle is in its own <ul class="to-do-list">
+    //     that only becomes a sibling after the toggle wrapper is removed).
+    mergeSiblingLists(pageBody);
+    // 3c. Hoist <details> that ended up as a direct child of a <li> alongside a
+    //     sibling <ul>. BlockNote cannot parse that combination and throws an
+    //     invalid blockContainer error. Moving <details> after the parent list
+    //     makes it a standalone block that BlockNote handles correctly.
+    hoistDetailsFromListItems(pageBody);
+    stripLocalImagesFromDom(pageBody);
+    if (hexToClientId) rewriteNotionHtmlLinks(pageBody, hexToClientId);
+    return pageBody.innerHTML.trim();
+  }
+
+  // Fallback: use the full <body>, strip first <h1>
+  const body = doc.body;
+  body.querySelector("h1")?.remove();
+  unwrapNotionDivs(body);
+  mergeSiblingLists(body);
+  unwrapParagraphsInListItems(body);
+  normalizeNotionCheckboxes(body);
+  unwrapToggleLists(body);
+  mergeSiblingLists(body);
+  hoistDetailsFromListItems(body);
+  stripLocalImagesFromDom(body);
+  if (hexToClientId) rewriteNotionHtmlLinks(body, hexToClientId);
+  return body.innerHTML.trim();
+}
+
+/**
+ * Post-processes the block tree returned by BlockNote's HTML parser.
+ *
+ * Problem: Notion wraps child content in structural elements (<div class="indented">,
+ * <p>, etc.) that BlockNote turns into blocks with EMPTY content but non-empty
+ * children — e.g. blockContainer(blockGroup(tasks)) with no blockContent. BlockNote
+ * throws "blockContainer node does not contain a blockContent node" when it encounters
+ * this structure.
+ *
+ * Fix: recursively scan the block tree. Any block whose inline content array is empty
+ * but which has children is a spurious wrapper — promote its children one level up
+ * and discard the wrapper block itself.
+ */
+function flattenEmptyContentBlocks(blocks: Block[]): Block[] {
+  const result: Block[] = [];
+  for (const block of blocks) {
+    const content = block.content;
+    const isEmptyInline =
+      Array.isArray(content) && content.length === 0;
+
+    if (isEmptyInline && block.children.length > 0) {
+      // Wrapper with no text — promote its children into the current list
+      result.push(...flattenEmptyContentBlocks(block.children as Block[]));
+    } else {
+      result.push({
+        ...block,
+        children:
+          block.children.length > 0
+            ? flattenEmptyContentBlocks(block.children as Block[])
+            : block.children,
+      } as Block);
+    }
+  }
+  return result;
 }
 
 // Singleton parser editor — created lazily, reused across all pages.
@@ -171,11 +481,26 @@ function getParseEditor(): BlockNoteEditor {
 
 async function parseHtmlPage(
   html: string,
+  hexToClientId?: Map<string, string>,
 ): Promise<{ editorJson: unknown; icon: string | null }> {
   const icon = parseIconFromHtml(html);
-  const bodyHtml = extractNotionHtmlBody(html);
+  const bodyHtml = extractNotionHtmlBody(html, hexToClientId);
   const editor = getParseEditor();
-  const blocks = editor.tryParseHTMLToBlocks(bodyHtml);
+  let rawBlocks: Block[];
+  try {
+    rawBlocks = editor.tryParseHTMLToBlocks(bodyHtml) as Block[];
+  } catch (parseErr) {
+    // HTML preprocessing didn't fully resolve all BlockNote schema violations.
+    // Log and fall back to an empty block list so the rest of the import
+    // continues. The page will be blank but won't crash the whole batch.
+    console.error("[notion-import] tryParseHTMLToBlocks failed — page will be empty:", parseErr);
+    console.error("[notion-import] failing bodyHtml:", bodyHtml);
+    rawBlocks = [];
+  }
+  // Remove structural wrapper blocks that BlockNote creates from Notion's
+  // <div class="indented"> / <p>-in-li constructs. These have empty inline
+  // content arrays but non-empty children and cause a hard error when loaded.
+  const blocks = flattenEmptyContentBlocks(rawBlocks);
   return { editorJson: { blocks }, icon };
 }
 
@@ -185,7 +510,19 @@ const NOTION_SYSTEM_PAGE_TITLES = new Set([
   "home",
   "teamspace home",
   "people",
+  "index",
 ]);
+
+/**
+ * Returns true if any path segment (folder or file name) matches a system
+ * page title. This filters both the root system page AND everything nested
+ * inside it (e.g. "People/John Doe").
+ */
+function isSystemPath(stem: string): boolean {
+  return stem
+    .split("/")
+    .some((seg) => NOTION_SYSTEM_PAGE_TITLES.has(seg.toLowerCase()));
+}
 
 const NOTION_UUID_RE = /\s+[0-9a-f]{32}$/i;
 
@@ -309,11 +646,13 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
   for (const entry of mdEntries) {
     const norm = normalisePath(entry.path);
     const stem = norm.replace(/\.md$/i, "");
+    if (isSystemPath(stem)) continue;
     stemToEntry.set(stem, { ...entry, id: `import-${mdEntries.indexOf(entry)}` });
   }
   for (const entry of htmlEntries) {
     const norm = normalisePath(entry.path);
     const stem = norm.replace(/\.html?$/i, "");
+    if (isSystemPath(stem)) continue;
     // HTML wins over MD — always overwrite
     stemToEntry.set(stem, { ...entry });
   }
@@ -344,6 +683,16 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
     if (clientId) hexToClientId.set(hexMatch[1].toLowerCase(), clientId);
   }
 
+  // Hex IDs from original HTML paths (for inter-page link rewriting in HTML exports)
+  for (const f of htmlFiles) {
+    const hexMatch = f.path.match(/([0-9a-f]{32})\.html?$/i);
+    if (!hexMatch) continue;
+    const norm = normalisePath(f.path);
+    const stem = norm.replace(/\.html?$/i, "");
+    const clientId = dirToId.get(stem);
+    if (clientId) hexToClientId.set(hexMatch[1].toLowerCase(), clientId);
+  }
+
   // ── Stub ancestors ────────────────────────────────────────────────────────
   const allNeeded = new Set<string>();
   for (const entry of entries) {
@@ -366,6 +715,7 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
 
   for (const normDir of sortedNeeded) {
     if (dirToId.has(normDir)) continue;
+    if (isSystemPath(normDir)) continue;
     const stubId = `import-stub-${stubIdx++}`;
     const title = normDir.split("/").pop() || "Untitled";
     const normParts = normDir.split("/");
@@ -388,12 +738,10 @@ async function parseNotionZip(file: File): Promise<ParsedPage[]> {
 
     const title = parseTitleFromPath(entry.path);
 
-    if (NOTION_SYSTEM_PAGE_TITLES.has(title.toLowerCase())) continue;
-
     if (entry.ext === "html") {
       // ── HTML page ──────────────────────────────────────────────────────────
       const raw = await entry.file.async("string");
-      const { editorJson, icon } = await parseHtmlPage(raw);
+      const { editorJson, icon } = await parseHtmlPage(raw, hexToClientId);
       pages.push({
         clientId: entry.id,
         clientParentId,
@@ -492,10 +840,13 @@ export function NotionImportDialog({ onClose }: Props) {
         items: ImportResultItem[];
       };
 
-      // Fix 3 — Resolve DOCREF: placeholders in MD pages that had links.
-      const pagesWithLinks = pages.filter((p) => p.markdown.includes("DOCREF:"));
+      // Fix 3 — Resolve DOCREF: placeholders in MD and HTML pages that had links.
+      const pagesWithMdLinks = pages.filter((p) => p.markdown.includes("DOCREF:"));
+      const pagesWithHtmlLinks = pages.filter(
+        (p) => p.editorJson && JSON.stringify(p.editorJson).includes("DOCREF:"),
+      );
 
-      if (pagesWithLinks.length > 0) {
+      if (pagesWithMdLinks.length > 0 || pagesWithHtmlLinks.length > 0) {
         setState({ phase: "rewriting" });
 
         const clientIdToRealId = new Map<string, string>();
@@ -503,21 +854,19 @@ export function NotionImportDialog({ onClose }: Props) {
           clientIdToRealId.set(item.client_id, item.id);
         }
 
-        await Promise.all(
-          pagesWithLinks.map(async (p) => {
+        /** Replace every DOCREF:{clientId} occurrence with /documents/{realId}. */
+        function resolveDocRefs(text: string): string {
+          return text.replace(/DOCREF:([^\s"'()]+)/g, (_match, targetClientId: string) => {
+            const targetRealId = clientIdToRealId.get(targetClientId);
+            return targetRealId ? `/documents/${targetRealId}` : "broken-link";
+          });
+        }
+
+        await Promise.all([
+          ...pagesWithMdLinks.map(async (p) => {
             const realId = clientIdToRealId.get(p.clientId);
             if (!realId) return;
-
-            const resolved = p.markdown.replace(
-              /\(DOCREF:([^)]+)\)/g,
-              (_match, targetClientId: string) => {
-                const targetRealId = clientIdToRealId.get(targetClientId);
-                return targetRealId
-                  ? `(/documents/${targetRealId})`
-                  : "(broken-link)";
-              },
-            );
-
+            const resolved = resolveDocRefs(p.markdown);
             await fetch(`/api/documents/${realId}`, {
               method: "PATCH",
               headers: authHeaders,
@@ -525,7 +874,19 @@ export function NotionImportDialog({ onClose }: Props) {
               body: JSON.stringify({ source_markdown: resolved }),
             });
           }),
-        );
+          ...pagesWithHtmlLinks.map(async (p) => {
+            const realId = clientIdToRealId.get(p.clientId);
+            if (!realId) return;
+            // Resolve DOCREFs embedded inside the editor_json block tree.
+            const resolvedJson = JSON.parse(resolveDocRefs(JSON.stringify(p.editorJson)));
+            await fetch(`/api/documents/${realId}`, {
+              method: "PATCH",
+              headers: authHeaders,
+              credentials: "same-origin",
+              body: JSON.stringify({ editor_json: resolvedJson }),
+            });
+          }),
+        ]);
       }
 
       qc.invalidateQueries({ queryKey: ["get", "/documents"] });
@@ -575,11 +936,14 @@ export function NotionImportDialog({ onClose }: Props) {
         {state.phase === "idle" && (
           <div className="text-sm text-muted-foreground space-y-2">
             <p>
-              Upload a zip of pages. Hierarchy is inferred from folder
-              structure. Notion&rsquo;s HTML export preserves toggle lists and page icons.
+              Upload a zip of pages. Hierarchy is inferred from folder structure.
             </p>
+            <div className="rounded-md bg-muted/60 px-3 py-2 text-xs space-y-0.5">
+              <p className="font-medium text-foreground">Notion users:</p>
+              <p>Export as <span className="font-medium text-foreground">HTML</span> (not &ldquo;Markdown &amp; CSV&rdquo;) to preserve toggle lists and page icons. Markdown exports convert toggles to plain bullet points.</p>
+            </div>
             <ul className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs pl-1">
-              <li>• Notion <span className="text-muted-foreground/60">(HTML or Markdown)</span></li>
+              <li>• Notion <span className="text-muted-foreground/60">(HTML export)</span></li>
               <li>• Obsidian</li>
               <li>• Logseq</li>
               <li>• Bear</li>

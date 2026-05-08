@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { getAccessToken } from "@/lib/auth/token";
+import { ALL_NAVIGABLE, type NavItem } from "@/lib/sidebar/nav-items";
 import { cn } from "@/lib/utils";
 import {
   Search,
@@ -12,6 +13,7 @@ import {
   Target,
   Repeat,
   FileText,
+  ArrowRight,
   Loader2,
 } from "lucide-react";
 
@@ -51,6 +53,11 @@ interface NonDocResult {
   subtitle: string;
   domain: NonDocDomain;
 }
+
+type FlatResult =
+  | { kind: "nav"; item: NavItem }
+  | { kind: "doc"; result: DocResult }
+  | { kind: "nondoc"; result: NonDocResult };
 
 // ── document search hook ──────────────────────────────────────────────────────
 
@@ -120,6 +127,32 @@ function useDocumentSearch(q: string) {
 }
 
 // ── result rows ───────────────────────────────────────────────────────────────
+
+function NavResultRow({
+  item,
+  highlighted,
+  onSelect,
+}: {
+  item: NavItem;
+  highlighted: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex items-center gap-3 w-full px-4 py-2.5 text-left transition-colors cursor-pointer",
+        highlighted ? "bg-muted" : "hover:bg-muted/60",
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="flex-1 min-w-0 text-sm truncate">{item.label}</span>
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+    </button>
+  );
+}
 
 function DocResultRow({
   result,
@@ -224,6 +257,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => document.removeEventListener("keydown", handle);
   }, [open, onClose]);
 
+  // ── Nav items (always available, filtered client-side) ─────────────────────
+  // Filter against the raw trimmed query so nav responds before the debounce.
+  // ALL_NAVIGABLE includes Settings in addition to the sidebar nav items.
+  const rawQ = query.trim().toLowerCase();
+  const matchingNav = rawQ === ""
+    ? ALL_NAVIGABLE          // empty state: show everything as a quick-nav list
+    : ALL_NAVIGABLE.filter((item) => item.label.toLowerCase().includes(rawQ));
+
   // ── Document search (backend, title + body) ────────────────────────────────
   const {
     pages: docResults,
@@ -274,17 +315,20 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     .slice(0, 5)
     .map((h) => ({ id: h.id, title: h.name ?? "(untitled)", subtitle: "", domain: "habit" }));
 
-  // Flatten all results for keyboard navigation
-  type FlatResult =
-    | { kind: "doc"; result: DocResult }
-    | { kind: "nondoc"; result: NonDocResult };
-
+  // ── Flat list for keyboard navigation ──────────────────────────────────────
   const flat: FlatResult[] = [
-    ...docResults.map((r) => ({ kind: "doc" as const, result: r })),
-    ...matchingTodos.map((r) => ({ kind: "nondoc" as const, result: r })),
-    ...matchingGoals.map((r) => ({ kind: "nondoc" as const, result: r })),
-    ...matchingHabits.map((r) => ({ kind: "nondoc" as const, result: r })),
+    ...matchingNav.map((item) => ({ kind: "nav" as const, item })),
+    ...(enabled ? [
+      ...docResults.map((r) => ({ kind: "doc" as const, result: r })),
+      ...matchingTodos.map((r) => ({ kind: "nondoc" as const, result: r })),
+      ...matchingGoals.map((r) => ({ kind: "nondoc" as const, result: r })),
+      ...matchingHabits.map((r) => ({ kind: "nondoc" as const, result: r })),
+    ] : []),
   ];
+
+  const hasAnyResults = flat.length > 0;
+  // Only show "no results" if the user has typed something and nothing matched
+  const showNoResults = rawQ.length > 0 && !isLoading && !hasAnyResults;
 
   // Arrow key navigation + enter
   useEffect(() => {
@@ -304,8 +348,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => document.removeEventListener("keydown", handle);
   }, [open, flat, highlightIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset highlight when results change
-  useEffect(() => setHighlightIdx(0), [dq]);
+  // Reset highlight when query changes
+  useEffect(() => setHighlightIdx(0), [rawQ]);
 
   // Scroll pagination — load more docs when user scrolls near the bottom
   function handleResultsScroll(e: React.UIEvent<HTMLDivElement>) {
@@ -316,7 +360,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }
 
   function navigate(item: FlatResult) {
-    if (item.kind === "doc") {
+    if (item.kind === "nav") {
+      router.push(item.item.href);
+    } else if (item.kind === "doc") {
       router.push(`/documents/${item.result.id}`);
     } else {
       const { href } = NON_DOC_DOMAINS[item.result.domain];
@@ -327,10 +373,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     onClose();
   }
 
-  const hasAnyResults = flat.length > 0;
-  let flatIdx = 0;
-
   if (!open) return null;
+
+  let flatIdx = 0;
 
   return (
     <div
@@ -352,7 +397,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search documents, todos, goals, habits…"
+            placeholder="Go to page, or search content…"
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {query && (
@@ -373,20 +418,26 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           className="max-h-[52vh] overflow-y-auto"
           onScroll={handleResultsScroll}
         >
-          {!enabled && (
-            <p className="px-4 py-8 text-sm text-center text-muted-foreground">
-              Type at least 2 characters to search.
-            </p>
+          {/* Nav items — shown as quick-nav when empty, or filtered matches when typing */}
+          {matchingNav.length > 0 && (
+            <div>
+              <SectionHeader label={rawQ === "" ? "Go to" : "Pages"} />
+              {matchingNav.map((item) => {
+                const idx = flatIdx++;
+                return (
+                  <NavResultRow
+                    key={item.href}
+                    item={item}
+                    highlighted={idx === highlightIdx}
+                    onSelect={() => navigate({ kind: "nav", item })}
+                  />
+                );
+              })}
+            </div>
           )}
 
-          {enabled && !isLoading && !hasAnyResults && (
-            <p className="px-4 py-8 text-sm text-center text-muted-foreground">
-              No results for &ldquo;{dq}&rdquo;
-            </p>
-          )}
-
-          {/* Documents — title matches then body matches */}
-          {docResults.length > 0 && (() => {
+          {/* Content search results (only when query >= 2 chars) */}
+          {enabled && (() => {
             const titleMatches = docResults.filter((r) => r.match_type === "title");
             const bodyMatches = docResults.filter((r) => r.match_type === "body");
             return (
@@ -432,62 +483,63 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     )}
                   </div>
                 )}
+                {matchingTodos.length > 0 && (
+                  <div>
+                    <SectionHeader label="To-dos" />
+                    {matchingTodos.map((r) => {
+                      const idx = flatIdx++;
+                      return (
+                        <NonDocResultRow
+                          key={r.id}
+                          result={r}
+                          highlighted={idx === highlightIdx}
+                          onSelect={() => navigate({ kind: "nondoc", result: r })}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                {matchingGoals.length > 0 && (
+                  <div>
+                    <SectionHeader label="Goals" />
+                    {matchingGoals.map((r) => {
+                      const idx = flatIdx++;
+                      return (
+                        <NonDocResultRow
+                          key={r.id}
+                          result={r}
+                          highlighted={idx === highlightIdx}
+                          onSelect={() => navigate({ kind: "nondoc", result: r })}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                {matchingHabits.length > 0 && (
+                  <div>
+                    <SectionHeader label="Habits" />
+                    {matchingHabits.map((r) => {
+                      const idx = flatIdx++;
+                      return (
+                        <NonDocResultRow
+                          key={r.id}
+                          result={r}
+                          highlighted={idx === highlightIdx}
+                          onSelect={() => navigate({ kind: "nondoc", result: r })}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
               </>
             );
           })()}
 
-          {/* Todos */}
-          {matchingTodos.length > 0 && (
-            <div>
-              <SectionHeader label="To-dos" />
-              {matchingTodos.map((r) => {
-                const idx = flatIdx++;
-                return (
-                  <NonDocResultRow
-                    key={r.id}
-                    result={r}
-                    highlighted={idx === highlightIdx}
-                    onSelect={() => navigate({ kind: "nondoc", result: r })}
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* Goals */}
-          {matchingGoals.length > 0 && (
-            <div>
-              <SectionHeader label="Goals" />
-              {matchingGoals.map((r) => {
-                const idx = flatIdx++;
-                return (
-                  <NonDocResultRow
-                    key={r.id}
-                    result={r}
-                    highlighted={idx === highlightIdx}
-                    onSelect={() => navigate({ kind: "nondoc", result: r })}
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* Habits */}
-          {matchingHabits.length > 0 && (
-            <div>
-              <SectionHeader label="Habits" />
-              {matchingHabits.map((r) => {
-                const idx = flatIdx++;
-                return (
-                  <NonDocResultRow
-                    key={r.id}
-                    result={r}
-                    highlighted={idx === highlightIdx}
-                    onSelect={() => navigate({ kind: "nondoc", result: r })}
-                  />
-                );
-              })}
-            </div>
+          {/* No results */}
+          {showNoResults && (
+            <p className="px-4 py-8 text-sm text-center text-muted-foreground">
+              No results for &ldquo;{rawQ}&rdquo;
+            </p>
           )}
         </div>
 

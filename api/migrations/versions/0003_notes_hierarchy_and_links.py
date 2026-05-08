@@ -16,6 +16,11 @@ Two additions that enable Obsidian-style note organisation:
                     contact, recipe, …). Drives backlinks and the knowledge
                     graph. Cascades on source note delete so stale outbound
                     links don't accumulate.
+
+NOTE: Made defensive for clean-install compatibility — on a fresh DB the
+notes table doesn't exist yet (it's created by migration 0010), so all
+operations here are no-ops. The canonical schema in 0010 supersedes the
+columns/tables introduced here.
 """
 
 from typing import Sequence, Union
@@ -30,45 +35,74 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _table_exists(conn, name: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = :name"
+        ),
+        {"name": name},
+    )
+    return result.fetchone() is not None
+
+
+def _has_column(conn, table: str, column: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = :t AND column_name = :c"
+        ),
+        {"t": table, "c": column},
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
+    conn = op.get_bind()
+
     # ── parent_note_id on notes ───────────────────────────────────────────────
-    op.add_column(
-        "notes",
-        sa.Column("parent_note_id", UUID(as_uuid=True), nullable=True),
-    )
-    op.create_foreign_key(
-        "notes_parent_note_id_fkey",
-        "notes", "notes",
-        ["parent_note_id"], ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_index("idx_notes_parent_note_id", "notes", ["parent_note_id"])
+    if _table_exists(conn, "notes") and not _has_column(conn, "notes", "parent_note_id"):
+        op.add_column(
+            "notes",
+            sa.Column("parent_note_id", UUID(as_uuid=True), nullable=True),
+        )
+        op.create_foreign_key(
+            "notes_parent_note_id_fkey",
+            "notes", "notes",
+            ["parent_note_id"], ["id"],
+            ondelete="SET NULL",
+        )
+        op.create_index("idx_notes_parent_note_id", "notes", ["parent_note_id"])
 
     # ── note_links ────────────────────────────────────────────────────────────
-    op.create_table(
-        "note_links",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("source_note_id", UUID(as_uuid=True),
-                  sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("target_entity_type", sa.String(100), nullable=False),
-        sa.Column("target_entity_id", UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("now()"), nullable=False),
-        sa.UniqueConstraint(
-            "source_note_id", "target_entity_type", "target_entity_id",
-            name="note_links_source_target_key",
-        ),
-    )
-    op.create_index("idx_note_links_source", "note_links", ["source_note_id"])
-    # Target index supports efficient backlink queries ("what links to this entity?")
-    op.create_index(
-        "idx_note_links_target", "note_links", ["target_entity_type", "target_entity_id"]
-    )
+    # note_links has a FK to notes — only create it if notes exists.
+    if _table_exists(conn, "notes") and not _table_exists(conn, "note_links"):
+        op.create_table(
+            "note_links",
+            sa.Column("id", UUID(as_uuid=True), primary_key=True,
+                      server_default=sa.text("gen_random_uuid()")),
+            sa.Column("source_note_id", UUID(as_uuid=True),
+                      sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("target_entity_type", sa.String(100), nullable=False),
+            sa.Column("target_entity_id", UUID(as_uuid=True), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True),
+                      server_default=sa.text("now()"), nullable=False),
+            sa.UniqueConstraint(
+                "source_note_id", "target_entity_type", "target_entity_id",
+                name="note_links_source_target_key",
+            ),
+        )
+        op.create_index("idx_note_links_source", "note_links", ["source_note_id"])
+        op.create_index(
+            "idx_note_links_target", "note_links", ["target_entity_type", "target_entity_id"]
+        )
 
 
 def downgrade() -> None:
-    op.drop_table("note_links")
-    op.drop_index("idx_notes_parent_note_id", table_name="notes")
-    op.drop_constraint("notes_parent_note_id_fkey", "notes", type_="foreignkey")
-    op.drop_column("notes", "parent_note_id")
+    conn = op.get_bind()
+    if _table_exists(conn, "note_links"):
+        op.drop_table("note_links")
+    if _table_exists(conn, "notes") and _has_column(conn, "notes", "parent_note_id"):
+        op.drop_index("idx_notes_parent_note_id", table_name="notes")
+        op.drop_constraint("notes_parent_note_id_fkey", "notes", type_="foreignkey")
+        op.drop_column("notes", "parent_note_id")

@@ -19,11 +19,17 @@ class Settings(BaseSettings):
 
     # Bootstrap (only used on first startup; see auth module)
     bootstrap_password: str = ""
+    bootstrap_email: str = "admin@localhost"
+    bootstrap_display_name: str = "Admin"
 
     # CORS — comma-separated string; split into a list at the point of use.
     # pydantic-settings tries to JSON-decode list[str] fields before validators
     # run, which breaks comma-separated values, so we keep this as a plain str.
     allowed_origins: str = "http://localhost:3000"
+
+    # AI — system-level key used when a user has no BYOK key configured.
+    # Set ANTHROPIC_API_KEY in .env. Leave blank to disable AI until a key is provided.
+    anthropic_api_key: str = ""
 
     # App
     environment: str = "development"

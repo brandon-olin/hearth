@@ -183,6 +183,64 @@ html.theme-switching *::after {
   background-color: transparent !important;
 }
 
+/* ── BlockNote checkbox ───────────────────────────────────────────────────────
+   Override browser-default checkbox styles inside the editor.
+   Unchecked: transparent bg, text-colour border.
+   Checked: primary-coloured fill with a foreground-colour checkmark.
+
+   Uses the full BlockNote selector path to beat BlockNote's own rule
+   (.bn-block-content[data-content-type="checkListItem"] > div > input)
+   which has specificity [0,2,1]. Adding [type="checkbox"] lifts us to [0,2,2]. */
+
+.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  align-self: center;
+  flex-shrink: 0;
+  border: 1.5px solid var(--foreground);
+  border-radius: 3px;
+  background-color: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"]:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 0.3em;
+  height: 0.55em;
+  border: 2px solid var(--primary-foreground);
+  border-top: none;
+  border-left: none;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* ── BlockNote inline links ───────────────────────────────────────────────────
+   Use the theme foreground colour so links blend with the active colour scheme
+   rather than defaulting to browser blue. */
+
+.bn-editor a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--muted-foreground);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.15s;
+}
+
+.bn-editor a:hover {
+  text-decoration-color: var(--foreground);
+}
+
 /* ── Themed scrollbars ────────────────────────────────────────────────────────
    Webkit (Chrome, Safari, Edge) scrollbars styled to match the active theme.
    Firefox uses the standard scrollbar-color/scrollbar-width properties. */

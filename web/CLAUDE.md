@@ -13,7 +13,7 @@ Next.js frontend for Life Dashboard. See the root `CLAUDE.md` for product vision
 - **TanStack Query v5** — server state, via `openapi-react-query` wrapper
 - **openapi-fetch** — typed API client generated from the FastAPI OpenAPI schema
 - **BlockNote** — rich text editor for the Documents feature
-- **JSZip** — zip parsing for the markdown import feature
+- **JSZip** — zip parsing for the Notion/markdown import feature
 
 ---
 
@@ -39,7 +39,7 @@ src/
       documents/bulk-import/  Dedicated route for multipart-safe import
   components/
     shell/                App shell: sidebar nav, mobile header, command palette
-    documents/            Page tree, document editor, import dialog
+    documents/            Page tree (collapse state persisted in module-level Set), document editor, Notion import dialog
     ui/                   shadcn/ui primitives (auto-generated, don't edit manually)
     [domain]/             Domain-specific UI components
   lib/
@@ -129,6 +129,18 @@ BlockNote is themed by targeting `.bn-root` directly in `globals.css` and passin
 cd web
 npx openapi-typescript http://localhost:8000/openapi.json -o src/lib/api/schema.ts
 ```
+
+---
+
+## Documents
+
+**Page tree collapse state** is stored in a module-level `Set<string>` in `page-tree.tsx` (outside the React component). This survives layout unmounts when navigating between routes (e.g. /todos → /documents). The collapse-all action clears the set before forcing a remount.
+
+**Document icons** — each document has an optional `icon` field (single emoji). The page tree renders it in place of the `FileText` icon when present. Icons are extracted from Notion HTML exports (`class="page-icon"` element) or from a leading emoji-only line in MD files during import.
+
+**Notion import** (`notion-import-dialog.tsx`) — prefers HTML over markdown when both exist for the same page stem in the zip. HTML pages are parsed via a singleton `BlockNoteEditor.create()` instance calling `tryParseHTMLToBlocks()`, which correctly maps Notion's `<details>/<summary>` toggles to `toggleListItem` blocks. The result is stored as `editor_json`. MD pages keep the existing behavior (`source_markdown` + inter-page link rewriting). Use **"Export as HTML"** from Notion (not "Markdown & CSV") to get correct toggle lists and icons.
+
+Known issue: checkbox items nested inside toggle blocks trigger a BlockNote `blockContainer` parse error — fix pending.
 
 ---
 
