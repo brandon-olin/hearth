@@ -532,6 +532,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workouts/exercise-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Exercise Names */
+        get: operations["list_exercise_names_workouts_exercise_names_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workouts/{workout_id}": {
         parameters: {
             query?: never;
@@ -623,6 +640,143 @@ export interface paths {
         patch: operations["update_note_notes__note_id__patch"];
         trace?: never;
     };
+    "/projects": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get: operations["list_projects_projects_get"];
+        put?: never;
+        post: operations["create_project_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get: operations["get_project_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_project_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        patch: operations["update_project_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/projects/{project_id}/archive": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get?: never;
+        put?: never;
+        post: operations["archive_project_projects__project_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/goals": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get: operations["list_project_goals_projects__project_id__goals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/goals/{goal_id}": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get?: never;
+        put: operations["link_goal_projects__project_id__goals__goal_id__put"];
+        post?: never;
+        delete: operations["unlink_goal_projects__project_id__goals__goal_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/goals/{goal_id}/projects": {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        get: operations["list_goal_projects_goals__goal_id__projects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collections */
+        get: operations["list_collections_collections_get"];
+        put?: never;
+        /** Create Collection */
+        post: operations["create_collection_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{collection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Collection */
+        get: operations["get_collection_collections__collection_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Collection */
+        delete: operations["delete_collection_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Collection */
+        patch: operations["update_collection_collections__collection_id__patch"];
+        trace?: never;
+    };
+    "/collections/{collection_id}/ensure-today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ensure Today */
+        post: operations["ensure_today_collections__collection_id__ensure_today_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/households/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List household members */
+        get: operations["list_members_households_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -681,6 +835,84 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** AutoCreateRule */
+        AutoCreateRule: {
+            /** @enum {string} */
+            frequency: "daily";
+            /** Title Template */
+            title_template: string;
+        };
+        /** CollectionResponse */
+        CollectionResponse: {
+            /** Id */
+            id: string;
+            /** Household Id */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /** Name */
+            name: string;
+            /** Icon */
+            icon: string | null;
+            /** @enum {string} */
+            domain: "notes" | "documents";
+            /** Default Tags */
+            default_tags: string[];
+            /** Default Template Id */
+            default_template_id: string | null;
+            auto_create_rule: components["schemas"]["AutoCreateRule"] | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** CollectionListResponse */
+        CollectionListResponse: {
+            items: components["schemas"]["CollectionResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** CollectionCreate */
+        CollectionCreate: {
+            /** Name */
+            name: string;
+            /** Icon */
+            icon?: string | null;
+            /** @enum {string} */
+            domain: "notes" | "documents";
+            /** Default Tags */
+            default_tags?: string[];
+            /** Default Template Id */
+            default_template_id?: string | null;
+            auto_create_rule?: components["schemas"]["AutoCreateRule"] | null;
+            /** Sort Order */
+            sort_order?: number;
+        };
+        /** CollectionUpdate */
+        CollectionUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Icon */
+            icon?: string | null;
+            /** Default Tags */
+            default_tags?: string[] | null;
+            /** Default Template Id */
+            default_template_id?: string | null;
+            auto_create_rule?: components["schemas"]["AutoCreateRule"] | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /** EnsureTodayResponse */
+        EnsureTodayResponse: {
+            /** Created */
+            created: boolean;
+            /** Item Id */
+            item_id: string;
+            /** @enum {string} */
+            item_domain: "notes" | "documents";
         };
         /** CalendarEventCreate */
         CalendarEventCreate: {
@@ -1093,6 +1325,8 @@ export interface components {
             id: string;
             /** Parent Id */
             parent_id: string | null;
+            /** Collection Id */
+            collection_id: string | null;
             /** Title */
             title: string;
             /** Slug */
@@ -2056,6 +2290,8 @@ export interface components {
             title: string;
             /** Content Md */
             content_md: string | null;
+            /** Collection Id */
+            collection_id: string | null;
             /** Archived At */
             archived_at: string | null;
             /** Created At */
@@ -2073,6 +2309,8 @@ export interface components {
             content_md: string | null;
             /** Content Json */
             content_json: Record<string, unknown> | null;
+            /** Collection Id */
+            collection_id: string | null;
             /** Archived At */
             archived_at: string | null;
             /** Created At */
@@ -2098,6 +2336,8 @@ export interface components {
             content_json?: Record<string, unknown> | null;
             /** Tag Ids */
             tag_ids?: string[];
+            /** Collection Id */
+            collection_id?: string | null;
         };
         /** NoteUpdate */
         NoteUpdate: {
@@ -2109,13 +2349,128 @@ export interface components {
             content_json?: Record<string, unknown> | null;
             /** Tag Ids */
             tag_ids?: string[] | null;
+            /** Collection Id */
+            collection_id?: string | null;
+        };
+        /** MemberResponse */
+        MemberResponse: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Email */
+            email: string;
+            /** Role */
+            role: string;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+        };
+        /** ProjectCreate */
+        ProjectCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "backlog" | "active" | "on_deck" | "in_progress" | "complete" | "archived";
+            /** Due Date */
+            due_date?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** @default false */
+            show_in_nav?: boolean;
+            /** @default 0 */
+            sort_order?: number;
+        };
+        /** ProjectUpdate */
+        ProjectUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Status */
+            status?: ("backlog" | "active" | "on_deck" | "in_progress" | "complete" | "archived") | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+            show_in_nav?: boolean | null;
+            sort_order?: number | null;
+        };
+        /** ProjectResponse */
+        ProjectResponse: {
+            /** Id */
+            id: string;
+            /** Household Id */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Status */
+            status: "backlog" | "active" | "on_deck" | "in_progress" | "complete" | "archived";
+            /** Due Date */
+            due_date: string | null;
+            /** Is System */
+            is_system: boolean;
+            /** Show In Nav */
+            show_in_nav: boolean;
+            /** Sort Order */
+            sort_order: number;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ProjectListResponse */
+        ProjectListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** ProjectGoalListResponse */
+        ProjectGoalListResponse: {
+            /** Items (goal UUIDs) */
+            items: string[];
+            /** Total */
+            total: number;
+        };
+        /** GoalProjectListResponse */
+        GoalProjectListResponse: {
+            /** Items (project UUIDs) */
+            items: string[];
+            /** Total */
+            total: number;
         };
         /** TodoCreate */
         TodoCreate: {
-            /** Parent Id */
-            parent_id?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Assigned To User Id */
+            assigned_to_user_id?: string | null;
             /** Title */
             title: string;
             /** Description */
@@ -2160,10 +2515,10 @@ export interface components {
             household_id: string;
             /** Created By User Id */
             created_by_user_id: string | null;
-            /** Parent Id */
-            parent_id: string | null;
-            /** Goal Id */
-            goal_id: string | null;
+            /** Project Id */
+            project_id: string | null;
+            /** Assigned To User Id */
+            assigned_to_user_id: string | null;
             /** Title */
             title: string;
             /** Description */
@@ -2193,10 +2548,10 @@ export interface components {
         };
         /** TodoUpdate */
         TodoUpdate: {
-            /** Parent Id */
-            parent_id?: string | null;
-            /** Goal Id */
-            goal_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Assigned To User Id */
+            assigned_to_user_id?: string | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -2333,6 +2688,12 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /**
+             * Exercise Names
+             * @description Distinct exercise names from this workout's entries. Populated by list_workouts; empty for single-fetch responses.
+             * @default []
+             */
+            exercise_names: string[];
         };
         /** WorkoutUpdate */
         WorkoutUpdate: {
@@ -3451,6 +3812,26 @@ export interface operations {
             };
         };
     };
+    list_members_households_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberResponse"][];
+                };
+            };
+        };
+    };
     list_habits_habits_get: {
         parameters: {
             query?: {
@@ -4132,12 +4513,101 @@ export interface operations {
             };
         };
     };
+    list_projects_projects_get: {
+        parameters: {
+            query?: {
+                parent_id?: string | null;
+                root_only?: boolean;
+                show_in_nav?: boolean | null;
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectListResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    create_project_projects_post: {
+        parameters: { query?: never; header?: never; path?: never; cookie?: never };
+        requestBody: { content: { "application/json": components["schemas"]["ProjectCreate"] } };
+        responses: {
+            201: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    get_project_projects__project_id__get: {
+        parameters: { query?: never; header?: never; path: { project_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    update_project_projects__project_id__patch: {
+        parameters: { query?: never; header?: never; path: { project_id: string }; cookie?: never };
+        requestBody: { content: { "application/json": components["schemas"]["ProjectUpdate"] } };
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    archive_project_projects__project_id__archive_post: {
+        parameters: { query?: never; header?: never; path: { project_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    delete_project_projects__project_id__delete: {
+        parameters: { query?: never; header?: never; path: { project_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            204: { headers: { [name: string]: unknown }; content?: never };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    list_project_goals_projects__project_id__goals_get: {
+        parameters: { query?: never; header?: never; path: { project_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["ProjectGoalListResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    link_goal_projects__project_id__goals__goal_id__put: {
+        parameters: { query?: never; header?: never; path: { project_id: string; goal_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            204: { headers: { [name: string]: unknown }; content?: never };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    unlink_goal_projects__project_id__goals__goal_id__delete: {
+        parameters: { query?: never; header?: never; path: { project_id: string; goal_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            204: { headers: { [name: string]: unknown }; content?: never };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
+    list_goal_projects_goals__goal_id__projects_get: {
+        parameters: { query?: never; header?: never; path: { goal_id: string }; cookie?: never };
+        requestBody?: never;
+        responses: {
+            200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["GoalProjectListResponse"] } };
+            422: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["HTTPValidationError"] } };
+        };
+    };
     list_todos_todos_get: {
         parameters: {
             query?: {
                 status?: string | null;
-                goal_id?: string | null;
-                parent_id?: string | null;
+                project_id?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -4291,6 +4761,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_exercise_names_workouts_exercise_names_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
         };
@@ -4563,6 +5053,7 @@ export interface operations {
             query?: {
                 include_archived?: boolean;
                 tag_id?: string | null;
+                collection_id?: string | null;
                 q?: string | null;
                 limit?: number;
                 offset?: number;
@@ -4671,12 +5162,119 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
+                headers: { [name: string]: unknown };
+                content: { "application/json": unknown };
+            };
+        };
+    };
+    list_collections_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["CollectionListResponse"] };
+            };
+        };
+    };
+    create_collection_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: { "application/json": components["schemas"]["CollectionCreate"] };
+        };
+        responses: {
+            201: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["CollectionResponse"] };
+            };
+            422: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+            };
+        };
+    };
+    get_collection_collections__collection_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: { collection_id: string };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["CollectionResponse"] };
+            };
+            422: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+            };
+        };
+    };
+    update_collection_collections__collection_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: { collection_id: string };
+            cookie?: never;
+        };
+        requestBody: {
+            content: { "application/json": components["schemas"]["CollectionUpdate"] };
+        };
+        responses: {
+            200: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["CollectionResponse"] };
+            };
+            422: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+            };
+        };
+    };
+    delete_collection_collections__collection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: { collection_id: string };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: { headers: { [name: string]: unknown }; content?: never };
+            422: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+            };
+        };
+    };
+    ensure_today_collections__collection_id__ensure_today_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: { collection_id: string };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["EnsureTodayResponse"] };
+            };
+            422: {
+                headers: { [name: string]: unknown };
+                content: { "application/json": components["schemas"]["HTTPValidationError"] };
             };
         };
     };

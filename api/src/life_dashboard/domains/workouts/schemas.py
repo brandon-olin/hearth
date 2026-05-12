@@ -71,6 +71,8 @@ class WorkoutResponse(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+    # Populated by list_workouts for the card summary; empty on single-fetch responses.
+    exercise_names: list[str] = []
 
 
 class WorkoutWithEntriesResponse(WorkoutResponse):

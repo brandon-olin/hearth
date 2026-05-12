@@ -7,6 +7,7 @@ from life_dashboard.domains.goals.models import Goal
 from life_dashboard.domains.goals.schemas import (
     GoalCreate,
     GoalListResponse,
+    GoalProjectListResponse,
     GoalResponse,
     GoalUpdate,
 )
@@ -115,3 +116,26 @@ async def delete_goal(
     await db.delete(goal)
     await db.commit()
     return True
+
+
+# ── Project relationships ─────────────────────────────────────────────────────
+
+async def list_goal_projects(
+    db: AsyncSession,
+    goal_id: uuid.UUID,
+    household_id: uuid.UUID,
+) -> GoalProjectListResponse | None:
+    """Return the project IDs linked to a goal. Returns None if goal not found."""
+    from life_dashboard.domains.projects.models import ProjectGoal
+
+    # Verify the goal belongs to this household
+    exists = (await db.execute(
+        select(Goal.id).where(Goal.id == goal_id, Goal.household_id == household_id)
+    )).scalar_one_or_none()
+    if not exists:
+        return None
+
+    rows = (await db.execute(
+        select(ProjectGoal.project_id).where(ProjectGoal.goal_id == goal_id)
+    )).scalars().all()
+    return GoalProjectListResponse(items=list(rows), total=len(rows))

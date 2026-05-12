@@ -172,10 +172,12 @@ function EntryRow({
   entry,
   onChange,
   onDelete,
+  exerciseNameListId,
 }: {
   entry: EntryState;
   onChange: (updates: Partial<EntryState>) => void;
   onDelete: () => void;
+  exerciseNameListId?: string;
 }) {
   const isStrength = entry.type === "strength";
   const isCardio   = entry.type === "cardio" || entry.type === "hiit";
@@ -201,6 +203,8 @@ function EntryRow({
           onChange={(e) => onChange({ name: e.target.value })}
           placeholder="Exercise name"
           className="h-8 text-sm flex-1"
+          list={exerciseNameListId}
+          autoComplete="off"
         />
         <select
           value={entry.type}
@@ -343,6 +347,15 @@ function WorkoutEditor({
     { params: { path: { workout_id: workoutId } } },
     { staleTime: Infinity },
   );
+
+  // Fetch distinct exercise names for autocomplete — stale for 5 min is fine.
+  const { data: exerciseNames } = $api.useQuery(
+    "get",
+    "/workouts/exercise-names",
+    {},
+    { staleTime: 5 * 60 * 1000 },
+  );
+  const nameListId = `exercise-names-${workoutId}`;
 
   // Local edit state
   const [date,  setDate]  = useState("");
@@ -561,12 +574,20 @@ function WorkoutEditor({
             </p>
           )}
 
+          {/* Hidden datalist — powers exercise name autocomplete on all EntryRows */}
+          <datalist id={nameListId}>
+            {(exerciseNames ?? []).map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+
           {entries.map((entry) => (
             <EntryRow
               key={entry.localId}
               entry={entry}
               onChange={(updates) => handleEntryChange(entry.localId, updates)}
               onDelete={() => handleDeleteEntry(entry.localId, entry.dbId)}
+              exerciseNameListId={nameListId}
             />
           ))}
         </div>
@@ -791,9 +812,16 @@ export default function WorkoutsPage() {
                     )}
                   >
                     <Dumbbell className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium flex-1 truncate">
-                      {w.name ?? "Workout"}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium block truncate">
+                        {w.name ?? "Workout"}
+                      </span>
+                      {w.exercise_names && w.exercise_names.length > 0 && (
+                        <span className="text-xs text-muted-foreground truncate block">
+                          {w.exercise_names.join(" · ")}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>

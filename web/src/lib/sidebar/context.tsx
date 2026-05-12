@@ -15,9 +15,10 @@ export type SidebarFolder = {
 };
 
 export type SidebarConfig = {
-  hidden: string[];          // hrefs hidden from sidebar (can also apply inside folders)
-  order: string[];           // root-level render order: mix of hrefs and folder IDs
-  folders: SidebarFolder[];  // folder definitions (synced to server)
+  hidden: string[];              // hrefs hidden from sidebar (can also apply inside folders)
+  order: string[];               // root-level render order: mix of hrefs and folder IDs
+  folders: SidebarFolder[];      // folder definitions (synced to server)
+  pinnedDocumentIds: string[];   // document IDs pinned as individual nav items
 };
 
 // folderOpen is NOT part of SidebarConfig — it's localStorage-only so that
@@ -26,7 +27,7 @@ export type SidebarConfig = {
 
 // ── Default ───────────────────────────────────────────────────────────────────
 
-const DEFAULT_SIDEBAR_CONFIG: SidebarConfig = { hidden: [], order: [], folders: [] };
+const DEFAULT_SIDEBAR_CONFIG: SidebarConfig = { hidden: [], order: [], folders: [], pinnedDocumentIds: [] };
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
@@ -34,9 +35,10 @@ const DEFAULT_SIDEBAR_CONFIG: SidebarConfig = { hidden: [], order: [], folders: 
  *  initial release so old stored/server values don't cause runtime crashes. */
 export function normalizeSidebarConfig(raw: Partial<SidebarConfig>): SidebarConfig {
   return {
-    hidden:  raw.hidden  ?? [],
-    order:   raw.order   ?? [],
-    folders: raw.folders ?? [],
+    hidden:             raw.hidden             ?? [],
+    order:              raw.order              ?? [],
+    folders:            raw.folders            ?? [],
+    pinnedDocumentIds:  raw.pinnedDocumentIds  ?? [],
   };
 }
 

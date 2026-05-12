@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,8 +26,8 @@ async def create_todo(
     todo = Todo(
         household_id=household_id,
         created_by_user_id=user_id,
-        parent_id=data.parent_id,
-        goal_id=data.goal_id,
+        project_id=data.project_id,
+        assigned_to_user_id=data.assigned_to_user_id,
         title=data.title,
         description=data.description,
         status=data.status,
@@ -57,18 +58,15 @@ async def list_todos(
     household_id: uuid.UUID,
     *,
     status: str | None = None,
-    goal_id: uuid.UUID | None = None,
-    parent_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> TodoListResponse:
     query = select(Todo).where(Todo.household_id == household_id)
     if status is not None:
         query = query.where(Todo.status == status)
-    if goal_id is not None:
-        query = query.where(Todo.goal_id == goal_id)
-    if parent_id is not None:
-        query = query.where(Todo.parent_id == parent_id)
+    if project_id is not None:
+        query = query.where(Todo.project_id == project_id)
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
     todos = list(
@@ -98,6 +96,15 @@ async def update_todo(
 
     for field in data.model_fields_set:
         setattr(todo, field, getattr(data, field))
+
+    # Auto-stamp completed_at when status transitions to/from done
+    if "status" in data.model_fields_set and "completed_at" not in data.model_fields_set:
+        if data.status == "done":
+            todo.completed_at = datetime.now(tz=timezone.utc)
+        else:
+            todo.completed_at = None
+
+    todo.updated_at = datetime.now(tz=timezone.utc)
 
     await db.commit()
     await db.refresh(todo)

@@ -14,6 +14,7 @@ from life_dashboard.ai.schemas import (
     ConversationDetailResponse,
     ConversationListResponse,
     MessageSearchResponse,
+    UsageSummaryResponse,
 )
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
@@ -39,6 +40,22 @@ async def update_settings(
     current_user: User = Depends(get_current_user),
 ) -> AiSettingsResponse:
     return await service.update_settings(db, current_user.id, data)
+
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+
+@router.get("/usage", response_model=UsageSummaryResponse)
+async def get_usage(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UsageSummaryResponse:
+    """Return token usage totals for the current user.
+
+    this_month_* covers the current calendar month (UTC).
+    lifetime_* covers all recorded history.
+    by_model breaks down this-month usage per model string.
+    """
+    return await service.get_usage_summary(db, current_user.id)
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────

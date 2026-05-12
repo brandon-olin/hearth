@@ -24,8 +24,9 @@ type FormState = {
   title: string;
   description: string;
   status: "pending" | "in_progress" | "done" | "cancelled";
-  priority: "low" | "medium" | "high" | "urgent" | "";
+  priority: "low" | "medium" | "high" | "";
   due_date: string;
+  assigned_to: string; // UUID string, or "" for unassigned
 };
 
 function blankForm(): FormState {
@@ -33,8 +34,9 @@ function blankForm(): FormState {
     title: "",
     description: "",
     status: "pending",
-    priority: "medium",
+    priority: "",
     due_date: "",
+    assigned_to: "",
   };
 }
 
@@ -45,16 +47,19 @@ function formFromTodo(todo: Todo): FormState {
     status: todo.status as FormState["status"],
     priority: (todo.priority ?? "") as FormState["priority"],
     due_date: todo.due_date ?? "",
+    assigned_to: todo.assigned_to_user_id ?? "",
   };
 }
 
 interface TodoSheetProps {
   open: boolean;
   todo: Todo | null;
+  /** If set, newly created todos will belong to this project */
+  defaultProjectId?: string;
   onClose: () => void;
 }
 
-export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
+export function TodoSheet({ open, todo, defaultProjectId, onClose }: TodoSheetProps) {
   const qc = useQueryClient();
   const isEdit = todo !== null;
 
@@ -63,7 +68,10 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form whenever the target todo changes
+  // Household members for the assignee picker
+  const { data: members } = $api.useQuery("get", "/households/members", {});
+
+  // Reset all state when the target todo changes or the sheet opens
   useEffect(() => {
     setForm(todo ? formFromTodo(todo) : blankForm());
     setConfirmDelete(false);
@@ -71,17 +79,15 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
   }, [todo, open]);
 
   const { mutateAsync: createTodo } = $api.useMutation("post", "/todos");
-  const { mutateAsync: updateTodo } = $api.useMutation(
-    "patch",
-    "/todos/{todo_id}"
-  );
-  const { mutateAsync: deleteTodo } = $api.useMutation(
-    "delete",
-    "/todos/{todo_id}"
-  );
+  const { mutateAsync: updateTodo } = $api.useMutation("patch", "/todos/{todo_id}");
+  const { mutateAsync: deleteTodo } = $api.useMutation("delete", "/todos/{todo_id}");
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function invalidateAll() {
+    qc.invalidateQueries({ queryKey: ["get", "/todos"] });
   }
 
   async function handleSave() {
@@ -98,15 +104,19 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
         status: form.status,
         priority: (form.priority || null) as "low" | "medium" | "high" | null,
         due_date: form.due_date || null,
+        assigned_to_user_id: form.assigned_to || null,
       };
-
       if (isEdit) {
         await updateTodo({ params: { path: { todo_id: todo.id } }, body });
       } else {
-        await createTodo({ body });
+        await createTodo({
+          body: {
+            ...body,
+            ...(defaultProjectId ? { project_id: defaultProjectId } : {}),
+          },
+        });
       }
-
-      qc.invalidateQueries({ queryKey: ["get", "/todos"] });
+      invalidateAll();
       onClose();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -120,7 +130,7 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
     setSaving(true);
     try {
       await deleteTodo({ params: { path: { todo_id: todo.id } } });
-      qc.invalidateQueries({ queryKey: ["get", "/todos"] });
+      invalidateAll();
       onClose();
     } catch {
       setError("Delete failed. Please try again.");
@@ -138,11 +148,8 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
           </SheetDescription>
         </SheetHeader>
 
-        {/* Scrollable form body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
           {/* Title */}
           <div className="space-y-1.5">
@@ -168,16 +175,14 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
             />
           </div>
 
-          {/* Status + Priority row */}
+          {/* Status + Priority */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="todo-status">Status</Label>
               <Select
                 id="todo-status"
                 value={form.status}
-                onChange={(e) =>
-                  set("status", e.target.value as FormState["status"])
-                }
+                onChange={(e) => set("status", e.target.value as FormState["status"])}
               >
                 <option value="pending">To-do</option>
                 <option value="in_progress">In progress</option>
@@ -185,45 +190,54 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
                 <option value="cancelled">Cancelled</option>
               </Select>
             </div>
-
             <div className="space-y-1.5">
               <Label htmlFor="todo-priority">Priority</Label>
               <Select
                 id="todo-priority"
                 value={form.priority}
-                onChange={(e) =>
-                  set("priority", e.target.value as FormState["priority"])
-                }
+                onChange={(e) => set("priority", e.target.value as FormState["priority"])}
               >
                 <option value="">None</option>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
-                <option value="urgent">Urgent</option>
               </Select>
             </div>
           </div>
 
-          {/* Due date */}
-          <div className="space-y-1.5">
-            <Label htmlFor="todo-due">Due date</Label>
-            <Input
-              id="todo-due"
-              type="date"
-              value={form.due_date}
-              onChange={(e) => set("due_date", e.target.value)}
-            />
+          {/* Due date + Assigned to */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="todo-due">Due date</Label>
+              <Input
+                id="todo-due"
+                type="date"
+                value={form.due_date}
+                onChange={(e) => set("due_date", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="todo-assigned">Assigned to</Label>
+              <Select
+                id="todo-assigned"
+                value={form.assigned_to}
+                onChange={(e) => set("assigned_to", e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {(members ?? []).map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.display_name ?? m.email}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         </div>
 
-        {/* Footer actions */}
+        {/* Footer */}
         <div className="px-6 py-4 border-t shrink-0 space-y-2">
           <div className="flex gap-2">
-            <Button
-              className="flex-1"
-              onClick={handleSave}
-              disabled={saving}
-            >
+            <Button className="flex-1" onClick={handleSave} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {isEdit ? "Save changes" : "Create"}
             </Button>
@@ -232,8 +246,8 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
             </Button>
           </div>
 
-          {isEdit && (
-            confirmDelete ? (
+          {isEdit &&
+            (confirmDelete ? (
               <div className="flex gap-2">
                 <Button
                   variant="destructive"
@@ -261,8 +275,7 @@ export function TodoSheet({ open, todo, onClose }: TodoSheetProps) {
               >
                 Delete
               </Button>
-            )
-          )}
+            ))}
         </div>
       </SheetContent>
     </Sheet>

@@ -31,6 +31,7 @@ class NoteCreate(BaseModel):
     content_md: str | None = None
     content_json: dict[str, Any] | None = None
     tag_ids: list[uuid.UUID] = []
+    collection_id: uuid.UUID | None = None
 
 
 class NoteUpdate(BaseModel):
@@ -38,6 +39,7 @@ class NoteUpdate(BaseModel):
     content_md: str | None = None
     content_json: dict[str, Any] | None = None
     tag_ids: list[uuid.UUID] | None = None
+    collection_id: uuid.UUID | None = None
 
 
 class NoteSummary(BaseModel):
@@ -47,6 +49,7 @@ class NoteSummary(BaseModel):
     id: uuid.UUID
     title: str
     content_md: str | None
+    collection_id: uuid.UUID | None
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -60,6 +63,7 @@ class NoteResponse(BaseModel):
     title: str
     content_md: str | None
     content_json: dict[str, Any] | None
+    collection_id: uuid.UUID | None
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime

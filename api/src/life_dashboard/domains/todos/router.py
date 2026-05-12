@@ -21,8 +21,7 @@ router = APIRouter(prefix="/todos", tags=["todos"])
 @router.get("", response_model=TodoListResponse)
 async def list_todos(
     status: str | None = Query(default=None),
-    goal_id: uuid.UUID | None = Query(default=None),
-    parent_id: uuid.UUID | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -30,7 +29,7 @@ async def list_todos(
 ) -> TodoListResponse:
     return await service.list_todos(
         db, current_user.household_id,
-        status=status, goal_id=goal_id, parent_id=parent_id,
+        status=status, project_id=project_id,
         limit=limit, offset=offset,
     )
 

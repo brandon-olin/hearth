@@ -129,6 +129,16 @@
   }
 }
 
+/* ── Global interactive cursors ───────────────────────────────────────────────
+   Intentionally outside @layer so this wins over Tailwind's preflight reset,
+   which lives in @layer base. Unlayered author styles beat layered ones in the
+   CSS cascade, so no specificity tricks needed. */
+button,
+[role="button"],
+a {
+  cursor: pointer;
+}
+
 /* Applied for ~350ms during theme toggle — gives smooth color transitions
    without slowing down normal hover/focus effects.
    Longhands with individual !important are used so that every declaration

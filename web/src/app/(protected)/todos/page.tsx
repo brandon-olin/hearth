@@ -6,13 +6,13 @@ import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
 import { TodoRow } from "@/components/todos/todo-row";
 import { TodoSheet } from "@/components/todos/todo-sheet";
+import { QuickAdd } from "@/components/todos/quick-add";
 import { cn } from "@/lib/utils";
-import { Plus, Loader2, ArrowUpDown } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
 type Todo = components["schemas"]["TodoResponse"];
 type Filter = "active" | "all" | "done";
-type Sort = "default" | "due_asc" | "due_desc";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "active", label: "Active" },
@@ -20,44 +20,111 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "done", label: "Done" },
 ];
 
-const SORT_LABELS: Record<Sort, string> = {
-  default: "Default",
-  due_asc: "Due: soonest",
-  due_desc: "Due: latest",
-};
+// ── date helpers ──────────────────────────────────────────────────────────────
 
-const SORT_CYCLE: Sort[] = ["default", "due_asc", "due_desc"];
+function toLocalDateString(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
-function applyFilter(todos: Todo[], filter: Filter): Todo[] {
-  if (filter === "active")
-    return todos.filter(
-      (t) => t.status === "pending" || t.status === "in_progress"
-    );
-  if (filter === "done")
-    return todos.filter(
+function getDateBoundaries() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = toLocalDateString(today);
+  const in7Days = new Date(today);
+  in7Days.setDate(today.getDate() + 7);
+  const in7DaysStr = toLocalDateString(in7Days);
+  return { todayStr, in7DaysStr };
+}
+
+// ── grouping ──────────────────────────────────────────────────────────────────
+
+type Group = { key: string; label: string; todos: Todo[] };
+
+function groupByDueDate(todos: Todo[]): Group[] {
+  const { todayStr, in7DaysStr } = getDateBoundaries();
+  const overdue: Todo[] = [];
+  const today: Todo[] = [];
+  const thisWeek: Todo[] = [];
+  const later: Todo[] = [];
+  const noDate: Todo[] = [];
+
+  for (const todo of todos) {
+    if (!todo.due_date) noDate.push(todo);
+    else if (todo.due_date < todayStr) overdue.push(todo);
+    else if (todo.due_date === todayStr) today.push(todo);
+    else if (todo.due_date <= in7DaysStr) thisWeek.push(todo);
+    else later.push(todo);
+  }
+
+  return [
+    { key: "overdue", label: "Overdue", todos: overdue },
+    { key: "today", label: "Today", todos: today },
+    { key: "this-week", label: "This week", todos: thisWeek },
+    { key: "later", label: "Later", todos: later },
+    { key: "no-date", label: "No due date", todos: noDate },
+  ].filter((g) => g.todos.length > 0);
+}
+
+function buildGroups(items: Todo[], filter: Filter): Group[] {
+  if (filter === "done") {
+    const done = items.filter(
       (t) => t.status === "done" || t.status === "cancelled"
     );
-  return todos;
+    return done.length > 0 ? [{ key: "done", label: "Completed", todos: done }] : [];
+  }
+
+  if (filter === "all") {
+    const active = items.filter(
+      (t) => t.status === "pending" || t.status === "in_progress"
+    );
+    const done = items.filter(
+      (t) => t.status === "done" || t.status === "cancelled"
+    );
+    const groups = groupByDueDate(active);
+    if (done.length > 0) groups.push({ key: "done", label: "Completed", todos: done });
+    return groups;
+  }
+
+  // "active" filter
+  const active = items.filter(
+    (t) => t.status === "pending" || t.status === "in_progress"
+  );
+  return groupByDueDate(active);
 }
 
-function applySort(todos: Todo[], sort: Sort): Todo[] {
-  if (sort === "default") return todos;
+// ── group header ──────────────────────────────────────────────────────────────
 
-  return [...todos].sort((a, b) => {
-    // Todos without a due date sink to the bottom in both directions
-    if (!a.due_date && !b.due_date) return 0;
-    if (!a.due_date) return 1;
-    if (!b.due_date) return -1;
-    const cmp = a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0;
-    return sort === "due_asc" ? cmp : -cmp;
-  });
+function GroupHeader({
+  label,
+  count,
+  overdue,
+}: {
+  label: string;
+  count: number;
+  overdue?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 pt-5 pb-1 first:pt-0">
+      <span
+        className={cn(
+          "text-xs font-semibold shrink-0",
+          overdue ? "text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {label}
+      </span>
+      <span className="text-xs text-muted-foreground/50 shrink-0">{count}</span>
+      <div className="flex-1 border-t border-border/40" />
+    </div>
+  );
 }
+
+// ── page ──────────────────────────────────────────────────────────────────────
 
 export default function TodosPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("active");
-  const [sort, setSort] = useState<Sort>("default");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
 
@@ -77,11 +144,21 @@ export default function TodosPage() {
     }
   }, [searchParams, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const displayed = applySort(applyFilter(data?.items ?? [], filter), sort);
+  const allItems = data?.items ?? [];
 
-  function cycleSort() {
-    setSort((prev) => SORT_CYCLE[(SORT_CYCLE.indexOf(prev) + 1) % SORT_CYCLE.length]);
+  function countForFilter(f: Filter) {
+    if (f === "active")
+      return allItems.filter(
+        (t) => t.status === "pending" || t.status === "in_progress"
+      ).length;
+    if (f === "done")
+      return allItems.filter(
+        (t) => t.status === "done" || t.status === "cancelled"
+      ).length;
+    return allItems.length;
   }
+
+  const groups = buildGroups(allItems, filter);
 
   function openCreate() {
     setEditingTodo(null);
@@ -110,67 +187,41 @@ export default function TodosPage() {
         </Button>
       </div>
 
-      {/* Filter tabs + sort control */}
-      <div className="flex items-center justify-between border-b mb-4">
-        <div className="flex">
-          {FILTERS.map(({ key, label }) => {
-            const count =
-              key === "active"
-                ? (data?.items ?? []).filter(
-                    (t) => t.status === "pending" || t.status === "in_progress"
-                  ).length
-                : key === "done"
-                ? (data?.items ?? []).filter(
-                    (t) => t.status === "done" || t.status === "cancelled"
-                  ).length
-                : (data?.items ?? []).length;
-
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilter(key)}
+      {/* Filter tabs */}
+      <div className="flex items-center border-b mb-4">
+        {FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilter(key)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors cursor-pointer",
+              filter === key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+            {!isLoading && (
+              <span
                 className={cn(
-                  "px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors cursor-pointer",
+                  "ml-1.5 text-xs",
                   filter === key
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "text-muted-foreground"
+                    : "text-muted-foreground/60"
                 )}
               >
-                {label}
-                {!isLoading && (
-                  <span
-                    className={cn(
-                      "ml-1.5 text-xs",
-                      filter === key
-                        ? "text-muted-foreground"
-                        : "text-muted-foreground/60"
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Sort toggle */}
-        <button
-          type="button"
-          onClick={cycleSort}
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1.5 mb-1 rounded-md text-xs transition-colors cursor-pointer",
-            sort !== "default"
-              ? "text-foreground bg-muted"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          )}
-          title="Cycle sort order"
-        >
-          <ArrowUpDown className="h-3 w-3" />
-          {SORT_LABELS[sort]}
-        </button>
+                {countForFilter(key)}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
+
+      {/* Quick-add row — hidden on the Done tab */}
+      {filter !== "done" && (
+        <QuickAdd className="mb-4" />
+      )}
 
       {/* Content */}
       {isLoading && (
@@ -184,7 +235,7 @@ export default function TodosPage() {
         <p className="py-8 text-sm text-destructive">Failed to load todos.</p>
       )}
 
-      {!isLoading && !isError && displayed.length === 0 && (
+      {!isLoading && !isError && groups.length === 0 && (
         <div className="py-12 text-center">
           <p className="text-sm text-muted-foreground">
             {filter === "active"
@@ -207,10 +258,21 @@ export default function TodosPage() {
         </div>
       )}
 
-      {!isLoading && !isError && displayed.length > 0 && (
-        <div className="space-y-0.5">
-          {displayed.map((todo) => (
-            <TodoRow key={todo.id} todo={todo} onEdit={openEdit} />
+      {!isLoading && !isError && groups.length > 0 && (
+        <div>
+          {groups.map((group) => (
+            <div key={group.key}>
+              <GroupHeader
+                label={group.label}
+                count={group.todos.length}
+                overdue={group.key === "overdue"}
+              />
+              <div className="space-y-0.5">
+                {group.todos.map((todo) => (
+                  <TodoRow key={todo.id} todo={todo} onEdit={openEdit} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

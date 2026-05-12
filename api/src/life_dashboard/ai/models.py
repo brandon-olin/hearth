@@ -8,6 +8,7 @@ from sqlalchemy import Enum as SaEnum
 from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+from sqlalchemy.schema import Index
 
 from life_dashboard.core.database import Base
 
@@ -108,3 +109,42 @@ class AiSettings(Base):
     # NULL → keep conversations forever.
     # Allowed integers: 30, 60, 90, 180, 365 (enforced by DB CHECK constraint).
     retention_days: Mapped[int | None] = mapped_column(Integer, default=90)
+
+
+class AiUsage(Base):
+    """Per-turn token consumption record.
+
+    One row is written after each completed API call — both interactive chat
+    turns and background calls (e.g. memory refresh).  turn_kind distinguishes
+    these so they can be filtered separately in usage reports.
+
+    conversation_id is nullable because background tasks (memory refresh) are
+    not tied to a specific conversation.
+    """
+    __tablename__ = "ai_usage"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("ai_conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Actual model string returned by the provider (e.g. "claude-sonnet-4-6").
+    model: Mapped[str] = mapped_column(Text)
+    # "chat" for interactive turns, "memory_refresh" for background calls.
+    turn_kind: Mapped[str] = mapped_column(Text, default="chat")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        # Index used by monthly rollup queries and the /ai/usage endpoint.
+        Index("ix_ai_usage_user_created", "user_id", "created_at"),
+    )

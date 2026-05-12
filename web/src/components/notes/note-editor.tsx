@@ -202,12 +202,14 @@ function BacklinksPanel({
 interface NoteEditorProps {
   /** null = create mode, string = edit mode */
   noteId: string | null;
+  /** When set, new notes are stamped with this collection_id on creation. */
+  defaultCollectionId?: string;
   onCreated: (note: NoteSummary) => void;
   onDeleted: () => void;
   onNavigate: (id: string) => void;
 }
 
-export function NoteEditor({ noteId, onCreated, onDeleted, onNavigate }: NoteEditorProps) {
+export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, onNavigate }: NoteEditorProps) {
   const qc = useQueryClient();
   const isNew = noteId === null;
 
@@ -306,7 +308,12 @@ export function NoteEditor({ noteId, onCreated, onDeleted, onNavigate }: NoteEdi
     setSaveError(null);
     try {
       const note = await createNote({
-        body: { title: t, content_md: content || null, tag_ids: tagIds },
+        body: {
+          title: t,
+          content_md: content || null,
+          tag_ids: tagIds,
+          collection_id: defaultCollectionId ?? null,
+        },
       });
       qc.invalidateQueries({ queryKey: ["get", "/notes"] });
       onCreated(note as unknown as NoteSummary);

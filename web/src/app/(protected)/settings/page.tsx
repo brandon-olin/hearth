@@ -16,10 +16,20 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Plus,
+  Pencil,
+  BookOpen,
+  FileText,
+  RefreshCw,
+  FolderKanban,
+  Pin,
+  PinOff,
+  Lock,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
+import { $api } from "@/lib/api/query";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
   BASE_THEMES,
@@ -30,7 +40,8 @@ import {
   type ThemeConfig,
 } from "@/lib/theme/presets";
 import { useSidebarConfig, newFolderId, type SidebarFolder } from "@/lib/sidebar/context";
-import { ALL_NAV_ITEMS, type NavItem } from "@/lib/sidebar/nav-items";
+import { type NavItem } from "@/lib/sidebar/nav-items";
+import { useNavItems } from "@/lib/sidebar/use-nav-items";
 import {
   FOLDER_ICON_GROUPS,
   resolveFolderIcon,
@@ -42,11 +53,11 @@ import {
 type Section = "appearance" | "navigation" | "account" | "household" | "ai";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
-  { id: "appearance",  label: "Appearance",  icon: Palette   },
-  { id: "navigation",  label: "Navigation",  icon: GripVertical },
-  { id: "account",     label: "Account",     icon: User      },
-  { id: "household",   label: "Household",   icon: Home      },
-  { id: "ai",          label: "AI",          icon: Bot       },
+  { id: "appearance",  label: "Appearance",  icon: Palette       },
+  { id: "navigation",  label: "Navigation",  icon: GripVertical  },
+  { id: "account",     label: "Account",     icon: User          },
+  { id: "household",   label: "Household",   icon: Home          },
+  { id: "ai",          label: "AI",          icon: Bot           },
 ];
 
 function SettingsNav({
@@ -188,12 +199,30 @@ function InlineIconPicker({
   );
 }
 
-function SidebarCustomizer() {
+function SidebarCustomizer({
+  onCreateProject,
+  onCreatePage,
+}: {
+  onCreateProject?: () => void;
+  onCreatePage?: () => void;
+}) {
   const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+  const { items: allNavItems } = useNavItems();
+  const qc = useQueryClient();
+  const { mutateAsync: updateProject } = $api.useMutation("patch", "/projects/{project_id}");
 
   // Unified drag state — works for both nav item hrefs and folder IDs
   const dragIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  // Tracks what's being dragged so we can style folder drop zones correctly
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // Drag state for reordering items within a folder's expanded contents panel
+  const folderDragRef = useRef<string | null>(null);
+  const [folderDragOverHref, setFolderDragOverHref] = useState<string | null>(null);
+
+  // "Add nav item" picker
+  const [navPickerOpen, setNavPickerOpen] = useState(false);
 
   // New-folder form state
   const [addingFolder, setAddingFolder] = useState(false);
@@ -214,8 +243,9 @@ function SidebarCustomizer() {
   const { folders, hidden, order } = sidebarConfig;
 
   // ── Build unified ordered root list (nav items + folders interleaved) ───────
+  // Uses allNavItems (dynamic) so projects + documents appear alongside builtins.
   const folderedHrefs = new Set(folders.flatMap((f) => f.hrefs));
-  const allHrefs      = ALL_NAV_ITEMS.map((n) => n.href);
+  const allHrefs      = allNavItems.map((n) => n.href);
   const rootNavHrefs  = allHrefs.filter((h) => !folderedHrefs.has(h));
   const folderIds     = folders.map((f) => f.id);
   const allRootIds    = [...rootNavHrefs, ...folderIds];
@@ -234,20 +264,54 @@ function SidebarCustomizer() {
 
   const rootEntries: RootEntry[] = orderedIds.flatMap((id): RootEntry[] => {
     if (id.startsWith("/")) {
-      const item = ALL_NAV_ITEMS.find((n) => n.href === id);
+      const item = allNavItems.find((n) => n.href === id);
       return item ? [{ kind: "nav" as const, item }] : [];
     }
     const folder = folders.find((f) => f.id === id);
     return folder ? [{ kind: "folder" as const, folder }] : [];
   });
 
-  // ── mutations ───────────────────────────────────────────────────────────────
+  // ── helpers ─────────────────────────────────────────────────────────────────
+
+  /** Renders either a LucideIcon component or an emoji string */
+  function ItemIcon({ icon, className }: { icon: NavItem["icon"]; className?: string }) {
+    if (typeof icon === "string") {
+      return <span className={cn("text-base leading-none w-4 text-center shrink-0", className)}>{icon}</span>;
+    }
+    const I = icon;
+    return <I className={cn("h-4 w-4 shrink-0", className)} />;
+  }
 
   function toggleHidden(href: string) {
     const nextHidden = hidden.includes(href)
       ? hidden.filter((h) => h !== href)
       : [...hidden, href];
     setSidebarConfig({ ...sidebarConfig, hidden: nextHidden });
+  }
+
+  /** Remove a project or document from the sidebar nav entirely */
+  async function removeFromNav(item: NavItem) {
+    if (item.isProject && item.projectId) {
+      await updateProject({
+        params: { path: { project_id: item.projectId } },
+        body: { show_in_nav: false },
+      });
+      qc.invalidateQueries({ queryKey: ["get", "/projects"] });
+      setSidebarConfig({
+        ...sidebarConfig,
+        order: order.filter((id) => id !== item.href),
+        folders: folders.map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== item.href) })),
+      });
+    } else if (item.isDocument && item.documentId) {
+      setSidebarConfig({
+        ...sidebarConfig,
+        pinnedDocumentIds: (sidebarConfig.pinnedDocumentIds ?? []).filter(
+          (id) => id !== item.documentId,
+        ),
+        order: order.filter((id) => id !== item.href),
+        folders: folders.map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== item.href) })),
+      });
+    }
   }
 
   function addFolder() {
@@ -301,6 +365,22 @@ function SidebarCustomizer() {
     });
   }
 
+  function reorderInFolder(folderId: string, fromHref: string, toHref: string) {
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: folders.map((f) => {
+        if (f.id !== folderId) return f;
+        const next = [...f.hrefs];
+        const fromIdx = next.indexOf(fromHref);
+        const toIdx   = next.indexOf(toHref);
+        if (fromIdx === -1 || toIdx === -1) return f;
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, fromHref);
+        return { ...f, hrefs: next };
+      }),
+    });
+  }
+
   function moveToFolder(href: string, targetFolderId: string) {
     const updatedFolders = folders
       .map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== href) }))
@@ -312,9 +392,12 @@ function SidebarCustomizer() {
     });
   }
 
-  // ── unified drag-to-reorder ─────────────────────────────────────────────────
+  // ── unified drag-to-reorder + drag-into-folder ──────────────────────────────
 
-  function handleDragStart(id: string) { dragIdRef.current = id; }
+  function handleDragStart(id: string) {
+    dragIdRef.current = id;
+    setDraggingId(id);
+  }
 
   function handleDragOver(e: React.DragEvent, targetId: string) {
     e.preventDefault();
@@ -324,6 +407,17 @@ function SidebarCustomizer() {
   function handleDrop(targetId: string) {
     const fromId = dragIdRef.current;
     if (!fromId || fromId === targetId) { setDragOverId(null); return; }
+
+    // ── Drop onto a folder → move item into that folder ──────────────────────
+    const targetIsFolder = !targetId.startsWith("/") && folders.some((f) => f.id === targetId);
+    if (targetIsFolder && fromId.startsWith("/")) {
+      moveToFolder(fromId, targetId);
+      dragIdRef.current = null;
+      setDragOverId(null);
+      return;
+    }
+
+    // ── Drop onto another item → reorder ─────────────────────────────────────
     const next = [...orderedIds];
     const fromIdx = next.indexOf(fromId);
     const toIdx   = next.indexOf(targetId);
@@ -335,7 +429,11 @@ function SidebarCustomizer() {
     setDragOverId(null);
   }
 
-  function handleDragEnd() { dragIdRef.current = null; setDragOverId(null); }
+  function handleDragEnd() {
+    dragIdRef.current = null;
+    setDraggingId(null);
+    setDragOverId(null);
+  }
 
   // ── render ──────────────────────────────────────────────────────────────────
 
@@ -343,16 +441,53 @@ function SidebarCustomizer() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Drag to reorder. Folders are collapsible groups in the sidebar.
+          Drag to reorder or drop onto a folder to nest. Projects and documents can be pinned here.
         </p>
-        <button
-          type="button"
-          onClick={() => setAddingFolder(true)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 ml-3"
-        >
-          <FolderPlus className="h-3.5 w-3.5" />
-          Add folder
-        </button>
+        <div className="relative shrink-0 ml-3">
+          <button
+            type="button"
+            onClick={() => setNavPickerOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add nav item
+          </button>
+          {navPickerOpen && (
+            <>
+              {/* Backdrop to close picker */}
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setNavPickerOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-1.5 z-20 bg-background border rounded-lg shadow-lg py-1 min-w-[148px]">
+                <button
+                  type="button"
+                  onClick={() => { setAddingFolder(true); setNavPickerOpen(false); }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
+                >
+                  <FolderPlus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  Folder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onCreateProject?.(); setNavPickerOpen(false); }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
+                >
+                  <FolderKanban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  Project
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onCreatePage?.(); setNavPickerOpen(false); }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  Document
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* New folder form */}
@@ -422,12 +557,14 @@ function SidebarCustomizer() {
         {rootEntries.map((entry) => {
           const entryId    = entry.kind === "nav" ? entry.item.href : entry.folder.id;
           const isDragOver = dragOverId === entryId;
+          // A folder becomes a drop zone (different highlight) when dragging a nav item over it
+          const isFolderDropTarget = isDragOver && entry.kind === "folder" && draggingId?.startsWith("/");
 
           // ── nav item row ──────────────────────────────────────────────────
           if (entry.kind === "nav") {
             const { item } = entry;
-            const isHidden = hidden.includes(item.href);
-            const Icon     = item.icon;
+            const isHidden   = hidden.includes(item.href);
+            const isDynamic  = !!(item.isProject || item.isDocument); // user-added; has remove btn
             return (
               <div
                 key={entryId}
@@ -443,16 +580,29 @@ function SidebarCustomizer() {
                 )}
               >
                 <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
-                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <ItemIcon icon={item.icon} className="text-muted-foreground" />
                 <span className="flex-1 text-sm font-medium">{item.label}</span>
-                <button
-                  type="button"
-                  onClick={() => toggleHidden(item.href)}
-                  className="text-muted-foreground hover:text-foreground cursor-pointer"
-                  aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}
-                >
-                  {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+                {/* Dynamic items (projects, docs): show remove button */}
+                {isDynamic ? (
+                  <button
+                    type="button"
+                    onClick={() => removeFromNav(item)}
+                    className="text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                    title="Remove from sidebar"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : (
+                  /* Built-in items: show hide/show toggle */
+                  <button
+                    type="button"
+                    onClick={() => toggleHidden(item.href)}
+                    className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    aria-label={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+                  >
+                    {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                )}
               </div>
             );
           }
@@ -462,9 +612,10 @@ function SidebarCustomizer() {
           const isEditing  = editingFolderId === folder.id;
           const isExpanded = expandedFolderId === folder.id;
           const folderItems = folder.hrefs
-            .map((href) => ALL_NAV_ITEMS.find((n) => n.href === href))
+            .map((href) => allNavItems.find((n) => n.href === href))
             .filter((n): n is NavItem => !!n);
-          const available = ALL_NAV_ITEMS.filter((n) => !folder.hrefs.includes(n.href));
+          // Items available to add: everything not already in this folder
+          const available = allNavItems.filter((n) => !folder.hrefs.includes(n.href));
 
           return (
             <div key={entryId}>
@@ -476,7 +627,10 @@ function SidebarCustomizer() {
                 onDragEnd={handleDragEnd}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
-                  isDragOver && "border-primary bg-primary/5 scale-[1.01]",
+                  // Folder drop zone: emerald highlight to signal "move into folder"
+                  isFolderDropTarget && "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 scale-[1.01]",
+                  // Regular reorder highlight
+                  isDragOver && !isFolderDropTarget && "border-primary bg-primary/5 scale-[1.01]",
                   (isExpanded || (isEditing && iconPickerTarget === folder.id)) && "rounded-b-none border-b-0",
                 )}
               >
@@ -582,26 +736,51 @@ function SidebarCustomizer() {
               {isExpanded && (
                 <div className="border border-t-0 rounded-b-md bg-muted/20 px-3 py-2 space-y-1">
                   {folderItems.map((item) => {
-                    const Icon     = item.icon;
-                    const isHidden = hidden.includes(item.href);
+                    const isHidden       = hidden.includes(item.href);
+                    const isDynamic      = !!(item.isProject || item.isDocument);
+                    const isFolderDragOver = folderDragOverHref === item.href;
                     return (
                       <div
                         key={item.href}
+                        draggable
+                        onDragStart={() => { folderDragRef.current = item.href; }}
+                        onDragOver={(e) => { e.preventDefault(); if (folderDragRef.current !== item.href) setFolderDragOverHref(item.href); }}
+                        onDrop={() => {
+                          const from = folderDragRef.current;
+                          if (from && from !== item.href) reorderInFolder(folder.id, from, item.href);
+                          folderDragRef.current = null;
+                          setFolderDragOverHref(null);
+                        }}
+                        onDragEnd={() => { folderDragRef.current = null; setFolderDragOverHref(null); }}
                         className={cn(
                           "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm",
+                          "cursor-grab active:cursor-grabbing",
                           isHidden && "opacity-40",
+                          isFolderDragOver && "ring-1 ring-primary bg-primary/5",
                         )}
                       >
-                        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                        <ItemIcon icon={item.icon} className="text-muted-foreground" />
                         <span className="flex-1 text-muted-foreground">{item.label}</span>
-                        <button
-                          type="button"
-                          onClick={() => toggleHidden(item.href)}
-                          className="text-muted-foreground hover:text-foreground cursor-pointer"
-                          title={isHidden ? "Show in sidebar" : "Hide from sidebar"}
-                        >
-                          {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
+                        {isDynamic ? (
+                          <button
+                            type="button"
+                            onClick={() => removeFromNav(item)}
+                            className="text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                            title="Remove from sidebar"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => toggleHidden(item.href)}
+                            className="text-muted-foreground hover:text-foreground cursor-pointer"
+                            title={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+                          >
+                            {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => removeFromFolder(folder.id, item.href)}
@@ -941,13 +1120,1060 @@ function AppearanceSection() {
   );
 }
 
+// ── Pinned documents manager ──────────────────────────────────────────────────
+
+function PinnedDocumentsManager() {
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+  const pinnedIds = sidebarConfig.pinnedDocumentIds ?? [];
+
+  const { data: docsData, isLoading } = $api.useQuery(
+    "get",
+    "/documents",
+    {},
+    { enabled: pinnedIds.length > 0 },
+  );
+
+  function unpinDocument(docId: string) {
+    setSidebarConfig({
+      ...sidebarConfig,
+      pinnedDocumentIds: pinnedIds.filter((id) => id !== docId),
+      order: sidebarConfig.order.filter((id) => id !== `/documents/${docId}`),
+    });
+  }
+
+  if (pinnedIds.length === 0) return null;
+
+  const allDocs = docsData?.items ?? [];
+
+  return (
+    <div className="mt-4 pt-4 border-t space-y-1.5">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        Pinned documents
+      </p>
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+        </div>
+      ) : (
+        pinnedIds.map((docId) => {
+          const doc = allDocs.find((d) => d.id === docId);
+          return (
+            <div
+              key={docId}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-md border bg-background text-sm"
+            >
+              <span className="text-base leading-none w-5 text-center shrink-0">
+                {doc?.icon ?? "📄"}
+              </span>
+              <span className="flex-1 truncate text-sm font-medium">
+                {doc ? doc.title : <span className="text-muted-foreground italic">Unknown document</span>}
+              </span>
+              <button
+                type="button"
+                onClick={() => unpinDocument(docId)}
+                className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
+                title="Remove from sidebar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ── Document pin dialog ───────────────────────────────────────────────────────
+
+function PinDocumentDialog({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+  const [search, setSearch] = useState("");
+
+  const { data: docsData, isLoading } = $api.useQuery("get", "/documents", {});
+
+  const alreadyPinned = new Set(sidebarConfig.pinnedDocumentIds ?? []);
+
+  const filtered = (docsData?.items ?? [])
+    .filter((d) => !d.archived_at)
+    .filter((d) =>
+      !search.trim() || d.title.toLowerCase().includes(search.trim().toLowerCase()),
+    );
+
+  function pinDocument(docId: string) {
+    if (alreadyPinned.has(docId)) return;
+    const href = `/documents/${docId}`;
+    setSidebarConfig({
+      ...sidebarConfig,
+      pinnedDocumentIds: [...(sidebarConfig.pinnedDocumentIds ?? []), docId],
+      // Add to order so it appears inline in the main drag list
+      order: sidebarConfig.order.includes(href)
+        ? sidebarConfig.order
+        : [...sidebarConfig.order, href],
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4">
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b">
+          <h2 className="text-base font-semibold flex-1">Pin a document</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <input
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search documents…"
+            className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <div className="max-h-64 overflow-y-auto space-y-0.5">
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading…
+              </div>
+            )}
+            {!isLoading && filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                {search ? "No documents match." : "No documents yet."}
+              </p>
+            )}
+            {filtered.map((doc) => {
+              const isPinned = alreadyPinned.has(doc.id);
+              return (
+                <button
+                  key={doc.id}
+                  type="button"
+                  disabled={isPinned}
+                  onClick={() => pinDocument(doc.id)}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-left text-sm transition-colors",
+                    isPinned
+                      ? "opacity-40 cursor-default"
+                      : "hover:bg-muted cursor-pointer",
+                  )}
+                >
+                  <span className="text-base leading-none w-5 text-center shrink-0">
+                    {doc.icon ?? "📄"}
+                  </span>
+                  <span className="flex-1 truncate font-medium">{doc.title}</span>
+                  {isPinned && (
+                    <span className="text-[10px] text-muted-foreground font-medium border rounded px-1.5 py-0.5 shrink-0">
+                      Pinned
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Select-project-to-pin dialog ─────────────────────────────────────────────
+
+function SelectProjectDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+  const [search, setSearch] = useState("");
+
+  const { data: projectsData, isLoading } = $api.useQuery("get", "/projects");
+  const { mutateAsync: updateProject } = $api.useMutation("patch", "/projects/{project_id}");
+
+  // All non-archived projects
+  const allProjects = (projectsData?.items ?? []).filter((p) => !p.archived_at);
+
+  const filtered = allProjects.filter((p) =>
+    !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  async function selectProject(project: typeof allProjects[0]) {
+    // Already pinned — do nothing
+    if (project.show_in_nav) { onClose(); return; }
+
+    // PATCH show_in_nav=true on the server
+    await updateProject({
+      params: { path: { project_id: project.id } },
+      body: { show_in_nav: true },
+    });
+    qc.invalidateQueries({ queryKey: ["get", "/projects"] });
+
+    // Add to SidebarConfig.order so it appears in the main drag list
+    const href = `/projects/${project.id}`;
+    setSidebarConfig({
+      ...sidebarConfig,
+      order: sidebarConfig.order.includes(href)
+        ? sidebarConfig.order
+        : [...sidebarConfig.order, href],
+    });
+
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4">
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b">
+          <h2 className="text-base font-semibold flex-1">Add project to nav</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <input
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search projects…"
+            className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <div className="max-h-64 overflow-y-auto space-y-0.5">
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading…
+              </div>
+            )}
+            {!isLoading && filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                {search ? "No projects match." : "No projects yet."}
+              </p>
+            )}
+            {filtered.map((project) => {
+              const isAlreadyPinned = project.show_in_nav;
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  disabled={isAlreadyPinned}
+                  onClick={() => selectProject(project)}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-left text-sm transition-colors",
+                    isAlreadyPinned
+                      ? "opacity-40 cursor-default"
+                      : "hover:bg-muted cursor-pointer",
+                  )}
+                >
+                  <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate font-medium">{project.name}</span>
+                  {isAlreadyPinned && (
+                    <span className="text-[10px] text-muted-foreground font-medium border rounded px-1.5 py-0.5 shrink-0">
+                      In nav
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NavigationSection() {
+  const [navCreateType, setNavCreateType] = useState<"project" | "document" | null>(null);
+
   return (
     <div className="space-y-5">
       <SectionTitle>Navigation</SectionTitle>
       <SubSection title="Sidebar layout">
-        <SidebarCustomizer />
+        <SidebarCustomizer
+          onCreateProject={() => setNavCreateType("project")}
+          onCreatePage={() => setNavCreateType("document")}
+        />
       </SubSection>
+
+      {navCreateType === "project" && (
+        <SelectProjectDialog onClose={() => setNavCreateType(null)} />
+      )}
+
+      {navCreateType === "document" && (
+        <PinDocumentDialog onClose={() => setNavCreateType(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Pages section ─────────────────────────────────────────────────────────────
+
+type CollectionFormState = {
+  name: string;
+  icon: string;
+  domain: "notes" | "documents";
+  hasAutoCreate: boolean;
+  titleTemplate: string;
+};
+
+const DEFAULT_COLLECTION_FORM: CollectionFormState = {
+  name: "",
+  icon: "",
+  domain: "notes",
+  hasAutoCreate: false,
+  titleTemplate: "%B %d, %Y",
+};
+
+function CollectionDialog({
+  mode,
+  initial,
+  onSave,
+  onClose,
+}: {
+  mode: "create" | "edit";
+  initial?: Partial<CollectionFormState>;
+  onSave: (form: CollectionFormState) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<CollectionFormState>({
+    ...DEFAULT_COLLECTION_FORM,
+    ...initial,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(form);
+      onClose();
+    } catch {
+      setError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4 p-6">
+        <h2 className="text-base font-semibold mb-4">
+          {mode === "create" ? "New collection" : "Edit collection"}
+        </h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Journal"
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Icon */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Icon <span className="font-normal opacity-60">(emoji, optional)</span>
+            </label>
+            <input
+              type="text"
+              value={form.icon}
+              onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value }))}
+              placeholder="📓"
+              maxLength={4}
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Domain */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Domain</label>
+            <div className="flex gap-2">
+              {(["notes", "documents"] as const).map((d) => {
+                const Icon = d === "notes" ? BookOpen : FileText;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, domain: d }))}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 h-9 rounded-md border text-sm font-medium transition-colors",
+                      form.domain === d
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {d === "notes" ? "Notes" : "Documents"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Auto-create rule */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hasAutoCreate}
+                onChange={(e) => setForm((f) => ({ ...f, hasAutoCreate: e.target.checked }))}
+                className="rounded"
+              />
+              <span className="text-xs font-medium text-muted-foreground">
+                Auto-create a daily entry
+              </span>
+            </label>
+            {form.hasAutoCreate && (
+              <div className="ml-5 space-y-1.5">
+                <label className="text-xs text-muted-foreground">
+                  Title format{" "}
+                  <a
+                    href="https://strftime.org"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline opacity-60 hover:opacity-100"
+                  >
+                    (strftime)
+                  </a>
+                </label>
+                <input
+                  type="text"
+                  value={form.titleTemplate}
+                  onChange={(e) => setForm((f) => ({ ...f, titleTemplate: e.target.value }))}
+                  placeholder="%B %d, %Y"
+                  className="w-full h-8 px-2 rounded-md border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Example: <code>%B %d, %Y</code> → May 11, 2026
+                </p>
+              </div>
+            )}
+          </div>
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!form.name.trim() || saving}
+              className="px-4 py-1.5 rounded-md text-sm bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : mode === "create" ? "Create" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function PagesSection() {
+  const qc = useQueryClient();
+  const [dialog, setDialog] = useState<
+    | { mode: "create" }
+    | { mode: "edit"; id: string; initial: CollectionFormState }
+    | null
+  >(null);
+
+  const { data, isLoading } = $api.useQuery("get", "/collections");
+  const createCollection = $api.useMutation("post", "/collections");
+  const updateCollection = $api.useMutation("patch", "/collections/{collection_id}");
+  const deleteCollection = $api.useMutation("delete", "/collections/{collection_id}");
+
+  const collections = data?.items ?? [];
+
+  async function handleCreate(form: CollectionFormState) {
+    await createCollection.mutateAsync({
+      body: {
+        name: form.name,
+        icon: form.icon || null,
+        domain: form.domain,
+        auto_create_rule: form.hasAutoCreate
+          ? { frequency: "daily", title_template: form.titleTemplate }
+          : null,
+        default_tags: [],
+        sort_order: collections.length,
+      },
+    });
+    qc.invalidateQueries({ queryKey: ["get", "/collections"] });
+  }
+
+  async function handleEdit(id: string, form: CollectionFormState) {
+    await updateCollection.mutateAsync({
+      params: { path: { collection_id: id } },
+      body: {
+        name: form.name,
+        icon: form.icon || null,
+        auto_create_rule: form.hasAutoCreate
+          ? { frequency: "daily", title_template: form.titleTemplate }
+          : null,
+      },
+    });
+    qc.invalidateQueries({ queryKey: ["get", "/collections"] });
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Delete "${name}"? The entries inside will not be deleted, but they'll no longer be grouped under this collection.`)) return;
+    await deleteCollection.mutateAsync({
+      params: { path: { collection_id: id } },
+    });
+    qc.invalidateQueries({ queryKey: ["get", "/collections"] });
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle>Pages</SectionTitle>
+
+      <SubSection title="Custom collections">
+        <p className="text-sm text-muted-foreground mb-4">
+          Collections are custom pages backed by Notes or Documents — like a Journal, Reading List, or Project Log. Each appears in your sidebar and can have a default template and optional daily auto-entry.
+        </p>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {collections.length === 0 && (
+              <p className="text-sm text-muted-foreground py-2">No collections yet.</p>
+            )}
+            {collections.map((col) => {
+              const DomainIcon = col.domain === "notes" ? BookOpen : FileText;
+              return (
+                <div
+                  key={col.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-card"
+                >
+                  <span className="text-xl leading-none w-7 text-center shrink-0">
+                    {col.icon ?? (col.domain === "notes" ? "📓" : "📄")}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{col.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <DomainIcon className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-[11px] text-muted-foreground capitalize">
+                        {col.domain}
+                      </span>
+                      {col.auto_create_rule && (
+                        <>
+                          <span className="text-muted-foreground opacity-40">·</span>
+                          <RefreshCw className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-[11px] text-muted-foreground">Daily</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    title="Edit"
+                    onClick={() =>
+                      setDialog({
+                        mode: "edit",
+                        id: col.id,
+                        initial: {
+                          name: col.name,
+                          icon: col.icon ?? "",
+                          domain: col.domain,
+                          hasAutoCreate: !!col.auto_create_rule,
+                          titleTemplate: col.auto_create_rule?.title_template ?? "%B %d, %Y",
+                        },
+                      })
+                    }
+                    className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete collection"
+                    onClick={() => handleDelete(col.id, col.name)}
+                    className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setDialog({ mode: "create" })}
+          className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md border border-dashed text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors w-full"
+        >
+          <Plus className="h-4 w-4" />
+          New collection
+        </button>
+      </SubSection>
+
+      {dialog?.mode === "create" && (
+        <CollectionDialog
+          mode="create"
+          onSave={handleCreate}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.mode === "edit" && (
+        <CollectionDialog
+          mode="edit"
+          initial={dialog.initial}
+          onSave={(form) => handleEdit(dialog.id, form)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Projects section ─────────────────────────────────────────────────────────
+
+type ProjectStatus = "backlog" | "active" | "on_deck" | "in_progress" | "complete" | "archived";
+
+const PROJECT_STATUSES: { value: ProjectStatus; label: string }[] = [
+  { value: "backlog",     label: "Backlog"      },
+  { value: "active",      label: "Active"       },
+  { value: "on_deck",     label: "On deck"      },
+  { value: "in_progress", label: "In progress"  },
+  { value: "complete",    label: "Complete"     },
+  { value: "archived",    label: "Archived"     },
+];
+
+const STATUS_BADGE: Record<ProjectStatus, string> = {
+  backlog:     "bg-muted text-muted-foreground",
+  active:      "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  on_deck:     "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  in_progress: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  complete:    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  archived:    "bg-muted text-muted-foreground opacity-60",
+};
+
+type ProjectFormState = {
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  due_date: string;
+  show_in_nav: boolean;
+  parent_id: string;
+};
+
+const DEFAULT_PROJECT_FORM: ProjectFormState = {
+  name: "",
+  description: "",
+  status: "active",
+  due_date: "",
+  show_in_nav: false,
+  parent_id: "",
+};
+
+function ProjectDialog({
+  mode,
+  initial,
+  parentOptions,
+  onSave,
+  onClose,
+}: {
+  mode: "create" | "edit";
+  initial?: Partial<ProjectFormState>;
+  parentOptions: { id: string; name: string }[];
+  onSave: (form: ProjectFormState) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<ProjectFormState>({
+    ...DEFAULT_PROJECT_FORM,
+    ...initial,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(form);
+      onClose();
+    } catch {
+      setError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4 p-6">
+        <h2 className="text-base font-semibold mb-4">
+          {mode === "create" ? "New project" : "Edit project"}
+        </h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Home Renovation"
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Description <span className="font-normal opacity-60">(optional)</span>
+            </label>
+            <textarea
+              rows={2}
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="What is this project about?"
+              className="w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            />
+          </div>
+
+          {/* Status */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Status</label>
+            <div className="relative">
+              <select
+                value={form.status}
+                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as ProjectStatus }))}
+                className="w-full h-9 px-3 rounded-md border bg-background text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-primary/50 pr-8"
+              >
+                {PROJECT_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="h-4 w-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Parent project */}
+          {parentOptions.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Parent project <span className="font-normal opacity-60">(optional)</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={form.parent_id}
+                  onChange={(e) => setForm((f) => ({ ...f, parent_id: e.target.value }))}
+                  className="w-full h-9 px-3 rounded-md border bg-background text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-primary/50 pr-8"
+                >
+                  <option value="">None (top-level)</option>
+                  {parentOptions.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="h-4 w-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          )}
+
+          {/* Due date */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Due date <span className="font-normal opacity-60">(optional)</span>
+            </label>
+            <input
+              type="date"
+              value={form.due_date}
+              onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Pin to sidebar */}
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.show_in_nav}
+              onChange={(e) => setForm((f) => ({ ...f, show_in_nav: e.target.checked }))}
+              className="rounded"
+            />
+            <span className="text-sm text-muted-foreground">Pin to sidebar</span>
+          </label>
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!form.name.trim() || saving}
+              className="px-4 py-1.5 rounded-md text-sm bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : mode === "create" ? "Create" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProjectsSection() {
+  const qc = useQueryClient();
+  const [dialog, setDialog] = useState<
+    | { mode: "create" }
+    | { mode: "edit"; id: string; initial: ProjectFormState }
+    | null
+  >(null);
+
+  const { data, isLoading } = $api.useQuery("get", "/projects");
+  const createProject = $api.useMutation("post", "/projects");
+  const updateProject = $api.useMutation("patch", "/projects/{project_id}");
+  const archiveProject = $api.useMutation("post", "/projects/{project_id}/archive");
+
+  const allProjects = data?.items ?? [];
+  // Show non-archived first, then archived at bottom; system projects first within each group
+  const visible = allProjects.filter((p) => !p.archived_at);
+  const archived = allProjects.filter((p) => !!p.archived_at);
+  const [showArchived, setShowArchived] = useState(false);
+
+  function invalidate() {
+    qc.invalidateQueries({ queryKey: ["get", "/projects"] });
+  }
+
+  async function handleCreate(form: ProjectFormState) {
+    await createProject.mutateAsync({
+      body: {
+        name: form.name,
+        description: form.description || null,
+        status: form.status,
+        due_date: form.due_date || null,
+        parent_id: form.parent_id || null,
+        show_in_nav: form.show_in_nav,
+      },
+    });
+    invalidate();
+  }
+
+  async function handleEdit(id: string, form: ProjectFormState) {
+    await updateProject.mutateAsync({
+      params: { path: { project_id: id } },
+      body: {
+        name: form.name,
+        description: form.description || null,
+        status: form.status,
+        due_date: form.due_date || null,
+        parent_id: form.parent_id || null,
+        show_in_nav: form.show_in_nav,
+      },
+    });
+    invalidate();
+  }
+
+  async function handlePinToggle(id: string, current: boolean) {
+    await updateProject.mutateAsync({
+      params: { path: { project_id: id } },
+      body: { show_in_nav: !current },
+    });
+    invalidate();
+  }
+
+  async function handleArchive(id: string, name: string) {
+    if (!confirm(`Archive "${name}"? You can restore it later.`)) return;
+    await archiveProject.mutateAsync({ params: { path: { project_id: id } } });
+    invalidate();
+  }
+
+  // Parent options for the dialog: non-system, non-archived projects
+  const parentOptions = visible
+    .filter((p) => !p.is_system)
+    .map((p) => ({ id: p.id, name: p.name }));
+
+  function ProjectRow({ project }: { project: typeof allProjects[0] }) {
+    const statusMeta = PROJECT_STATUSES.find((s) => s.value === project.status);
+    return (
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-card">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-medium truncate">{project.name}</p>
+            {project.is_system && (
+              <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground border rounded px-1.5 py-0.5 shrink-0">
+                <Lock className="h-2.5 w-2.5" />
+                System
+              </span>
+            )}
+            <span
+              className={cn(
+                "text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0",
+                STATUS_BADGE[project.status as ProjectStatus] ?? "bg-muted text-muted-foreground",
+              )}
+            >
+              {statusMeta?.label ?? project.status}
+            </span>
+          </div>
+          {project.description && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{project.description}</p>
+          )}
+        </div>
+
+        {/* Pin toggle */}
+        <button
+          type="button"
+          title={project.show_in_nav ? "Unpin from sidebar" : "Pin to sidebar"}
+          onClick={() => handlePinToggle(project.id, project.show_in_nav)}
+          className={cn(
+            "h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0",
+            project.show_in_nav
+              ? "text-primary hover:text-primary hover:bg-primary/10"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
+          )}
+        >
+          {project.show_in_nav
+            ? <Pin className="h-3.5 w-3.5 fill-current" />
+            : <PinOff className="h-3.5 w-3.5" />}
+        </button>
+
+        {/* Edit — only for non-system projects */}
+        {!project.is_system && (
+          <>
+            <button
+              type="button"
+              title="Edit"
+              onClick={() =>
+                setDialog({
+                  mode: "edit",
+                  id: project.id,
+                  initial: {
+                    name: project.name,
+                    description: project.description ?? "",
+                    status: project.status as ProjectStatus,
+                    due_date: project.due_date ?? "",
+                    show_in_nav: project.show_in_nav,
+                    parent_id: project.parent_id ?? "",
+                  },
+                })
+              }
+              className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Archive project"
+              onClick={() => handleArchive(project.id, project.name)}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle>Projects</SectionTitle>
+
+      <SubSection title="All projects">
+        <p className="text-sm text-muted-foreground mb-4">
+          Projects group your to-dos and sub-projects. Pin a project to the sidebar for quick access. System projects (like To-dos) can be pinned but not deleted.
+        </p>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visible.length === 0 && (
+              <p className="text-sm text-muted-foreground py-2">No projects yet.</p>
+            )}
+            {visible.map((proj) => (
+              <ProjectRow key={proj.id} project={proj} />
+            ))}
+
+            {archived.length > 0 && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((v) => !v)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer mb-2"
+                >
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showArchived && "rotate-180")} />
+                  Archived ({archived.length})
+                </button>
+                {showArchived && (
+                  <div className="space-y-2 opacity-60">
+                    {archived.map((proj) => (
+                      <ProjectRow key={proj.id} project={proj} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setDialog({ mode: "create" })}
+          className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md border border-dashed text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors w-full"
+        >
+          <Plus className="h-4 w-4" />
+          New project
+        </button>
+      </SubSection>
+
+      {dialog?.mode === "create" && (
+        <ProjectDialog
+          mode="create"
+          parentOptions={parentOptions}
+          onSave={handleCreate}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.mode === "edit" && (
+        <ProjectDialog
+          mode="edit"
+          initial={dialog.initial}
+          parentOptions={parentOptions}
+          onSave={(form) => handleEdit(dialog.id, form)}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }

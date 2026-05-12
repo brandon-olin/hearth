@@ -8,7 +8,6 @@ The Document model has an `icon` text field (stores an emoji or icon
 identifier for the page, matching the Notion import format) that was
 never included in the 0007 migration that created the documents table.
 """
-
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -20,8 +19,21 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(conn, table: str, column: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = :t AND column_name = :c"
+        ),
+        {"t": table, "c": column},
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
-    op.add_column("documents", sa.Column("icon", sa.Text(), nullable=True))
+    conn = op.get_bind()
+    if not _column_exists(conn, "documents", "icon"):
+        op.add_column("documents", sa.Column("icon", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:

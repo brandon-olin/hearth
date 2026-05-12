@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 AiProviderLiteral = Literal["anthropic", "openai", "ollama"]
@@ -99,3 +99,34 @@ class MessageSearchItem(BaseModel):
 class MessageSearchResponse(BaseModel):
     items: list[MessageSearchItem]
     total: int
+
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+
+class UsageModelBreakdown(BaseModel):
+    """Token usage for a single model within a reporting period."""
+    model: str
+    input_tokens: int
+    output_tokens: int
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+class UsageSummaryResponse(BaseModel):
+    """Token usage summary for the current user.
+
+    this_month_* covers the current calendar month (UTC).
+    lifetime_* covers all recorded history.
+    by_model gives the this-month breakdown per model string so the UI can
+    show which model consumed what.
+    """
+    this_month_input_tokens: int
+    this_month_output_tokens: int
+    this_month_total_tokens: int
+    lifetime_input_tokens: int
+    lifetime_output_tokens: int
+    lifetime_total_tokens: int
+    by_model: list[UsageModelBreakdown]

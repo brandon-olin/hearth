@@ -71,6 +71,7 @@ async def create_document(
         household_id=household_id,
         created_by_user_id=user_id,
         parent_id=data.parent_id,
+        collection_id=data.collection_id,
         title=data.title,
         slug=slug,
         description=data.description,
@@ -102,15 +103,19 @@ async def list_documents(
     household_id: uuid.UUID,
     *,
     include_archived: bool = False,
+    collection_id: uuid.UUID | None = None,
 ) -> DocumentTreeResponse:
     """Returns all documents for the household as a flat list.
 
     The client assembles the tree from parent_id. Returning flat avoids
     recursive queries and keeps the service layer simple.
+    When collection_id is given, only documents in that collection are returned.
     """
     query = select(Document).where(Document.household_id == household_id)
     if not include_archived:
         query = query.where(Document.archived_at.is_(None))
+    if collection_id is not None:
+        query = query.where(Document.collection_id == collection_id)
     query = query.order_by(Document.title.asc())
 
     docs = list((await db.execute(query)).scalars().all())
@@ -140,7 +145,7 @@ async def update_document(
         doc.title = data.title
         doc.slug = await _unique_slug(db, household_id, _slugify(data.title))
 
-    for field in ("parent_id", "description", "icon", "kind"):
+    for field in ("parent_id", "collection_id", "description", "icon", "kind"):
         if field in sent:
             setattr(doc, field, getattr(data, field))
 

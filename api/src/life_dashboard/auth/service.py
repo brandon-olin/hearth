@@ -48,20 +48,20 @@ async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User | None:
 async def run_bootstrap_if_needed(db: AsyncSession) -> bool:
     """Called at startup. Returns True if bootstrap was performed.
 
-    Two cases:
+    Handles one case only:
 
-    1. NAS / existing install — sentinel users with password_hash='!' exist
-       (created by the raw-SQL Phase-0 migration). Hash the bootstrap password
-       and write it so those accounts become usable.
+    NAS / existing install — sentinel users with password_hash='!' exist
+    (created by the raw-SQL Phase-0 migration). Hash the bootstrap password
+    and write it so those accounts become usable.
 
-    2. Fresh install — no users exist at all (Alembic baseline didn't seed any).
-       Create a default household and owner account using BOOTSTRAP_PASSWORD,
-       BOOTSTRAP_EMAIL, and BOOTSTRAP_DISPLAY_NAME from the environment.
+    Fresh installs (no users at all) are handled by the First-Run Setup Wizard
+    at POST /setup. Bootstrap no longer auto-creates users on a blank database
+    so that the wizard is always the entry point for new installations.
     """
     if not settings.bootstrap_password:
         return False
 
-    # ── Case 1: sentinel users from NAS Phase-0 migration ─────────────────────
+    # ── Sentinel users from NAS Phase-0 migration ─────────────────────────────
     result = await db.execute(select(User).where(User.password_hash == "!"))
     sentinel_users = result.scalars().all()
     if sentinel_users:
@@ -72,37 +72,7 @@ async def run_bootstrap_if_needed(db: AsyncSession) -> bool:
         await db.commit()
         return True
 
-    # ── Case 2: fresh install with no users at all ────────────────────────────
-    count_result = await db.execute(select(func.count()).select_from(User))
-    if count_result.scalar_one() > 0:
-        # Real users exist — nothing to bootstrap.
-        return False
-
-    household = Household(name="My Household")
-    db.add(household)
-    await db.flush()  # populate household.id before referencing it
-
-    user = User(
-        email=settings.bootstrap_email,
-        password_hash=hash_password(settings.bootstrap_password),
-        display_name=settings.bootstrap_display_name,
-        is_active=True,
-    )
-    db.add(user)
-    await db.flush()  # populate user.id before referencing it
-
-    db.add(HouseholdMembership(
-        household_id=household.id,
-        user_id=user.id,
-        role=MembershipRole.owner,
-    ))
-    await db.commit()
-    logger.info(
-        "Bootstrap: created household '%s' and owner account %s",
-        household.name,
-        settings.bootstrap_email,
-    )
-    return True
+    return False
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -199,3 +169,71 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
     if token and token.revoked_at is None:
         token.revoked_at = datetime.now(timezone.utc)
         await db.commit()
+
+
+# ── Account deletion ──────────────────────────────────────────────────────────
+
+async def delete_account(db: AsyncSession, user: User, password: str) -> None:
+    """
+    Permanently deletes a user account and all data they solely own.
+
+    Steps:
+      1. Verify the supplied password — raises AuthenticationError on mismatch.
+      2. For each household where this user is a member:
+           • Sole member  → delete the household.
+             The DB CASCADE on household_id propagates to every domain table
+             (todos, projects, habits, goals, documents, notes, workouts, …).
+           • Shared (other members exist) → delete only this user's membership.
+             Household data is preserved for the remaining members.
+      3. Delete the user record.
+         The DB CASCADE on user_id propagates to refresh_tokens and ai_usage.
+
+    This is intentionally irreversible and has no soft-delete fallback.
+    """
+    if is_sentinel(user.password_hash) or not verify_password(password, user.password_hash):
+        raise AuthenticationError("Incorrect password.")
+
+    # Load memberships with a count of co-members for each household.
+    memberships_result = await db.execute(
+        select(HouseholdMembership).where(HouseholdMembership.user_id == user.id)
+    )
+    memberships = memberships_result.scalars().all()
+
+    for membership in memberships:
+        # Count all members of this household (including the user being deleted).
+        count_result = await db.execute(
+            select(func.count())
+            .select_from(HouseholdMembership)
+            .where(HouseholdMembership.household_id == membership.household_id)
+        )
+        member_count = count_result.scalar_one()
+
+        if member_count == 1:
+            # Sole member — delete the household; DB cascade handles all data.
+            household_result = await db.execute(
+                select(Household).where(Household.id == membership.household_id)
+            )
+            household = household_result.scalar_one_or_none()
+            if household:
+                await db.delete(household)
+                logger.info(
+                    "delete_account: deleted household %s (sole member was user %s)",
+                    household.id,
+                    user.id,
+                )
+        else:
+            # Shared household — remove only this user's membership.
+            await db.delete(membership)
+            logger.info(
+                "delete_account: removed user %s from shared household %s",
+                user.id,
+                membership.household_id,
+            )
+
+    # Flush household deletes before removing the user to satisfy FK constraints
+    # on any tables that reference both household_id and user_id.
+    await db.flush()
+
+    await db.delete(user)
+    await db.commit()
+    logger.info("delete_account: user %s permanently deleted", user.id)

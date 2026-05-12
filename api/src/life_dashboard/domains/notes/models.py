@@ -22,6 +22,9 @@ class Note(Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), nullable=True
+    )
 
     title: Mapped[str] = mapped_column(Text)
     content_md: Mapped[str | None] = mapped_column(Text)         # Raw markdown (source of truth for wikilinks)

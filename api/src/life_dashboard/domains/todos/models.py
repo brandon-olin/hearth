@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import Date, DateTime, ForeignKey, String, Text
 from sqlalchemy import Enum as SaEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from life_dashboard.core.database import Base
@@ -21,11 +21,13 @@ class Todo(Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("todos.id", ondelete="SET NULL")
+    # Todos belong to a project. Null means orphaned / pre-migration data;
+    # new todos should always have a project_id (defaulting to the system project).
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
-    goal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("goals.id", ondelete="SET NULL")
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
 
     title: Mapped[str] = mapped_column(Text)
@@ -40,5 +42,3 @@ class Todo(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    children: Mapped[list["Todo"]] = relationship("Todo", lazy="noload", passive_deletes=True)

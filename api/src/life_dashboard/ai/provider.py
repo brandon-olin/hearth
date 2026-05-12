@@ -44,11 +44,12 @@ class AIProvider(Protocol):
         system: str,
         *,
         max_tokens: int = 1024,
-    ) -> str:
-        """Non-streaming call; returns the full response text.
+    ) -> tuple[str, int, int, str]:
+        """Non-streaming call; returns (text, input_tokens, output_tokens, model).
 
         Used for background tasks (e.g. memory refresh) where streaming
-        is not needed.
+        is not needed.  The token counts and model string allow callers to
+        record usage without coupling them to the provider SDK.
         """
         ...
 
@@ -121,13 +122,22 @@ class AnthropicProvider:
         system: str,
         *,
         max_tokens: int = 1024,
-    ) -> str:
+    ) -> tuple[str, int, int, str]:
+        """Non-streaming call.
+
+        Returns (response_text, input_tokens, output_tokens, model_string).
+        Token counts come directly from the API response so callers can record
+        usage without depending on the Anthropic SDK types.
+        """
         response = await self._client.messages.create(
             model=self.FAST_MODEL,
             max_tokens=max_tokens,
             system=system,
             messages=messages,  # type: ignore[arg-type]
         )
+        text = ""
         if response.content and hasattr(response.content[0], "text"):
-            return response.content[0].text
-        return ""
+            text = response.content[0].text
+        input_tokens = getattr(response.usage, "input_tokens", 0) if response.usage else 0
+        output_tokens = getattr(response.usage, "output_tokens", 0) if response.usage else 0
+        return text, input_tokens, output_tokens, response.model or self.FAST_MODEL

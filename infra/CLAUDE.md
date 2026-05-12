@@ -1,6 +1,58 @@
 # CLAUDE.md — infra/
 
-Docker Compose deployment for Life Dashboard. See the root `CLAUDE.md` for product vision.
+Two deployment paths live here: Docker Compose (existing NAS install) and the local install path (M1 milestone). See the root `CLAUDE.md` for product vision.
+
+---
+
+## Local install (M1 — macOS / Linux, no Docker)
+
+### First-time setup
+
+```bash
+# 1. Copy and fill in the env file
+cp infra/local.env.example infra/local.env
+$EDITOR infra/local.env          # set JWT_SECRET_KEY at minimum
+
+# 2. Install Python deps and Node deps (if not already done)
+cd api && python3.12 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+cd web && npm install
+
+# 3. Run database migrations
+make migrate
+
+# 4. Register background services, build web app, start everything
+make service-install
+```
+
+After `service-install`, the API and web server run silently in the background and restart automatically at login. No terminal windows needed.
+
+### Daily management
+
+```bash
+make service-status     # check if running
+make service-logs       # tail live logs (Ctrl-C to exit)
+make service-stop       # stop both processes
+make service-start      # start both processes
+make service-restart    # restart both processes
+make service-uninstall  # remove the background services (app files untouched)
+```
+
+### How it works
+
+- **macOS**: `service.sh install` generates `~/Library/LaunchAgents/com.lifedashboard.{api,web}.plist` from templates in `infra/launchd/`. launchd loads them at login and keeps them alive if they crash.
+- **Linux**: generates `~/.config/systemd/user/life-dashboard-{api,web}.service` from templates in `infra/systemd/`. No root required — these are user-level systemd units.
+- Both platforms source `infra/local.env` at startup for secrets and config.
+- Logs: `~/Library/Logs/LifeDashboard/` (macOS) or `journalctl --user` (Linux).
+
+### Generated files (gitignored)
+
+These are produced by `service.sh install` and should never be committed:
+- `infra/scripts/run-api.sh` — wrapper that sources `local.env` + starts uvicorn
+- `infra/scripts/run-web.sh` — wrapper that sources `local.env` + starts Next.js
+- `~/Library/LaunchAgents/com.lifedashboard.*.plist` (macOS)
+- `~/.config/systemd/user/life-dashboard-*.service` (Linux)
+
+---
 
 ---
 

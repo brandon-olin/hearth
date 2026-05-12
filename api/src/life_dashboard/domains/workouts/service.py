@@ -82,12 +82,45 @@ async def list_workouts(
             )
         ).scalars().all()
     )
+
+    # Batch-load exercise names for all returned workouts in one query so the
+    # list card can show "Bench · Squat · Deadlift" without N+1 fetches.
+    workout_ids = [w.id for w in workouts]
+    names_by_workout: dict[uuid.UUID, list[str]] = {w.id: [] for w in workouts}
+    if workout_ids:
+        entries_result = await db.execute(
+            select(ExerciseEntry.workout_id, ExerciseEntry.name)
+            .where(ExerciseEntry.workout_id.in_(workout_ids))
+            .order_by(ExerciseEntry.workout_id, ExerciseEntry.sort_order.asc(), ExerciseEntry.created_at.asc())
+        )
+        for workout_id, name in entries_result.all():
+            names_by_workout[workout_id].append(name)
+
+    items = [
+        _workout_response(w).model_copy(update={"exercise_names": names_by_workout[w.id]})
+        for w in workouts
+    ]
     return WorkoutListResponse(
-        items=[_workout_response(w) for w in workouts],
+        items=items,
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+async def list_exercise_names(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+) -> list[str]:
+    """Return distinct exercise names used in this household, sorted alphabetically."""
+    result = await db.execute(
+        select(ExerciseEntry.name)
+        .join(Workout, ExerciseEntry.workout_id == Workout.id)
+        .where(Workout.household_id == household_id)
+        .distinct()
+        .order_by(ExerciseEntry.name.asc())
+    )
+    return [row[0] for row in result.all() if row[0]]
 
 
 async def get_workout(

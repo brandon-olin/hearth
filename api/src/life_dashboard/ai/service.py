@@ -22,6 +22,7 @@ from life_dashboard.ai.models import (
     AiMessageRole,
     AiProvider,
     AiSettings,
+    AiUsage,
     MemberAiMemory,
 )
 from life_dashboard.ai.provider import AIProvider, AnthropicProvider
@@ -35,6 +36,8 @@ from life_dashboard.ai.schemas import (
     MessageResponse,
     MessageSearchItem,
     MessageSearchResponse,
+    UsageModelBreakdown,
+    UsageSummaryResponse,
 )
 from life_dashboard.auth.models import User
 from life_dashboard.core.settings import settings as app_settings
@@ -204,7 +207,7 @@ async def maybe_refresh_memory(
         if not recent_text.strip():
             return
 
-        updated = await provider.complete(
+        updated, mem_input_tok, mem_output_tok, mem_model = await provider.complete(
             messages=[{"role": "user", "content": recent_text}],
             system=_memory_refresh_system_prompt(display_name, memory.memory_text),
             max_tokens=1024,
@@ -214,6 +217,22 @@ async def maybe_refresh_memory(
             memory.memory_text = updated.strip()[:_MEMORY_MAX_CHARS]
             memory.last_updated_at = datetime.now(tz=timezone.utc)
             memory.conversation_count_at_last_update = total_count
+
+            # Record usage for the background memory-refresh call.
+            if mem_input_tok > 0 or mem_output_tok > 0:
+                try:
+                    await record_usage(
+                        db,
+                        user_id=user_id,
+                        conversation_id=None,
+                        input_tokens=mem_input_tok,
+                        output_tokens=mem_output_tok,
+                        model=mem_model,
+                        turn_kind="memory_refresh",
+                    )
+                except Exception:
+                    logger.exception("Usage recording failed during memory refresh — ignoring")
+
             await db.commit()
             logger.info("Memory refreshed for user %s (total conversations: %d)", user_id, total_count)
 
@@ -496,6 +515,88 @@ async def apply_retention_policy(
     return len(old_ids)
 
 
+# ── Token usage ───────────────────────────────────────────────────────────────
+
+async def record_usage(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID | None,
+    input_tokens: int,
+    output_tokens: int,
+    model: str,
+    turn_kind: str = "chat",
+) -> None:
+    """Persist a single token-usage record.  Failures are non-critical — the
+    caller is responsible for catching and logging any exceptions."""
+    row = AiUsage(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        model=model,
+        turn_kind=turn_kind,
+    )
+    db.add(row)
+    # Callers commit as part of their own transaction; we only flush here so
+    # the row is visible within the same session if needed.
+    await db.flush()
+
+
+async def get_usage_summary(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> UsageSummaryResponse:
+    """Return token usage totals for the current calendar month, broken down
+    by model.  Also includes a lifetime total for reference."""
+    from sqlalchemy import case, literal_column
+
+    # Current month totals grouped by model.
+    monthly_stmt = (
+        select(
+            AiUsage.model,
+            func.sum(AiUsage.input_tokens).label("input_tokens"),
+            func.sum(AiUsage.output_tokens).label("output_tokens"),
+        )
+        .where(
+            AiUsage.user_id == user_id,
+            func.date_trunc("month", AiUsage.created_at)
+            == func.date_trunc("month", func.now()),
+        )
+        .group_by(AiUsage.model)
+        .order_by(AiUsage.model)
+    )
+    monthly_rows = (await db.execute(monthly_stmt)).all()
+
+    breakdown = [
+        UsageModelBreakdown(
+            model=row.model,
+            input_tokens=row.input_tokens or 0,
+            output_tokens=row.output_tokens or 0,
+        )
+        for row in monthly_rows
+    ]
+
+    month_input = sum(b.input_tokens for b in breakdown)
+    month_output = sum(b.output_tokens for b in breakdown)
+
+    # Lifetime totals.
+    lifetime_stmt = select(
+        func.coalesce(func.sum(AiUsage.input_tokens), 0).label("input_tokens"),
+        func.coalesce(func.sum(AiUsage.output_tokens), 0).label("output_tokens"),
+    ).where(AiUsage.user_id == user_id)
+    lt = (await db.execute(lifetime_stmt)).one()
+
+    return UsageSummaryResponse(
+        this_month_input_tokens=month_input,
+        this_month_output_tokens=month_output,
+        this_month_total_tokens=month_input + month_output,
+        lifetime_input_tokens=lt.input_tokens,
+        lifetime_output_tokens=lt.output_tokens,
+        lifetime_total_tokens=lt.input_tokens + lt.output_tokens,
+        by_model=breakdown,
+    )
+
+
 # ── Context assembly ──────────────────────────────────────────────────────────
 
 def _build_system_prompt(user: User, memory_text: str) -> str:
@@ -513,12 +614,18 @@ def _build_system_prompt(user: User, memory_text: str) -> str:
         "- Before creating data, briefly state what you're about to save "
         "(date, name, entry count) and wait for the user to confirm. "
         "For bulk imports, show a short plan first — e.g. '23 workouts from Jan–Dec 2026'.",
-        "- When migrating data from a document, process workouts one at a time and "
-        "report after each: '✓ 2026-03-14 Upper A (4 exercises)'. "
-        "Stop and ask if anything looks wrong.",
+        "- When migrating data from a document, process in batches of 3 items. "
+        "After each batch report what was saved (e.g. '✓ 2026-03-14 Upper A, ✓ 2026-03-16 Lower B, ✓ 2026-03-18 Upper A') "
+        "and confirm with the user before continuing. Stop immediately if anything looks wrong.",
+        "- If a tool call returns an error with a 'hint' field, read the hint and fix the input before retrying.",
         "- If a write fails, report the error clearly and ask how to proceed.",
         "- For read-only questions, answer directly without unnecessary caveats.",
         "- Be concise. This is a personal dashboard, not a general-purpose chatbot.",
+        "",
+        "Shorthand you should understand:",
+        f"- 'me', 'my', 'I', or no person specified → {name} (the current user).",
+        "- 'my todos' / 'the inbox' / no project specified → the default To-dos project.",
+        "- When creating a todo, omit project_id and assigned_to — the tool assigns them automatically.",
     ]
 
     if memory_text.strip():
@@ -578,6 +685,11 @@ async def generate_stream(
     # Only the final user-visible text is saved to DB / used for memory.
     final_text_parts: list[str] = []
 
+    # Accumulated token counts across all rounds (each round is one API call).
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    response_model: str = ""
+
     # Safety cap: prevent runaway tool-use loops.
     _MAX_TOOL_ROUNDS = 5
 
@@ -599,6 +711,15 @@ async def generate_stream(
 
                 elif event_type == "done":
                     final_msg = payload
+
+                    # ── Capture token usage from this round ───────────────────
+                    usage = getattr(final_msg, "usage", None)
+                    if usage is not None:
+                        total_input_tokens += getattr(usage, "input_tokens", 0)
+                        total_output_tokens += getattr(usage, "output_tokens", 0)
+                    if not response_model:
+                        response_model = getattr(final_msg, "model", "") or ""
+
                     tool_uses = [
                         blk for blk in final_msg.content
                         if getattr(blk, "type", None) == "tool_use"
@@ -657,6 +778,24 @@ async def generate_stream(
                 db, conversation_id, AiMessageRole.assistant, full_content
             )
             await _touch_conversation(db, conversation_id)
+
+            # ── Persist token usage ────────────────────────────────────────────
+            if total_input_tokens > 0 or total_output_tokens > 0:
+                try:
+                    await record_usage(
+                        db,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        model=response_model,
+                        turn_kind="chat",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Usage recording failed for conversation %s — ignoring", conversation_id
+                    )
+
             await db.commit()
 
             yield f"data: {json.dumps({'type': 'done', 'conversation_id': str(conversation_id), 'message_id': str(msg.id)})}\n\n"

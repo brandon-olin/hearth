@@ -16,14 +16,16 @@ The product is built open-core: the core app and self-hosted path are fully func
 
 Three tiers, in order of implementation priority:
 
-1. **Single-machine self-hosted** *(current state)*
-   Running as Docker containers (FastAPI + Next.js + Postgres) on a user-owned machine. One household, multiple accounts. No external dependencies beyond the host.
+1. **Local / single-machine** *(active focus)*
+   FastAPI + Next.js + Postgres running directly on the developer's machine (venv + `npm run dev` + local Postgres). No Docker required for this phase. Goal: get the product polished and feature-complete before moving to hosted deployment.
 
-2. **Multi-machine self-hosted** *(near future)*
-   Same Docker stack, but designed to be reachable from multiple devices and household members. Sync is implicit via shared Postgres — no special sync layer needed at this stage.
+2. **Self-hosted (NAS / Docker)** *(next)*
+   Same stack packaged as Docker Compose, running on a user-owned machine (e.g. Synology NAS) behind Tailscale + Caddy TLS. One household, multiple accounts.
 
 3. **Cloud-hosted / managed** *(future, paid)*
-   Anthropic-style tiered pricing: free self-hosted forever, paid plans for managed hosting, backups, mobile push, managed AI credits, and operational convenience. The core product must remain genuinely useful without the paid tier.
+   Deployed to Vercel (web) + managed Postgres, with payment processing. Tiered pricing: free self-hosted forever; paid for managed hosting, backups, mobile push, managed AI credits.
+
+**Current dev workflow:** run API locally with `cd api && source .venv/bin/activate && uvicorn life_dashboard.main:app --reload --port 8000`. Run migrations with `alembic upgrade head` from the same `api/` directory. Run web with `cd web && npm run dev`.
 
 When making design decisions, prefer the approach that works across all three tiers without requiring a rewrite.
 

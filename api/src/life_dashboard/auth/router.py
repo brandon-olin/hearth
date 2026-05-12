@@ -4,12 +4,13 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
-from life_dashboard.auth.schemas import LoginRequest, LoginResponse, TokenResponse, UpdateMeRequest, UserResponse
+from life_dashboard.auth.schemas import DeleteMeRequest, LoginRequest, LoginResponse, TokenResponse, UpdateMeRequest, UserResponse
 from life_dashboard.auth.service import (
     AuthenticationError,
     TokenError,
     authenticate_user,
     create_refresh_token,
+    delete_account,
     revoke_refresh_token,
     rotate_refresh_token,
 )
@@ -102,6 +103,30 @@ async def logout(
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    body: DeleteMeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    refresh_token: str | None = Cookie(default=None),
+) -> None:
+    """
+    Permanently deletes the authenticated user's account and all data they
+    solely own. Requires password confirmation to prevent accidental deletion.
+
+    Shared households (where other members exist) are preserved — only the
+    user's membership is removed.
+    """
+    try:
+        await delete_account(db, current_user, body.password)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+    # Clear the auth cookie so the browser doesn't attempt a refresh.
+    _clear_refresh_cookie(response)
 
 
 @router.patch("/me", response_model=UserResponse)

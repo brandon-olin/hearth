@@ -9,6 +9,7 @@ DocumentKind = Literal["page", "template"]
 
 class DocumentCreate(BaseModel):
     parent_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
     title: str = Field(min_length=1)
     description: str | None = None
     icon: str | None = None
@@ -19,6 +20,7 @@ class DocumentCreate(BaseModel):
 
 class DocumentUpdate(BaseModel):
     parent_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
     title: str | None = Field(default=None, min_length=1)
     description: str | None = None
     icon: str | None = None
@@ -34,6 +36,7 @@ class DocumentResponse(BaseModel):
     household_id: uuid.UUID
     created_by_user_id: uuid.UUID | None
     parent_id: uuid.UUID | None
+    collection_id: uuid.UUID | None
     title: str
     slug: str
     description: str | None
@@ -52,6 +55,7 @@ class DocumentSummary(BaseModel):
 
     id: uuid.UUID
     parent_id: uuid.UUID | None
+    collection_id: uuid.UUID | None
     title: str
     slug: str
     description: str | None

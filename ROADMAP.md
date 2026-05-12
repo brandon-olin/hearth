@@ -16,18 +16,20 @@ Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
 - **Documents** — hierarchical page tree (collapse state persisted), BlockNote rich-text editor, document icons (emoji), drag-to-resize panel
 - **Notion import** — HTML + markdown zip; toggle lists, page icons, inter-page link rewriting
 - **Recipes** — full UI: card grid, detail page, sheet (create/edit/delete), ingredients, steps, notes, rich-text body (BlockNote), tags, cover images stored locally, URL import via Schema.org JSON-LD
-- **Notes / Zettelkasten** — atomic notes, tags (many-to-many), `[[wikilink]]` backlinks, graph view (force-directed), tag browser, full-text search including BlockNote JSON content; bulk delete
+- **Notes / Zettelkasten** — atomic notes, tags (many-to-many), `[[wikilink]]` backlinks, graph view (force-directed), tag browser, full-text search including BlockNote JSON content; bulk delete; full CRUD UI
 - **Contacts** — full CRUD contact list
 - **Workouts** — full gym-use-case UI: immediately persists on "Start workout", per-exercise per-set data model (`sets: [{weight_lbs, reps}]`), debounced auto-save for all fields, save status badge per exercise, bulk delete
 - **AI assistant** — SSE streaming chat, conversation history with sidebar, markdown rendering, tool use (read + write: workouts, todos, habits, goals, notes, calendar events, recipes, documents, contacts, grocery lists), `create_workout` / `delete_workout` write tools for data migration, BYOK (Anthropic key), conversation memory
 - **AI panel** — ⌘K slide-out panel from anywhere in the app, draggable left-edge resize (persisted), conversation popover in panel header, full-page fallback at `/ai`
+- **Image upload** — inline media attachments in BlockNote editor (documents + recipes); backend upload router with UUID-based flat storage, Docker-volume-mounted; wired into `uploadFile` on all BlockNote instances
+- **Todos** — full CRUD UI: active/all/done filters, quick-add, TodoSheet for create/edit, per-item completion toggle
+- **Habits** — full CRUD UI: active/all/inactive filters, HabitSheet for create/edit, daily completion tracking
 
 ---
 
 ## In progress
 
 - **Workouts data migration** — 2026 workout logs exist as documents; AI `create_workout` tool is ready to migrate them with per-set data preservation
-- **Image upload** — inline media attachments in the BlockNote editor
 
 ---
 
@@ -39,16 +41,22 @@ Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
 - [ ] Exercise name autocomplete from past entries (avoids typo-induced duplicates)
 - [ ] Workout templates — save a session as a template to reuse
 
-### Documents
+### Documents & Notes
+- [x] **Focus mode** — toggle that collapses all left-hand sidebars off-screen, leaving only the writing surface; keyboard shortcut (⌘⇧F)
 - [ ] Archive/delete individual pages
 - [ ] Drag-to-reorder pages in the tree
 - [ ] Inline image upload in BlockNote editor
 
 ### Calendar
-- [ ] Build out the existing stub — event creation, month/week/day views, recurrence, member assignment
+- [x] Month view with day-click detail sidebar, event chips, prev/next navigation
+- [x] Event creation and editing via sheet (title, date, time, all-day, location, description)
+- [x] Event deletion with confirm step
+- [ ] Week / day views
+- [ ] Recurrence UI (rrule entry)
+- [ ] Member assignment on events
 
 ### AI
-- [ ] `create_note` / `update_note` write tools (currently read-only for notes)
+- [x] `create_note` / `update_note` write tools
 - [ ] `create_todo` write tool
 - [ ] Scheduled AI summaries (e.g. weekly digest, habit nudges)
 - [ ] Audit log for AI-triggered writes shown in chat
@@ -57,9 +65,9 @@ Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
 
 ## Medium-term
 
-### Core domain UIs (remaining stubs)
-1. **Tasks (Todos)** — full CRUD already exists in API; needs a real UI with due dates, filters, completion, recurrence
-2. **Habits** — streak tracking, completion calendar heatmap, frequency config
+### Core domain UIs (polish pass)
+1. **Tasks (Todos)** — basic UI exists; needs due dates, recurrence, priority, and richer filters
+2. **Habits** — basic UI exists; needs streak tracking, completion calendar heatmap, frequency config
 3. **Goals** — progress tracking, milestones, task linking
 4. **Grocery Lists** — linked to recipes, household-shared, check-off UX
 

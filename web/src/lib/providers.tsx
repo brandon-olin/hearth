@@ -7,6 +7,7 @@ import { AuthProvider } from "./auth/context";
 import { ThemeCustomizerProvider } from "./theme/context";
 import { SidebarConfigProvider, FolderOpenProvider } from "./sidebar/context";
 import { PreferencesSyncer } from "./preferences-syncer";
+import { SetupGuard } from "@/components/setup/setup-guard";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -35,13 +36,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeCustomizerProvider>
         <SidebarConfigProvider>
           <FolderOpenProvider>
-          <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-              {/* Syncs theme + sidebar to/from user.preferences in DB */}
-              <PreferencesSyncer />
-              {children}
-            </AuthProvider>
-          </QueryClientProvider>
+            <QueryClientProvider client={queryClient}>
+              <AuthProvider>
+                <SetupGuard>
+                  {/* Syncs theme + sidebar to/from user.preferences in DB */}
+                  <PreferencesSyncer />
+                  {children}
+                </SetupGuard>
+              </AuthProvider>
+            </QueryClientProvider>
           </FolderOpenProvider>
         </SidebarConfigProvider>
       </ThemeCustomizerProvider>

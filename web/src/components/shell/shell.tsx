@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useFocusMode } from "@/lib/focus/context";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useAuth } from "@/lib/auth/context";
 import { useSidebarConfig, useFolderOpen, type SidebarConfig, type SidebarFolder } from "@/lib/sidebar/context";
 import { ALL_NAV_ITEMS, type NavItem } from "@/lib/sidebar/nav-items";
+import { useNavItems } from "@/lib/sidebar/use-nav-items";
 import { resolveFolderIcon, DEFAULT_FOLDER_ICON } from "@/lib/sidebar/folder-icons";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandPalette } from "@/components/shell/command-palette";
@@ -45,9 +48,9 @@ function isFolder(entry: RenderEntry): entry is SidebarFolder {
   return "hrefs" in entry;
 }
 
-function getRootRenderList(config: SidebarConfig): RenderEntry[] {
+function getRootRenderList(config: SidebarConfig, allNavItems: NavItem[]): RenderEntry[] {
   const folderedHrefs = new Set(config.folders.flatMap((f) => f.hrefs));
-  const allHrefs = ALL_NAV_ITEMS.map((n) => n.href);
+  const allHrefs = allNavItems.map((n) => n.href);
   const folderIds = config.folders.map((f) => f.id);
 
   let order: string[];
@@ -59,7 +62,7 @@ function getRootRenderList(config: SidebarConfig): RenderEntry[] {
     const unknownFolderIds = folderIds.filter((id) => !config.order.includes(id));
     order = [...config.order, ...unknownNavHrefs, ...unknownFolderIds];
   } else {
-    // Default: unfoldred nav items in definition order, then folders
+    // Default: unfoldered nav items in definition order, then folders
     order = [
       ...allHrefs.filter((h) => !folderedHrefs.has(h)),
       ...folderIds,
@@ -78,7 +81,7 @@ function getRootRenderList(config: SidebarConfig): RenderEntry[] {
       // Nav item href
       if (folderedHrefs.has(id)) continue; // assigned to a folder — skip at root
       if (config.hidden.includes(id)) continue;
-      const item = ALL_NAV_ITEMS.find((n) => n.href === id);
+      const item = allNavItems.find((n) => n.href === id);
       if (item) result.push(item);
     } else {
       // Folder ID
@@ -90,28 +93,60 @@ function getRootRenderList(config: SidebarConfig): RenderEntry[] {
   return result;
 }
 
+/** Renders a NavItem icon — handles both Lucide components and emoji strings. */
+function NavIcon({ icon, className }: { icon: LucideIcon | string; className?: string }) {
+  if (typeof icon === "string") {
+    return <span className={cn("shrink-0 text-base leading-none", className)}>{icon}</span>;
+  }
+  const Icon = icon;
+  return <Icon className={cn("h-4 w-4 shrink-0", className)} />;
+}
+
+// ── active href resolution ────────────────────────────────────────────────────
+// Among all nav items, find the *most specific* one whose href matches the
+// current pathname. "Most specific" = longest href, so /projects/abc wins over
+// /projects when the user is on a project detail page.
+//
+// This is the single source of truth for active state — both the flat nav list
+// and folder contents use it, so the rule is universal regardless of item type.
+
+function getActiveHref(pathname: string, allNavItems: NavItem[]): string | null {
+  let best: string | null = null;
+  for (const item of allNavItems) {
+    const matches =
+      item.href === "/"
+        ? pathname === "/"
+        : pathname === item.href || pathname.startsWith(item.href + "/");
+    if (matches && (best === null || item.href.length > best.length)) {
+      best = item.href;
+    }
+  }
+  return best;
+}
+
 // ── folder nav item ───────────────────────────────────────────────────────────
 
 function FolderNavItem({
   folder,
   hidden,
+  allNavItems,
+  activeHref,
   onNavigate,
 }: {
   folder: SidebarFolder;
   hidden: string[];
+  allNavItems: NavItem[];
+  activeHref: string | null;
   onNavigate?: () => void;
 }) {
-  const pathname = usePathname();
   const { folderOpen, toggleFolder } = useFolderOpen();
   const isOpen = folderOpen[folder.id] ?? false;
 
   const visibleItems = folder.hrefs
-    .map((href) => ALL_NAV_ITEMS.find((n) => n.href === href))
+    .map((href) => allNavItems.find((n) => n.href === href))
     .filter((n): n is NavItem => !!n && !hidden.includes(n.href));
 
-  const hasActive = visibleItems.some((item) =>
-    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href),
-  );
+  const hasActive = visibleItems.some((item) => item.href === activeHref);
 
   return (
     <div>
@@ -140,27 +175,22 @@ function FolderNavItem({
 
       {isOpen && visibleItems.length > 0 && (
         <div className="ml-3 mt-0.5 pl-3 border-l border-border/50 space-y-0.5 pb-0.5">
-          {visibleItems.map((item) => {
-            const active =
-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onNavigate}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {visibleItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              className={cn(
+                "flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                item.href === activeHref
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <NavIcon icon={item.icon} />
+              {item.label}
+            </Link>
+          ))}
         </div>
       )}
     </div>
@@ -180,7 +210,12 @@ function NavLinks({
 }) {
   const pathname = usePathname();
   const { sidebarConfig } = useSidebarConfig();
-  const renderList = getRootRenderList(sidebarConfig);
+  const { items: allNavItems } = useNavItems();
+  const renderList = getRootRenderList(sidebarConfig, allNavItems);
+
+  // Compute once — the single most-specific nav item matching the current URL.
+  // All active-state checks below use this value so only one item is ever lit.
+  const activeHref = getActiveHref(pathname, allNavItems);
 
   return (
     <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
@@ -238,14 +273,15 @@ function NavLinks({
               key={entry.id}
               folder={entry}
               hidden={sidebarConfig.hidden}
+              allNavItems={allNavItems}
+              activeHref={activeHref}
               onNavigate={onNavigate}
             />
           );
         }
 
-        // Plain nav item
-        const { href, label, icon: Icon } = entry;
-        const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+        // Plain nav item — active only if it is the most-specific match
+        const { href, label, icon } = entry;
         return (
           <Link
             key={href}
@@ -253,12 +289,12 @@ function NavLinks({
             onClick={onNavigate}
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-              active
+              href === activeHref
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <Icon className="h-4 w-4 shrink-0" />
+            <NavIcon icon={icon} />
             {label}
           </Link>
         );
@@ -361,6 +397,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [mobileOpen,   setMobileOpen]   = useState(false);
   const [paletteOpen,  setPaletteOpen]  = useState(false);
   const [aiPanelOpen,  setAiPanelOpen]  = useState(false);
+  const { toggle: toggleFocus, focused } = useFocusMode();
   const { width: sidebarWidth, startResize } = useResizablePanel({
     defaultWidth: 256,
     minWidth: 180,
@@ -408,6 +445,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         e.preventDefault();
         setAiPanelOpen((o) => !o);
       }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "f") {
+        e.preventDefault();
+        toggleFocus();
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -415,10 +456,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-full">
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — collapses in focus mode */}
       <aside
-        className="hidden md:flex flex-col shrink-0 border-r bg-card"
-        style={{ width: sidebarWidth }}
+        className="hidden md:flex flex-col shrink-0 border-r bg-card overflow-hidden transition-[width,opacity] duration-300 ease-in-out"
+        style={{ width: focused ? 0 : sidebarWidth, opacity: focused ? 0 : 1 }}
       >
         <SidebarContent
           onSearchOpen={() => setPaletteOpen(true)}
@@ -426,9 +467,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         />
       </aside>
 
-      {/* Sidebar resize handle */}
+      {/* Sidebar resize handle — hidden in focus mode */}
       <div
-        className="hidden md:block w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        className="hidden md:block shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
+        style={{ width: focused ? 0 : 4 }}
         onMouseDown={startResize}
       />
 

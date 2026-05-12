@@ -27,6 +27,9 @@ class Document(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL")
     )
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), nullable=True
+    )
 
     title: Mapped[str] = mapped_column(Text)
     slug: Mapped[str] = mapped_column(Text)

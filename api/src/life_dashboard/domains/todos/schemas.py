@@ -9,8 +9,8 @@ TodoPriority = Literal["low", "medium", "high"]
 
 
 class TodoCreate(BaseModel):
-    parent_id: uuid.UUID | None = None
-    goal_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    assigned_to_user_id: uuid.UUID | None = None
     title: str = Field(min_length=1)
     description: str | None = None
     status: TodoStatus = "pending"
@@ -20,8 +20,8 @@ class TodoCreate(BaseModel):
 
 
 class TodoUpdate(BaseModel):
-    parent_id: uuid.UUID | None = None
-    goal_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    assigned_to_user_id: uuid.UUID | None = None
     title: str | None = Field(default=None, min_length=1)
     description: str | None = None
     status: TodoStatus | None = None
@@ -37,8 +37,8 @@ class TodoResponse(BaseModel):
     id: uuid.UUID
     household_id: uuid.UUID
     created_by_user_id: uuid.UUID | None
-    parent_id: uuid.UUID | None
-    goal_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+    assigned_to_user_id: uuid.UUID | None
     title: str
     description: str | None
     status: str

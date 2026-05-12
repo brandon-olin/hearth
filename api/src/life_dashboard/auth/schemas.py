@@ -28,6 +28,11 @@ class UpdateMeRequest(BaseModel):
     preferences: dict[str, Any] | None = None
 
 
+class DeleteMeRequest(BaseModel):
+    """Password confirmation is required to prevent accidental account deletion."""
+    password: str
+
+
 class TokenResponse(BaseModel):
     """Returned by /auth/refresh. The refresh token is delivered via httpOnly cookie, not here."""
     access_token: str

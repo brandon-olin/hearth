@@ -61,7 +61,7 @@ export function TodosWidget({ today }: { today: string }) {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
   const { data, isLoading, isError } = $api.useQuery("get", "/todos", {
-    params: { query: { root_only: true, limit: 50 } },
+    params: { query: { limit: 50 } },
   });
 
   const { mutateAsync: updateTodo } = $api.useMutation(

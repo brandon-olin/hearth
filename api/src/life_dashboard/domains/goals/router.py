@@ -10,6 +10,7 @@ from life_dashboard.core.database import get_db
 from life_dashboard.domains.goals.schemas import (
     GoalCreate,
     GoalListResponse,
+    GoalProjectListResponse,
     GoalResponse,
     GoalUpdate,
 )
@@ -76,3 +77,18 @@ async def delete_goal(
     deleted = await service.delete_goal(db, goal_id, current_user.household_id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
+
+
+# ── Project relationships ─────────────────────────────────────────────────────
+
+@router.get("/{goal_id}/projects", response_model=GoalProjectListResponse)
+async def list_goal_projects(
+    goal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GoalProjectListResponse:
+    """Return the project IDs linked to a goal."""
+    result = await service.list_goal_projects(db, goal_id, current_user.household_id)
+    if result is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
+    return result

@@ -7,11 +7,14 @@ from sqlalchemy import text
 
 from life_dashboard.ai.router import router as ai_router
 from life_dashboard.auth.router import router as auth_router
+from life_dashboard.households.router import router as households_router
 from life_dashboard.uploads.router import router as uploads_router
 from life_dashboard.domains.calendar_events.router import router as calendar_events_router
+from life_dashboard.domains.collections.router import router as collections_router
 from life_dashboard.domains.contacts.router import router as contacts_router
 from life_dashboard.domains.documents.router import router as documents_router
 from life_dashboard.domains.goals.router import router as goals_router
+from life_dashboard.domains.projects.router import router as projects_router
 from life_dashboard.domains.grocery_lists.router import router as grocery_lists_router
 from life_dashboard.domains.habits.router import router as habits_router
 from life_dashboard.domains.notes.router import router as notes_router
@@ -20,6 +23,7 @@ from life_dashboard.domains.tags.router import router as tags_router
 from life_dashboard.domains.todos.router import router as todos_router
 from life_dashboard.domains.workouts.router import router as workouts_router
 from life_dashboard.auth.service import run_bootstrap_if_needed
+from life_dashboard.setup.router import router as setup_router
 from life_dashboard.core.database import AsyncSessionLocal, engine
 from life_dashboard.core.settings import settings
 
@@ -75,13 +79,17 @@ app.add_middleware(
 )
 
 
+app.include_router(setup_router)
 app.include_router(ai_router)
 app.include_router(auth_router)
+app.include_router(households_router)
 app.include_router(uploads_router)
 app.include_router(calendar_events_router)
+app.include_router(collections_router)
 app.include_router(contacts_router)
 app.include_router(documents_router)
 app.include_router(goals_router)
+app.include_router(projects_router)
 app.include_router(grocery_lists_router)
 app.include_router(habits_router)
 app.include_router(notes_router)

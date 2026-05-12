@@ -44,6 +44,17 @@ async def list_workouts(
     )
 
 
+@router.get("/exercise-names", response_model=list[str])
+async def list_exercise_names(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return distinct exercise names used in this household, sorted alphabetically.
+    Used to power autocomplete in the workout editor.
+    """
+    return await service.list_exercise_names(db, current_user.household_id)
+
+
 @router.get("/{workout_id}", response_model=WorkoutWithEntriesResponse)
 async def get_workout(
     workout_id: uuid.UUID,

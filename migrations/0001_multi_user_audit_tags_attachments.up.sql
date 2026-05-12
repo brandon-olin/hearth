@@ -186,8 +186,17 @@ CREATE INDEX idx_taggings_entity ON public.taggings USING btree (entity_type, en
 
 -- -----------------------------------------------------------------------------
 -- 7. updated_at triggers on new + existing mutable tables
--- The update_updated_at() function already exists from the initial schema.
 -- -----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.update_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
 
 CREATE TRIGGER households_updated_at BEFORE UPDATE ON public.households
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();

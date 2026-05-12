@@ -21,6 +21,7 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 async def list_notes(
     include_archived: bool = False,
     tag_id: uuid.UUID | None = None,
+    collection_id: uuid.UUID | None = None,
     q: str | None = Query(None, description="Full-text filter on title and content"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -32,6 +33,7 @@ async def list_notes(
         household_id=current_user.household_id,
         include_archived=include_archived,
         tag_id=tag_id,
+        collection_id=collection_id,
         q=q,
         limit=limit,
         offset=offset,

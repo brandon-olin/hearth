@@ -123,6 +123,13 @@ def upgrade() -> None:
     # PG drops triggers automatically with the table, but being explicit here
     # documents the dependency and ensures idempotency on partial re-runs.
     if _table_exists(conn, "notes"):
+        # note_backlinks and note_tags have FKs → notes; must precede notes drop.
+        # These tables exist when the DB was initialized via Phase-0 raw SQL (pre-Alembic)
+        # or when migration 0010 already ran. Guard with _table_exists for idempotency.
+        if _table_exists(conn, "note_backlinks"):
+            op.drop_table("note_backlinks")
+        if _table_exists(conn, "note_tags"):
+            op.drop_table("note_tags")
         op.execute("DROP TRIGGER IF EXISTS notes_updated_at ON notes")
         op.drop_table("notes")
 

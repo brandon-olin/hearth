@@ -59,3 +59,9 @@ class GoalListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class GoalProjectListResponse(BaseModel):
+    """Project IDs associated with a goal (via project_goals join)."""
+    items: list[uuid.UUID]
+    total: int

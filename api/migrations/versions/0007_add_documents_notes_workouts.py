@@ -51,7 +51,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ENUM as PgEnum, JSONB, UUID
 
 revision: str = "f1c8b3e6a9d2"
 down_revision: Union[str, None] = "e2f9a4c7b5d1"
@@ -59,205 +59,246 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _table_exists(conn, name: str) -> bool:
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = :name"
+        ),
+        {"name": name},
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
-    # ── documents ─────────────────────────────────────────────────────────────
-    # document_kind, note_kind, and exercise_type enums are owned by their
-    # respective table columns below (create_type=True). Using op.execute to
-    # pre-create types and create_type=False causes _on_table_create to fire
-    # again on the column regardless, producing a duplicate-type error.
-    op.create_table(
-        "documents",
-        sa.Column(
-            "id", UUID(as_uuid=True), primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column("title", sa.Text(), nullable=False),
-        sa.Column("slug", sa.Text(), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column(
-            "parent_id", UUID(as_uuid=True),
-            sa.ForeignKey("documents.id", ondelete="SET NULL"), nullable=True,
-        ),
-        sa.Column(
-            "household_id", UUID(as_uuid=True),
-            sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column(
-            "created_by_user_id", UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
-        ),
-        sa.Column(
-            "kind",
-            sa.Enum("page", "template", name="document_kind", create_type=True),
-            nullable=False,
-            server_default="page",
-        ),
-        sa.Column("source_markdown", sa.Text(), nullable=True),
-        sa.Column("editor_json", JSONB(), nullable=True),
-        sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.UniqueConstraint("household_id", "slug", name="documents_household_slug_key"),
-    )
-    op.create_index("idx_documents_household_id", "documents", ["household_id"])
-    op.create_index("idx_documents_parent_id", "documents", ["parent_id"])
+    conn = op.get_bind()
+
+    # Pre-create enums idempotently so this migration is safe to replay on a DB
+    # that already has these types from a previous run or Phase-0 raw SQL.
+    # PostgreSQL has no "CREATE TYPE IF NOT EXISTS" syntax — the standard
+    # workaround is a DO block that swallows the duplicate_object exception.
+    # create_type=False on columns prevents SQLAlchemy from auto-creating them
+    # a second time during create_table.
     op.execute(
-        "CREATE TRIGGER documents_updated_at BEFORE UPDATE ON documents "
-        "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+        """
+        DO $$ BEGIN
+            CREATE TYPE document_kind AS ENUM ('page', 'template');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE note_kind AS ENUM ('note', 'journal');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE exercise_type AS ENUM (
+                'strength', 'cardio', 'hiit', 'flexibility', 'other'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
+    )
+
+    # ── documents ─────────────────────────────────────────────────────────────
+    if not _table_exists(conn, "documents"):
+        op.create_table(
+            "documents",
+            sa.Column(
+                "id", UUID(as_uuid=True), primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
+            ),
+            sa.Column("title", sa.Text(), nullable=False),
+            sa.Column("slug", sa.Text(), nullable=False),
+            sa.Column("description", sa.Text(), nullable=True),
+            sa.Column(
+                "parent_id", UUID(as_uuid=True),
+                sa.ForeignKey("documents.id", ondelete="SET NULL"), nullable=True,
+            ),
+            sa.Column(
+                "household_id", UUID(as_uuid=True),
+                sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column(
+                "created_by_user_id", UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+            ),
+            sa.Column(
+                "kind",
+                PgEnum("page", "template", name="document_kind", create_type=False),
+                nullable=False,
+                server_default="page",
+            ),
+            sa.Column("source_markdown", sa.Text(), nullable=True),
+            sa.Column("editor_json", JSONB(), nullable=True),
+            sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.Column(
+                "updated_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.UniqueConstraint("household_id", "slug", name="documents_household_slug_key"),
+        )
+        op.create_index("idx_documents_household_id", "documents", ["household_id"])
+        op.create_index("idx_documents_parent_id", "documents", ["parent_id"])
+        op.execute(
+            "CREATE TRIGGER documents_updated_at BEFORE UPDATE ON documents "
+            "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+        )
 
     # ── notes ─────────────────────────────────────────────────────────────────
-    op.create_table(
-        "notes",
-        sa.Column(
-            "id", UUID(as_uuid=True), primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column(
-            "household_id", UUID(as_uuid=True),
-            sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column(
-            "created_by_user_id", UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
-        ),
-        sa.Column(
-            "kind",
-            sa.Enum("note", "journal", name="note_kind", create_type=True),
-            nullable=False,
-            server_default="note",
-        ),
-        sa.Column("title", sa.Text(), nullable=True),
-        sa.Column("body", sa.Text(), nullable=True),
-        sa.Column("journaled_date", sa.Date(), nullable=True),
-        sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-    )
-    op.create_index("idx_notes_household_id", "notes", ["household_id"])
-    op.create_index("idx_notes_kind", "notes", ["kind"])
-    # Efficient date-range queries for journal entries (e.g. "this week's journals")
-    op.create_index("idx_notes_journaled_date", "notes", ["journaled_date"])
-    op.execute(
-        "CREATE TRIGGER notes_updated_at BEFORE UPDATE ON notes "
-        "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
-    )
+    if not _table_exists(conn, "notes"):
+        op.create_table(
+            "notes",
+            sa.Column(
+                "id", UUID(as_uuid=True), primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
+            ),
+            sa.Column(
+                "household_id", UUID(as_uuid=True),
+                sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column(
+                "created_by_user_id", UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+            ),
+            sa.Column(
+                "kind",
+                PgEnum("note", "journal", name="note_kind", create_type=False),
+                nullable=False,
+                server_default="note",
+            ),
+            sa.Column("title", sa.Text(), nullable=True),
+            sa.Column("body", sa.Text(), nullable=True),
+            sa.Column("journaled_date", sa.Date(), nullable=True),
+            sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.Column(
+                "updated_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+        )
+        op.create_index("idx_notes_household_id", "notes", ["household_id"])
+        op.create_index("idx_notes_kind", "notes", ["kind"])
+        op.create_index("idx_notes_journaled_date", "notes", ["journaled_date"])
+        op.execute(
+            "CREATE TRIGGER notes_updated_at BEFORE UPDATE ON notes "
+            "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+        )
 
     # ── note_links ────────────────────────────────────────────────────────────
-    # Directed edges in the Zettelkasten knowledge graph.
-    # Both ends CASCADE: when either note is deleted, the link is removed.
-    op.create_table(
-        "note_links",
-        sa.Column(
-            "id", UUID(as_uuid=True), primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column(
-            "source_note_id", UUID(as_uuid=True),
-            sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column(
-            "target_note_id", UUID(as_uuid=True),
-            sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.UniqueConstraint(
-            "source_note_id", "target_note_id",
-            name="note_links_source_target_key",
-        ),
-    )
-    # Forward links: "what does this note link to?"
-    op.create_index("idx_note_links_source", "note_links", ["source_note_id"])
-    # Backlinks: "what notes link to this note?"
-    op.create_index("idx_note_links_target", "note_links", ["target_note_id"])
+    if not _table_exists(conn, "note_links"):
+        op.create_table(
+            "note_links",
+            sa.Column(
+                "id", UUID(as_uuid=True), primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
+            ),
+            sa.Column(
+                "source_note_id", UUID(as_uuid=True),
+                sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column(
+                "target_note_id", UUID(as_uuid=True),
+                sa.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.UniqueConstraint(
+                "source_note_id", "target_note_id",
+                name="note_links_source_target_key",
+            ),
+        )
+        op.create_index("idx_note_links_source", "note_links", ["source_note_id"])
+        op.create_index("idx_note_links_target", "note_links", ["target_note_id"])
 
     # ── workouts ──────────────────────────────────────────────────────────────
-    op.create_table(
-        "workouts",
-        sa.Column(
-            "id", UUID(as_uuid=True), primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column(
-            "household_id", UUID(as_uuid=True),
-            sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column(
-            "created_by_user_id", UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
-        ),
-        sa.Column("name", sa.Text(), nullable=True),
-        sa.Column("workout_date", sa.Date(), nullable=False),
-        sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-    )
-    op.create_index("idx_workouts_household_id", "workouts", ["household_id"])
-    op.create_index("idx_workouts_workout_date", "workouts", ["workout_date"])
-    op.execute(
-        "CREATE TRIGGER workouts_updated_at BEFORE UPDATE ON workouts "
-        "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
-    )
+    if not _table_exists(conn, "workouts"):
+        op.create_table(
+            "workouts",
+            sa.Column(
+                "id", UUID(as_uuid=True), primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
+            ),
+            sa.Column(
+                "household_id", UUID(as_uuid=True),
+                sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column(
+                "created_by_user_id", UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+            ),
+            sa.Column("name", sa.Text(), nullable=True),
+            sa.Column("workout_date", sa.Date(), nullable=False),
+            sa.Column("notes", sa.Text(), nullable=True),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.Column(
+                "updated_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+        )
+        op.create_index("idx_workouts_household_id", "workouts", ["household_id"])
+        op.create_index("idx_workouts_workout_date", "workouts", ["workout_date"])
+        op.execute(
+            "CREATE TRIGGER workouts_updated_at BEFORE UPDATE ON workouts "
+            "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+        )
 
     # ── exercise_entries ──────────────────────────────────────────────────────
-    op.create_table(
-        "exercise_entries",
-        sa.Column(
-            "id", UUID(as_uuid=True), primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column(
-            "workout_id", UUID(as_uuid=True),
-            sa.ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False,
-        ),
-        sa.Column("name", sa.Text(), nullable=False),
-        sa.Column(
-            "type",
-            sa.Enum(
-                "strength", "cardio", "hiit", "flexibility", "other",
-                name="exercise_type", create_type=True,
+    if not _table_exists(conn, "exercise_entries"):
+        op.create_table(
+            "exercise_entries",
+            sa.Column(
+                "id", UUID(as_uuid=True), primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
             ),
-            nullable=False,
-        ),
-        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
-        # Shape varies by type — see module docstring above.
-        sa.Column("metrics", JSONB(), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
-        ),
-    )
-    op.create_index("idx_exercise_entries_workout_id", "exercise_entries", ["workout_id"])
-    op.execute(
-        "CREATE TRIGGER exercise_entries_updated_at BEFORE UPDATE ON exercise_entries "
-        "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
-    )
+            sa.Column(
+                "workout_id", UUID(as_uuid=True),
+                sa.ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False,
+            ),
+            sa.Column("name", sa.Text(), nullable=False),
+            sa.Column(
+                "type",
+                PgEnum(
+                    "strength", "cardio", "hiit", "flexibility", "other",
+                    name="exercise_type", create_type=False,
+                ),
+                nullable=False,
+            ),
+            sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("metrics", JSONB(), nullable=True),
+            sa.Column("notes", sa.Text(), nullable=True),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+            sa.Column(
+                "updated_at", sa.DateTime(timezone=True),
+                server_default=sa.text("now()"), nullable=False,
+            ),
+        )
+        op.create_index("idx_exercise_entries_workout_id", "exercise_entries", ["workout_id"])
+        op.execute(
+            "CREATE TRIGGER exercise_entries_updated_at BEFORE UPDATE ON exercise_entries "
+            "FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+        )
 
 
 def downgrade() -> None:

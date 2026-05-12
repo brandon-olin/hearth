@@ -55,11 +55,15 @@ async def delete_all_documents(
 @router.get("", response_model=DocumentTreeResponse)
 async def list_documents(
     include_archived: bool = Query(default=False),
+    collection_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentTreeResponse:
     return await service.list_documents(
-        db, current_user.household_id, include_archived=include_archived
+        db,
+        current_user.household_id,
+        include_archived=include_archived,
+        collection_id=collection_id,
     )
 
 

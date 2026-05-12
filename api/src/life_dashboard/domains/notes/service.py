@@ -127,6 +127,7 @@ async def list_notes(
     household_id: uuid.UUID,
     include_archived: bool = False,
     tag_id: uuid.UUID | None = None,
+    collection_id: uuid.UUID | None = None,
     q: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -140,6 +141,9 @@ async def list_notes(
         stmt = stmt.where(
             Note.id.in_(select(NoteTag.note_id).where(NoteTag.tag_id == tag_id))
         )
+
+    if collection_id is not None:
+        stmt = stmt.where(Note.collection_id == collection_id)
 
     if q:
         pattern = f"%{q}%"
@@ -183,6 +187,7 @@ async def create_note(
         title=data.title,
         content_md=data.content_md,
         content_json=data.content_json,
+        collection_id=data.collection_id,
     )
     db.add(note)
     await db.flush()  # Get note.id
@@ -219,6 +224,8 @@ async def update_note(
         note.content_md = data.content_md
     if "content_json" in updated_fields:
         note.content_json = data.content_json
+    if "collection_id" in updated_fields:
+        note.collection_id = data.collection_id
 
     note.updated_at = datetime.now(tz=timezone.utc)
 

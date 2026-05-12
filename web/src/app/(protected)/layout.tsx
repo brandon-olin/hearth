@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/context";
 import { Shell } from "@/components/shell/shell";
+import { FocusModeProvider } from "@/lib/focus/context";
+import { FocusOverlay } from "@/components/focus/focus-overlay";
 
 export default function ProtectedLayout({
   children,
@@ -29,5 +31,10 @@ export default function ProtectedLayout({
 
   if (!user) return null;
 
-  return <Shell>{children}</Shell>;
+  return (
+    <FocusModeProvider>
+      <Shell>{children}</Shell>
+      <FocusOverlay />
+    </FocusModeProvider>
+  );
 }

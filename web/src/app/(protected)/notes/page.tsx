@@ -5,6 +5,8 @@ import { NoteList } from "@/components/notes/note-list";
 import { NoteEditor } from "@/components/notes/note-editor";
 import { NoteGraph } from "@/components/notes/note-graph";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
+import { useFocusMode } from "@/lib/focus/context";
+import { FocusToggle } from "@/components/focus/focus-toggle";
 import { BookOpen, Network, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { components } from "@/lib/api/schema";
@@ -25,6 +27,7 @@ export default function NotesPage() {
     maxWidth: 400,
     storageKey: "ld-notes-list-width",
   });
+  const { focused } = useFocusMode();
 
   const handleSelect = useCallback((note: NoteSummary) => {
     setSelectedId(note.id);
@@ -89,6 +92,7 @@ export default function NotesPage() {
             Graph
           </button>
         </div>
+        <FocusToggle className="ml-auto" />
       </div>
 
       {/* ── Main content ─────────────────────────────────────────── */}
@@ -96,10 +100,10 @@ export default function NotesPage() {
 
         {view === "list" ? (
           <>
-            {/* Note list sidebar */}
+            {/* Note list sidebar — collapses in focus mode */}
             <aside
-              className="shrink-0 border-r flex flex-col overflow-hidden bg-background"
-              style={{ width }}
+              className="shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out"
+              style={{ width: focused ? 0 : width, opacity: focused ? 0 : 1 }}
             >
               <NoteList
                 selectedId={isNew ? null : selectedId}
@@ -109,9 +113,10 @@ export default function NotesPage() {
               />
             </aside>
 
-            {/* Resize handle */}
+            {/* Resize handle — hidden in focus mode */}
             <div
-              className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+              className="shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
+              style={{ width: focused ? 0 : 4 }}
               onMouseDown={startResize}
             />
 
