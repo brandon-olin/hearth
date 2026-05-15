@@ -31,6 +31,18 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _as_aware(dt: datetime) -> datetime:
+    """Return a timezone-aware datetime, assuming UTC if the value is naive.
+
+    SQLAlchemy / psycopg2 can return timezone-naive datetimes from a
+    TIMESTAMP WITH TIME ZONE column depending on driver version and pg config.
+    This normalises the value before any aware ↔ aware comparison.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 # ── User lookups ──────────────────────────────────────────────────────────────
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -140,7 +152,11 @@ async def rotate_refresh_token(
     token = result.scalar_one_or_none()
 
     now = datetime.now(timezone.utc)
-    if token is None or token.revoked_at is not None or token.expires_at <= now:
+    if (
+        token is None
+        or token.revoked_at is not None
+        or _as_aware(token.expires_at) <= now
+    ):
         raise TokenError("Refresh token is invalid or has expired")
 
     user = await get_user_by_id(db, token.user_id)

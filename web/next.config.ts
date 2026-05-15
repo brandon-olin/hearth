@@ -1,33 +1,49 @@
 import type { NextConfig } from "next";
 
-const API_URL = process.env.API_URL ?? "http://localhost:8000";
+const API_URL = process.env.API_URL ?? "http://localhost:1338";
+
+// TAURI=1 triggers a fully static export for bundling inside the desktop app.
+// The Next.js proxy and rewrites are not available in static export mode —
+// the frontend talks directly to the FastAPI sidecar via NEXT_PUBLIC_API_BASE_URL.
+const isTauri = process.env.TAURI === "1";
 
 const nextConfig: NextConfig = {
-  // Produces a self-contained build in .next/standalone — required for the
-  // Docker image so node_modules don't need to be copied in full.
-  output: "standalone",
-  allowedDevOrigins: ["192.168.68.59"],
-  devIndicators: {
-    position: "bottom-right",
-  },
-  // Proxy all /api/* requests to the FastAPI backend.
-  // This keeps cookies same-origin so SameSite=Lax refresh cookies work.
-  // Set API_URL (server-side only) to the backend address visible from this
-  // server process — defaults to localhost:8000 for local dev.
-  // /api/* is handled by the catch-all Route Handler at app/api/[...path]/route.ts,
-  // which proxies requests to the FastAPI backend. No rewrites needed.
+  output: isTauri ? "export" : "standalone",
 
-  // Proxy /uploads/* directly to the API using Next.js rewrites rather than
-  // the JS catch-all route handler. The catch-all proxy uses upstream.text()
-  // which corrupts binary data; rewrites forward the raw bytes correctly.
-  async rewrites() {
-    return [
-      {
-        source: "/uploads/:path*",
-        destination: `${API_URL}/uploads/:path*`,
-      },
-    ];
-  },
+  // Required in Next.js 16: acknowledges that the webpack config below is
+  // intentional and only runs during `next build` (Tauri export).
+  // `next dev` uses Turbopack and ignores the webpack function entirely.
+  turbopack: {},
+
+  // Static export settings (Tauri build only)
+  ...(isTauri && {
+    // Trailing slashes ensure each route exports as dir/index.html,
+    // which works better with Tauri's asset serving.
+    trailingSlash: true,
+    // Images can't be optimised at runtime in a static export.
+    images: { unoptimized: true },
+    // Disable the Next.js dev overlay in Tauri builds.
+    devIndicators: false,
+  }),
+
+  // Non-Tauri settings
+  ...(!isTauri && {
+    allowedDevOrigins: ["192.168.68.59"],
+    devIndicators: {
+      position: "bottom-right",
+    },
+    // Proxy /uploads/* directly to the API using Next.js rewrites.
+    // The catch-all proxy uses upstream.text() which corrupts binary data;
+    // rewrites forward the raw bytes correctly.
+    async rewrites() {
+      return [
+        {
+          source: "/uploads/:path*",
+          destination: `${API_URL}/uploads/:path*`,
+        },
+      ];
+    },
+  }),
 };
 
 export default nextConfig;

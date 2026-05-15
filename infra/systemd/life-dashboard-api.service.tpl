@@ -1,5 +1,5 @@
 [Unit]
-Description=Life Dashboard API (FastAPI / uvicorn)
+Description=Hearth API (FastAPI / uvicorn)
 # Start after the network is up so DATABASE_URL resolves
 After=network.target
 # If postgres is installed as a user service, depend on it here instead:
@@ -14,7 +14,7 @@ EnvironmentFile=-{{APP_DIR}}/infra/local.env
 
 ExecStart={{APP_DIR}}/api/.venv/bin/uvicorn life_dashboard.main:app \
     --host 127.0.0.1 \
-    --port 8000 \
+    --port 1338 \
     --workers 2
 
 # Restart on any non-zero exit; wait 10s to avoid tight crash loops

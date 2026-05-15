@@ -13,4 +13,4 @@ set +a
 
 exec "{{APP_DIR}}/web/node_modules/.bin/next" start \
     --hostname 127.0.0.1 \
-    --port 3000
+    --port 1337

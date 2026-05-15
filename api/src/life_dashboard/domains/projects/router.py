@@ -6,6 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.projects.models import Project
 from life_dashboard.domains.projects import service
 from life_dashboard.domains.projects.schemas import (
     ProjectCreate,
@@ -30,6 +36,7 @@ async def list_projects(
     return await service.list_projects(
         db,
         household_id=current_user.household_id,
+        user_id=current_user.id,
         parent_id=parent_id,
         root_only=root_only,
         show_in_nav=show_in_nav,
@@ -43,6 +50,9 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "projects", "create", current_user.role):
+        raise HTTPException(status_code=403, detail="You don't have permission to create projects.")
     project, error = await service.create_project(
         db,
         household_id=current_user.household_id,
@@ -61,7 +71,7 @@ async def get_project(
     current_user: User = Depends(get_current_user),
 ):
     project = await service.get_project(
-        db, project_id=project_id, household_id=current_user.household_id
+        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -75,6 +85,15 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    creator_id = await get_item_creator(db, Project, project_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "projects", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to edit others' projects."
+            )
     project, error = await service.update_project(
         db,
         project_id=project_id,
@@ -94,8 +113,17 @@ async def archive_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    creator_id = await get_item_creator(db, Project, project_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "projects", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to archive others' projects."
+            )
     project, error = await service.archive_project(
-        db, project_id=project_id, household_id=current_user.household_id
+        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
     )
     if error == "not_found":
         raise HTTPException(status_code=404, detail="Project not found")
@@ -112,8 +140,17 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    creator_id = await get_item_creator(db, Project, project_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "projects", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to delete others' projects."
+            )
     deleted, error = await service.delete_project(
-        db, project_id=project_id, household_id=current_user.household_id
+        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
     )
     if error == "not_found":
         raise HTTPException(status_code=404, detail="Project not found")
@@ -132,7 +169,7 @@ async def list_project_goals(
     current_user: User = Depends(get_current_user),
 ):
     result = await service.list_project_goals(
-        db, project_id=project_id, household_id=current_user.household_id
+        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Project not found")

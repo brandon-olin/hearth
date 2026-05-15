@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+from life_dashboard.core.pydantic_types import CoercedList
 
 
 # ── Tag reference (embedded in note responses) ────────────────────────────────
@@ -32,6 +33,7 @@ class NoteCreate(BaseModel):
     content_json: dict[str, Any] | None = None
     tag_ids: list[uuid.UUID] = []
     collection_id: uuid.UUID | None = None
+    # Notes are always personal — visibility and sharing are not exposed.
 
 
 class NoteUpdate(BaseModel):
@@ -40,6 +42,7 @@ class NoteUpdate(BaseModel):
     content_json: dict[str, Any] | None = None
     tag_ids: list[uuid.UUID] | None = None
     collection_id: uuid.UUID | None = None
+    # Notes are always personal — visibility and sharing are not exposed.
 
 
 class NoteSummary(BaseModel):
@@ -50,6 +53,8 @@ class NoteSummary(BaseModel):
     title: str
     content_md: str | None
     collection_id: uuid.UUID | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -64,6 +69,8 @@ class NoteResponse(BaseModel):
     content_md: str | None
     content_json: dict[str, Any] | None
     collection_id: uuid.UUID | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime

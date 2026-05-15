@@ -1,6 +1,6 @@
 # Local Install Guide
 
-Life Dashboard runs directly on your machine — no Docker, no cloud account required. The install script sets up a Python virtual environment, installs Node dependencies, and registers background services that start automatically at login.
+Hearth runs directly on your machine — no Docker, no cloud account required. The install script sets up a Python virtual environment, installs Node dependencies, and registers background services that start automatically at login.
 
 ---
 
@@ -31,7 +31,7 @@ This will:
 5. Start Postgres (system or bundled), run migrations, build the web app
 6. Register `com.lifedashboard.api` and `com.lifedashboard.web` as background services that restart at login
 
-When it finishes, open **http://localhost:3000** and complete the setup wizard.
+When it finishes, open **http://localhost:1337** and complete the setup wizard.
 
 ---
 
@@ -79,8 +79,8 @@ make service-uninstall  # remove background services (data is untouched)
 **macOS** — the installer generates two LaunchAgent plist files in `~/Library/LaunchAgents/`:
 
 ```
-com.lifedashboard.api.plist   FastAPI + uvicorn, port 8000
-com.lifedashboard.web.plist   Next.js, port 3000
+com.lifedashboard.api.plist   FastAPI + uvicorn, port 1338
+com.lifedashboard.web.plist   Next.js, port 1337
 ```
 
 launchd loads them at login and restarts them automatically if they crash. No terminal window needed.
@@ -143,7 +143,7 @@ rm -rf ~/Library/Application\ Support/LifeDashboard   # macOS data directory
 
 ## Troubleshooting
 
-**The app doesn't open at localhost:3000**
+**The app doesn't open at localhost:1337**
 
 Check whether the services are running:
 
@@ -161,13 +161,13 @@ make service-logs
 
 If you see a Postgres role error, your system Postgres may use a different superuser. The install script detects this automatically by using your OS username (`$USER`) instead of `postgres`. Re-running `make service-install` after the first attempt usually resolves it.
 
-**Port 3000 or 8000 is already in use**
+**Port 1337 or 1338 is already in use**
 
 Another process has claimed the port. Find and stop it:
 
 ```bash
-lsof -i :3000
-lsof -i :8000
+lsof -i :1337
+lsof -i :1338
 ```
 
 **Migrations fail**

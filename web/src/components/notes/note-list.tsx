@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useMemo } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/auth/token";
 import { NoteRow } from "./note-row";
 import { TagMultiSelect } from "./tag-multi-select";
@@ -19,9 +20,15 @@ interface NoteListProps {
   onSelect: (note: NoteSummary) => void;
   onNewNote: () => void;
   onAllDeleted?: () => void;
+  /**
+   * When provided, fetches notes belonging to these collection IDs instead of
+   * the default (uncollected-only) view. Pass an empty array or undefined to
+   * show uncollected notes.
+   */
+  collectionIds?: string[];
 }
 
-export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: NoteListProps) {
+export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted, collectionIds }: NoteListProps) {
   const [search, setSearch] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing,     setClearing]     = useState(false);
@@ -31,7 +38,7 @@ export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: Note
     setClearing(true);
     try {
       const token = getAccessToken();
-      await fetch("/api/notes", {
+      await fetch(`${apiBaseUrl}/notes`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -55,12 +62,19 @@ export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: Note
     debounceTimer.current = setTimeout(() => setDebouncedQ(val), 300);
   }, []);
 
-  // Fetch all notes — tag filtering is client-side to support multi-select
+  // Fetch notes — tag filtering is client-side; collection filter is server-side.
+  // When collectionIds is provided: filter to those collections.
+  // Default (no prop): show uncollected notes only (the API's default behaviour).
   const { data, isLoading, isError } = $api.useQuery("get", "/notes", {
     params: {
       query: {
         q: debouncedQ || undefined,
         limit: 500,
+        // Pass collection_ids when the caller has toggled specific collections.
+        // When undefined, the API defaults to returning uncollected notes.
+        ...(collectionIds && collectionIds.length > 0
+          ? { collection_ids: collectionIds }
+          : {}),
       },
     },
   });
@@ -77,7 +91,7 @@ export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: Note
       queryKey: ["notes-tag-count", tag.id],
       queryFn: async (): Promise<number> => {
         const token = getAccessToken();
-        const res = await fetch(`/api/notes?tag_id=${tag.id}&limit=1`, {
+        const res = await fetch(`${apiBaseUrl}/notes?tag_id=${tag.id}&limit=1`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const d = await res.json();
@@ -92,13 +106,22 @@ export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: Note
     tags.map((tag, i) => [tag.id, tagCountQueries[i]?.data ?? null])
   );
 
+  // Only show tags that actually appear on at least one note.
+  // While a count is still loading (null) we keep the tag visible to avoid flicker.
+  // Once all counts are known, tags with count 0 are hidden (e.g. recipe-only tags).
+  const noteTags = useMemo(
+    () => tags.filter((tag) => { const c = tagCounts.get(tag.id); return c == null || c > 0; }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tags, tagCounts]  // tagCounts is a new Map each render, values stabilise quickly
+  );
+
   // Build per-tag note ID sets from dedicated queries
   const tagNoteIdQueries = useQueries({
     queries: tags.map((tag) => ({
       queryKey: ["notes-by-tag-ids", tag.id],
       queryFn: async (): Promise<string[]> => {
         const token = getAccessToken();
-        const res = await fetch(`/api/notes?tag_id=${tag.id}&limit=500`, {
+        const res = await fetch(`${apiBaseUrl}/notes?tag_id=${tag.id}&limit=500`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const d = await res.json();
@@ -205,10 +228,10 @@ export function NoteList({ selectedId, onSelect, onNewNote, onAllDeleted }: Note
           )}
         </div>
 
-        {/* Tag multi-select */}
-        {tags.length > 0 && (
+        {/* Tag multi-select — only tags that appear on at least one note */}
+        {noteTags.length > 0 && (
           <TagMultiSelect
-            tags={tags}
+            tags={noteTags}
             counts={tagCounts}
             selected={activeTagIds}
             onChange={setActiveTagIds}

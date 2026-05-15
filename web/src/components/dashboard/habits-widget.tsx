@@ -1,17 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Circle, Loader2, MessageSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Circle, Link2, Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-type Habit = components["schemas"]["HabitResponse"];
+type Habit = components["schemas"]["HabitWithStats"];
 type Occurrence = components["schemas"]["OccurrenceResponse"];
 
 function HabitRow({ habit, today }: { habit: Habit; today: string }) {
+  const router = useRouter();
   const [isToggling, setIsToggling] = useState(false);
+
+  // Read link from cadence JSONB
+  const cadence = (habit.cadence ?? {}) as Record<string, unknown>;
+  const linkRaw = cadence.link as { path: string; label: string } | null | undefined;
+  const habitLink = linkRaw?.path && linkRaw?.label ? linkRaw : null;
 
   const { data: occData, refetch: refetchOcc } = $api.useQuery(
     "get",
@@ -69,31 +75,58 @@ function HabitRow({ habit, today }: { habit: Habit; today: string }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleToggle}
-      disabled={isToggling}
+    <div
       className={cn(
-        "flex items-center gap-3 w-full text-left rounded-md px-2 py-2 hover:bg-muted/60 transition-colors group cursor-pointer disabled:cursor-wait",
+        "flex items-center gap-3 w-full rounded-md px-2 py-2 hover:bg-muted/60 transition-colors group",
         isCompleted && "opacity-50"
       )}
     >
-      {isToggling ? (
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-      ) : isCompleted ? (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-      ) : (
-        <Circle className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-      )}
-      <span
-        className={cn(
-          "text-sm",
-          isCompleted && "line-through text-muted-foreground"
-        )}
+      {/* Completion toggle — always tappable */}
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={isToggling}
+        className="shrink-0 cursor-pointer disabled:cursor-wait"
+        aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
       >
-        {habit.name}
-      </span>
-    </button>
+        {isToggling ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : isCompleted ? (
+          <CheckCircle2 className="h-4 w-4 text-primary" />
+        ) : (
+          <Circle className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+        )}
+      </button>
+
+      {/* Name — navigates to linked page if set, otherwise just text */}
+      {habitLink ? (
+        <button
+          type="button"
+          onClick={() => router.push(habitLink.path)}
+          className="flex-1 flex items-center gap-1.5 min-w-0 text-left group/name"
+          title={`Go to ${habitLink.label}`}
+        >
+          <span
+            className={cn(
+              "text-sm truncate group-hover/name:text-primary transition-colors",
+              isCompleted && "line-through text-muted-foreground"
+            )}
+          >
+            {habit.name}
+          </span>
+          <Link2 className="h-3 w-3 shrink-0 text-muted-foreground/50 group-hover/name:text-primary transition-colors" />
+        </button>
+      ) : (
+        <span
+          className={cn(
+            "flex-1 text-sm truncate",
+            isCompleted && "line-through text-muted-foreground"
+          )}
+        >
+          {habit.name}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -106,7 +139,7 @@ export function HabitsWidget({ today }: { today: string }) {
   const total = habits.length;
 
   return (
-    <div className="space-y-6">
+    <div>
       <div>
         <div className="flex items-baseline gap-2 mb-3">
           <h2 className="text-sm font-semibold">Habits</h2>
@@ -139,22 +172,6 @@ export function HabitsWidget({ today }: { today: string }) {
             ))}
           </div>
         )}
-      </div>
-
-      {/* AI cheerleader placeholder */}
-      <div className="rounded-lg border border-dashed bg-muted/20 p-4">
-        <div className="flex items-center gap-2 mb-1.5">
-          <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            AI Coach
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Coming soon — your local AI will cheer you on here.
-        </p>
-        <Button variant="outline" size="sm" className="mt-3 w-full" disabled>
-          Ask AI
-        </Button>
       </div>
     </div>
   );

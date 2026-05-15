@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
 import {
-  Loader2, Tag, X, Plus, Link2, Archive, Trash2, ChevronDown, ChevronRight,
+  Loader2, Tag, X, Plus, Link2, Trash2, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { components } from "@/lib/api/schema";
@@ -13,7 +13,7 @@ import type { components } from "@/lib/api/schema";
 type NoteResponse = components["schemas"]["NoteResponse"];
 type NoteSummary = components["schemas"]["NoteSummary"];
 type TagResponse = components["schemas"]["TagResponse"];
-type NoteTagRef = components["schemas"]["NoteTagRef"];
+type NoteTagRef = components["schemas"]["TagRef"];
 
 // ── Wikilink highlighting ─────────────────────────────────────────────────────
 
@@ -228,6 +228,39 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty = useRef(false);
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const { mutateAsync: createNote } = $api.useMutation("post", "/notes");
+  const { mutateAsync: updateNote } = $api.useMutation("patch", "/notes/{note_id}");
+  const { mutateAsync: deleteNote } = $api.useMutation("delete", "/notes/{note_id}");
+
+  // ── Auto-create on mount (new mode) ───────────────────────────────────────
+  // Create immediately with an empty title so the note exists from the moment
+  // the editor opens. The parent remounts this component in edit mode once
+  // onCreated fires with the new note's real ID.
+  useEffect(() => {
+    if (!isNew) return;
+    let cancelled = false;
+    setSaving(true);
+    createNote({
+      body: {
+        title: "",
+        content_md: null,
+        tag_ids: [],
+        collection_id: defaultCollectionId ?? null,
+      },
+    }).then((note) => {
+      if (cancelled) return;
+      qc.invalidateQueries({ queryKey: ["get", "/notes"] });
+      onCreated(note as unknown as NoteSummary);
+    }).catch(() => {
+      if (!cancelled) setSaveError("Failed to create note");
+    }).finally(() => {
+      if (!cancelled) setSaving(false);
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
+
   // ── Fetch existing note ────────────────────────────────────────────────────
   const { data: noteData, isLoading } = $api.useQuery(
     "get",
@@ -236,29 +269,17 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     { enabled: !isNew }
   );
 
-  // Populate form when note loads or noteId changes
+  // Populate form when note loads
   useEffect(() => {
-    if (isNew) {
-      setTitle("");
-      setContent("");
-      setTagIds([]);
-      setTags([]);
-      isDirty.current = false;
-    } else if (noteData) {
-      setTitle(noteData.title);
-      setContent(noteData.content_md ?? "");
-      setTagIds(noteData.tags.map((t) => t.id));
-      setTags(noteData.tags);
-      isDirty.current = false;
-    }
+    if (isNew || !noteData) return;
+    setTitle(noteData.title);
+    setContent(noteData.content_md ?? "");
+    setTagIds(noteData.tags.map((t) => t.id));
+    setTags(noteData.tags);
+    isDirty.current = false;
     setSaveError(null);
     setConfirmDelete(false);
   }, [noteId, noteData, isNew]);
-
-  // ── Mutations ──────────────────────────────────────────────────────────────
-  const { mutateAsync: createNote } = $api.useMutation("post", "/notes");
-  const { mutateAsync: updateNote } = $api.useMutation("patch", "/notes/{note_id}");
-  const { mutateAsync: deleteNote } = $api.useMutation("delete", "/notes/{note_id}");
 
   // ── Save helpers ───────────────────────────────────────────────────────────
   const save = useCallback(
@@ -300,30 +321,6 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     };
   }, []);
 
-  // ── Create ─────────────────────────────────────────────────────────────────
-  async function handleCreate() {
-    const t = title.trim();
-    if (!t) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const note = await createNote({
-        body: {
-          title: t,
-          content_md: content || null,
-          tag_ids: tagIds,
-          collection_id: defaultCollectionId ?? null,
-        },
-      });
-      qc.invalidateQueries({ queryKey: ["get", "/notes"] });
-      onCreated(note as unknown as NoteSummary);
-    } catch {
-      setSaveError("Failed to create note");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   // ── Delete ─────────────────────────────────────────────────────────────────
   async function handleDelete() {
     if (!noteId) return;
@@ -363,8 +360,9 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     }
   }
 
-  // ── Empty state ────────────────────────────────────────────────────────────
-  if (!isNew && isLoading) {
+  // ── Loading states ─────────────────────────────────────────────────────────
+  // Show a spinner while auto-creating (isNew) or loading existing note
+  if (isNew || (!noteData && isLoading)) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -382,46 +380,33 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
         <div className="flex items-center gap-2 min-w-0">
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />}
           {saveError && <span className="text-xs text-destructive">{saveError}</span>}
-          {!saving && !saveError && !isNew && (
+          {!saving && !saveError && (
             <span className="text-xs text-muted-foreground">
               {noteData?.content_md ? <WikilinkCount content={noteData.content_md} /> : null}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {isNew ? (
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Delete?</span>
+              <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={handleDelete}>
+                Yes
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmDelete(false)}>
+                No
+              </Button>
+            </div>
+          ) : (
             <Button
               size="sm"
-              onClick={handleCreate}
-              disabled={!title.trim() || saving}
-              className="h-7 text-xs"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              title="Delete note"
+              onClick={() => setConfirmDelete(true)}
             >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Create"}
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
-          ) : (
-            <>
-              {confirmDelete ? (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-muted-foreground mr-1">Delete?</span>
-                  <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={handleDelete}>
-                    Yes
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmDelete(false)}>
-                    No
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  title="Delete note"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
-            </>
           )}
         </div>
       </div>
@@ -434,7 +419,7 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
-            if (!isNew) isDirty.current = true;
+            isDirty.current = true;
           }}
           onBlur={handleTitleBlur}
           onKeyDown={(e) => {
@@ -443,8 +428,8 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
               (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
             }
           }}
-          placeholder="Note title…"
-          className="w-full text-xl font-semibold bg-transparent outline-none placeholder:text-muted-foreground/50 border-none"
+          placeholder="Untitled"
+          className="w-full text-xl font-semibold bg-transparent outline-none placeholder:text-muted-foreground/30 border-none"
         />
 
         {/* Tags row */}
@@ -471,15 +456,13 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
           spellCheck
         />
 
-        {/* Backlinks — only in edit mode */}
-        {!isNew && (
-          <div className="border-t pt-4 mt-2">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-              Linked here
-            </p>
-            <BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />
-          </div>
-        )}
+        {/* Backlinks */}
+        <div className="border-t pt-4 mt-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            Linked here
+          </p>
+          <BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />
+        </div>
       </div>
     </div>
   );

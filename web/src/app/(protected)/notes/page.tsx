@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { NoteList } from "@/components/notes/note-list";
 import { NoteEditor } from "@/components/notes/note-editor";
 import { NoteGraph } from "@/components/notes/note-graph";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useFocusMode } from "@/lib/focus/context";
 import { FocusToggle } from "@/components/focus/focus-toggle";
+import { useAuth } from "@/lib/auth/context";
 import { BookOpen, Network, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { components } from "@/lib/api/schema";
@@ -18,9 +19,18 @@ type View = "list" | "graph";
 const NEW_NOTE_ID = "__new__";
 
 export default function NotesPage() {
+  const { user } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<View>("list");
 
+  // When the active user changes (e.g. impersonation switch), reset all
+  // local selection state so the editor doesn't keep displaying another
+  // user's private content from its own useState cache.
+  useEffect(() => {
+    setSelectedId(null);
+  }, [user?.id]);
+
+  // ── Resizable panel + focus ─────────────────────────────────────────────────
   const { width, startResize } = useResizablePanel({
     defaultWidth: 260,
     minWidth: 180,
@@ -31,12 +41,11 @@ export default function NotesPage() {
 
   const handleSelect = useCallback((note: NoteSummary) => {
     setSelectedId(note.id);
-    setView("list"); // graph click → jump to list+editor
+    setView("list");
   }, []);
 
   const handleGraphSelect = useCallback((id: string) => {
     setSelectedId(id);
-    // Keep graph view open, just highlight the node
   }, []);
 
   const handleNewNote = useCallback(() => {
@@ -62,9 +71,9 @@ export default function NotesPage() {
   return (
     <div className="flex flex-col h-full min-h-full">
 
-      {/* ── View toggle bar ─────────────────────────────────────── */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b shrink-0 bg-background">
-        <div className="flex rounded-md overflow-hidden border text-xs">
+      {/* ── View toggle bar ───────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background min-h-[40px]">
+        <div className="flex rounded-md overflow-hidden border text-xs shrink-0">
           <button
             type="button"
             onClick={() => setView("list")}
@@ -92,10 +101,10 @@ export default function NotesPage() {
             Graph
           </button>
         </div>
-        <FocusToggle className="ml-auto" />
+        <FocusToggle className="ml-auto shrink-0" />
       </div>
 
-      {/* ── Main content ─────────────────────────────────────────── */}
+      {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
 
         {view === "list" ? (

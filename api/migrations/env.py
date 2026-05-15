@@ -20,17 +20,27 @@ if config.config_file_name is not None:
 # Base.metadata accumulates table definitions as domain models are imported.
 # Every models module must be imported here for alembic autogenerate to see it.
 import life_dashboard.auth.models  # noqa: F401
+import life_dashboard.ai.models  # noqa: F401
 import life_dashboard.domains.calendar_events.models  # noqa: F401
 import life_dashboard.domains.contacts.models  # noqa: F401
 import life_dashboard.domains.documents.models  # noqa: F401
 import life_dashboard.domains.goals.models  # noqa: F401
 import life_dashboard.domains.grocery_lists.models  # noqa: F401
 import life_dashboard.domains.habits.models  # noqa: F401
+import life_dashboard.domains.notes.models  # noqa: F401
+import life_dashboard.domains.projects.models  # noqa: F401
 import life_dashboard.domains.recipes.models  # noqa: F401
 import life_dashboard.domains.tags.models  # noqa: F401
 import life_dashboard.domains.todos.models  # noqa: F401
+import life_dashboard.domains.workouts.models  # noqa: F401
+import life_dashboard.domains.collections.models  # noqa: F401
+import life_dashboard.domains.templates.models  # noqa: F401
 
 target_metadata = Base.metadata
+
+
+def _is_sqlite() -> bool:
+    return settings.database_url.startswith("sqlite")
 
 
 def run_migrations_offline() -> None:
@@ -66,6 +76,17 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    if _is_sqlite():
+        # SQLite tier: Alembic migrations are Postgres-specific.
+        # Schema is managed via Base.metadata.create_all() on first boot
+        # (called from main.py startup). Running `alembic upgrade head` against
+        # a SQLite URL is a no-op with a clear message.
+        print(
+            "[alembic] SQLite detected — skipping migration history.\n"
+            "Schema is managed via create_all() on app startup.\n"
+            "To migrate data to Postgres later, use pgloader."
+        )
+        return
     asyncio.run(run_async_migrations())
 
 

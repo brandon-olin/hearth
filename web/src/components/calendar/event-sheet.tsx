@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
+import { useAuth } from "@/lib/auth/context";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   Sheet,
   SheetContent,
@@ -41,14 +43,24 @@ function blankForm(defaultDate?: string): FormState {
   };
 }
 
+/**
+ * The API returns naive UTC strings without a timezone indicator (e.g. "2026-05-14T22:00:00").
+ * Without a "Z" or offset suffix, browsers interpret the string as *local* time, which is wrong.
+ * This helper appends "Z" so the browser always treats the value as UTC.
+ */
+function normalizeIso(iso: string): string {
+  if (!iso.endsWith("Z") && !/[+-]\d\d:\d\d$/.test(iso)) return iso + "Z";
+  return iso;
+}
+
 function toLocalDateStr(iso: string): string {
   // Parse ISO datetime and return YYYY-MM-DD in local time
-  const d = new Date(iso);
+  const d = new Date(normalizeIso(iso));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function toLocalTimeStr(iso: string): string {
-  const d = new Date(iso);
+  const d = new Date(normalizeIso(iso));
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
@@ -83,6 +95,10 @@ interface EventSheetProps {
 export function EventSheet({ open, event, defaultDate, onClose }: EventSheetProps) {
   const qc = useQueryClient();
   const isEdit = event !== null;
+  const { user } = useAuth();
+  const { can } = usePermissions();
+  const isOwnItem = !event || event.created_by_user_id === (user as { id?: string } | null)?.id;
+  const canManageThis = isOwnItem || can("calendar", "manage_others");
 
   const [form, setForm] = useState<FormState>(blankForm(defaultDate));
   const [saving, setSaving] = useState(false);
@@ -212,7 +228,7 @@ export function EventSheet({ open, event, defaultDate, onClose }: EventSheetProp
               type="checkbox"
               checked={form.all_day}
               onChange={(e) => patch("all_day", e.target.checked)}
-              className="cursor-pointer"
+              className="checkbox-themed"
             />
             <Label htmlFor="ev-allday" className="cursor-pointer font-normal">
               All-day event
@@ -273,7 +289,7 @@ export function EventSheet({ open, event, defaultDate, onClose }: EventSheetProp
 
           {/* Actions */}
           <div className="flex items-center justify-between pt-2">
-            {isEdit ? (
+            {isEdit && canManageThis ? (
               confirmDelete ? (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Delete?</span>
@@ -308,10 +324,13 @@ export function EventSheet({ open, event, defaultDate, onClose }: EventSheetProp
             )}
 
             <div className="flex items-center gap-2">
+              {isEdit && !canManageThis && (
+                <span className="text-xs text-muted-foreground">View only</span>
+              )}
               <Button variant="outline" size="sm" onClick={onClose}>
                 Cancel
               </Button>
-              <Button size="sm" disabled={saving} onClick={handleSave}>
+              <Button size="sm" disabled={saving || (isEdit && !canManageThis)} onClick={handleSave}>
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : null}

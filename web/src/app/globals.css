@@ -4,6 +4,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Custom breakpoints ───────────────────────────────────────────────────────
+   mbp14: MacBook Pro 14" logical viewport width (1512px).
+   Use for layouts that benefit from extra width on large laptops. */
+@theme {
+  --breakpoint-mbp14: 1512px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -73,6 +80,15 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  /* Semantic badge colors — defined here so they're never hard-coded in components */
+  --badge-warning-bg:  oklch(0.962 0.059 95);
+  --badge-warning-fg:  oklch(0.555 0.163 49);
+  --badge-progress-bg: oklch(0.943 0.029 294);
+  --badge-progress-fg: oklch(0.491 0.270 293);
+  --badge-success-bg:  oklch(0.954 0.051 163);
+  --badge-success-fg:  oklch(0.508 0.118 167);
+  --badge-error-bg:    oklch(0.936 0.032 18);
+  --badge-error-fg:    oklch(0.505 0.213 28);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -115,6 +131,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* Semantic badge colors — dark overrides */
+  --badge-warning-bg:  oklch(0.414 0.112 46 / 0.4);
+  --badge-warning-fg:  oklch(0.879 0.169 92);
+  --badge-progress-bg: oklch(0.282 0.141 291 / 0.4);
+  --badge-progress-fg: oklch(0.811 0.111 294);
+  --badge-success-bg:  oklch(0.262 0.072 164 / 0.4);
+  --badge-success-fg:  oklch(0.845 0.143 165);
+  --badge-error-bg:    oklch(0.299 0.136 26 / 0.4);
+  --badge-error-fg:    oklch(0.808 0.114 20);
 }
 
 @layer base {
@@ -149,7 +174,8 @@ html.theme-switching,
 html.theme-switching *,
 html.theme-switching *::before,
 html.theme-switching *::after {
-  transition-property: color, background-color, border-color, fill, stroke, transform, translate !important;
+  transition-property:
+    color, background-color, border-color, fill, stroke, transform, translate !important;
   transition-duration: 350ms !important;
   transition-timing-function: ease !important;
   transition-delay: 0s !important;
@@ -193,6 +219,121 @@ html.theme-switching *::after {
   background-color: transparent !important;
 }
 
+/* ── Page layout containers ───────────────────────────────────────────────────
+   .page-content      — default for most pages (lists, detail views, forms)
+   .page-content-wide — grids and tables that benefit from more columns
+                        (recipes grid, habits table)
+   Documents/Notes use no wrapper — full width is correct for editors. */
+
+/* Unlayered so these win over any Tailwind utility layer styles.
+   Raw values used deliberately — @apply inside @layer components is unreliable
+   with responsive variants in Tailwind v4. */
+.page-content {
+  padding: 1.5rem;    /* p-6 */
+  max-width: 48rem;   /* max-w-3xl = 768px */
+}
+
+.page-content-wide {
+  padding: 1.5rem;    /* p-6 */
+  max-width: 56rem;   /* max-w-4xl = 896px */
+}
+
+@media (min-width: 1512px) {
+  .page-content-wide {
+    max-width: 72rem; /* max-w-6xl = 1152px — room for 4 recipe columns */
+  }
+}
+
+/* ── Badge primitives ─────────────────────────────────────────────────────────
+   Base: .badge — pill shape, consistent size, inline-flex
+   Colour variants: .badge-neutral .badge-blue .badge-amber .badge-violet
+                    .badge-green .badge-red
+   Modifier:        .badge-faded — reduces opacity (use on archived/disabled)
+
+   Usage: <span className="badge badge-blue">Active</span>
+          <span className="badge badge-neutral badge-faded">Archived</span> */
+
+@layer components {
+  /* Base pill — combine with exactly one colour variant below */
+  .badge {
+    @apply inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap;
+  }
+
+  /* Theme-aware variants — use CSS variables, never hard-coded colors in components */
+  .badge-primary {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .badge-neutral {
+    background-color: var(--muted);
+    color: var(--muted-foreground);
+  }
+
+  .badge-warning {
+    background-color: var(--badge-warning-bg);
+    color: var(--badge-warning-fg);
+  }
+
+  .badge-progress {
+    background-color: var(--badge-progress-bg);
+    color: var(--badge-progress-fg);
+  }
+
+  .badge-success {
+    background-color: var(--badge-success-bg);
+    color: var(--badge-success-fg);
+  }
+
+  .badge-error {
+    background-color: var(--badge-error-bg);
+    color: var(--badge-error-fg);
+  }
+
+  .badge-faded {
+    @apply opacity-60;
+  }
+}
+
+/* ── Reusable themed checkbox ─────────────────────────────────────────────────
+   Apply class="checkbox-themed" to any <input type="checkbox"> to get the same
+   custom appearance used in the BlockNote editor.
+   Unlayered so it beats Tailwind preflight's appearance: none reset. */
+
+input[type="checkbox"].checkbox-themed {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--foreground);
+  border-radius: 3px;
+  background-color: transparent;
+  cursor: pointer;
+  position: relative;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+input[type="checkbox"].checkbox-themed:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+input[type="checkbox"].checkbox-themed:checked::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 0.3em;
+  height: 0.55em;
+  border: 2px solid var(--primary-foreground);
+  border-top: none;
+  border-left: none;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
 /* ── BlockNote checkbox ───────────────────────────────────────────────────────
    Override browser-default checkbox styles inside the editor.
    Unchecked: transparent bg, text-colour border.
@@ -202,7 +343,9 @@ html.theme-switching *::after {
    (.bn-block-content[data-content-type="checkListItem"] > div > input)
    which has specificity [0,2,1]. Adding [type="checkbox"] lifts us to [0,2,2]. */
 
-.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"] {
+.bn-block-content[data-content-type="checkListItem"]
+  > div
+  > input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   width: 14px;
@@ -214,19 +357,25 @@ html.theme-switching *::after {
   background-color: transparent;
   cursor: pointer;
   position: relative;
-  transition: background-color 0.15s, border-color 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
 }
 
-.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"]:checked {
+.bn-block-content[data-content-type="checkListItem"]
+  > div
+  > input[type="checkbox"]:checked {
   background-color: var(--primary);
   border-color: var(--primary);
 }
 
-.bn-block-content[data-content-type="checkListItem"] > div > input[type="checkbox"]:checked::after {
+.bn-block-content[data-content-type="checkListItem"]
+  > div
+  > input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 50%;
-  top: 45%;
+  top: 40%;
   width: 0.3em;
   height: 0.55em;
   border: 2px solid var(--primary-foreground);

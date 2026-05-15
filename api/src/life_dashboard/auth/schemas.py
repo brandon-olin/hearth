@@ -10,22 +10,43 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     email: str
     display_name: str | None
+    household_name: str | None = None
+    role: str | None = None
     is_active: bool
     is_agent: bool
     last_login_at: datetime | None
     preferences: dict[str, Any] | None
+    # Locale settings — auto-detected from browser on first login, user-overridable
+    timezone: str | None = None
+    date_format: str | None = None
+    week_start: str | None = None
     created_at: datetime
 
 
 class UpdateMeRequest(BaseModel):
     display_name: str | None = None
     preferences: dict[str, Any] | None = None
+    # Locale settings
+    timezone: str | None = None
+    date_format: str | None = None
+    week_start: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    """Requires the current password to authorise the change."""
+    current_password: str
+    new_password: str
 
 
 class DeleteMeRequest(BaseModel):

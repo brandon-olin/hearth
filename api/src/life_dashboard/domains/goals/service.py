@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.goals.models import Goal
 from life_dashboard.domains.goals.schemas import (
     GoalCreate,
@@ -35,6 +36,8 @@ async def create_goal(
         current_value=data.current_value,
         unit=data.unit,
         due_date=data.due_date,
+        visibility=data.visibility,
+        shared_with_user_ids=data.shared_with_user_ids or [],
     )
     db.add(goal)
     await db.commit()
@@ -46,10 +49,12 @@ async def get_goal(
     db: AsyncSession,
     goal_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> GoalResponse | None:
-    result = await db.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
-    )
+    query = select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Goal, user_id)
+    result = await db.execute(query)
     goal = result.scalar_one_or_none()
     return _to_response(goal) if goal else None
 
@@ -57,6 +62,7 @@ async def get_goal(
 async def list_goals(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     status: str | None = None,
     parent_id: uuid.UUID | None = None,
@@ -64,6 +70,8 @@ async def list_goals(
     offset: int = 0,
 ) -> GoalListResponse:
     query = select(Goal).where(Goal.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Goal, user_id)
     if status is not None:
         query = query.where(Goal.status == status)
     if parent_id is not None:
@@ -87,9 +95,10 @@ async def update_goal(
     household_id: uuid.UUID,
     data: GoalUpdate,
 ) -> GoalResponse | None:
-    result = await db.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
-    )
+    query = select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Goal, user_id)
+    result = await db.execute(query)
     goal = result.scalar_one_or_none()
     if goal is None:
         return None
@@ -107,9 +116,10 @@ async def delete_goal(
     goal_id: uuid.UUID,
     household_id: uuid.UUID,
 ) -> bool:
-    result = await db.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
-    )
+    query = select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Goal, user_id)
+    result = await db.execute(query)
     goal = result.scalar_one_or_none()
     if goal is None:
         return False

@@ -8,9 +8,10 @@ rule for scheduled entry generation (e.g. daily journal entries).
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.domains.collections.models import Collection
@@ -22,6 +23,9 @@ from life_dashboard.domains.collections.schemas import (
     CollectionUpdate,
     EnsureTodayResponse,
 )
+
+if TYPE_CHECKING:
+    from life_dashboard.auth.models import User
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -35,8 +39,8 @@ def _to_response(col: Collection) -> CollectionResponse:
         icon=col.icon,
         domain=col.domain,  # type: ignore[arg-type]
         default_tags=[uuid.UUID(t) for t in (col.default_tags or [])],
-        default_template_id=col.default_template_id,
         auto_create_rule=AutoCreateRule(**col.auto_create_rule) if col.auto_create_rule else None,
+        show_in_nav=col.show_in_nav,
         sort_order=col.sort_order,
         created_at=col.created_at,
         updated_at=col.updated_at,
@@ -89,8 +93,8 @@ async def create_collection(
         icon=data.icon,
         domain=data.domain,
         default_tags=[str(t) for t in data.default_tags],
-        default_template_id=data.default_template_id,
         auto_create_rule=data.auto_create_rule.model_dump() if data.auto_create_rule else None,
+        show_in_nav=data.show_in_nav,
         sort_order=data.sort_order,
     )
     db.add(col)
@@ -122,10 +126,10 @@ async def update_collection(
         col.icon = data.icon
     if "default_tags" in updated and data.default_tags is not None:
         col.default_tags = [str(t) for t in data.default_tags]
-    if "default_template_id" in updated:
-        col.default_template_id = data.default_template_id
     if "auto_create_rule" in updated:
         col.auto_create_rule = data.auto_create_rule.model_dump() if data.auto_create_rule else None
+    if "show_in_nav" in updated and data.show_in_nav is not None:
+        col.show_in_nav = data.show_in_nav
     if "sort_order" in updated and data.sort_order is not None:
         col.sort_order = data.sort_order
 
@@ -139,7 +143,17 @@ async def delete_collection(
     db: AsyncSession,
     collection_id: uuid.UUID,
     household_id: uuid.UUID,
+    migrate_to_collection_id: uuid.UUID | None = None,
 ) -> bool:
+    """
+    Delete a collection.
+
+    If migrate_to_collection_id is provided, all notes and documents belonging
+    to the collection are re-assigned to that target collection before deletion.
+    If None, entries are deleted along with the collection (via CASCADE).
+
+    Returns False if the collection does not exist.
+    """
     result = await db.execute(
         select(Collection).where(
             Collection.id == collection_id,
@@ -149,6 +163,33 @@ async def delete_collection(
     col = result.scalar_one_or_none()
     if not col:
         return False
+
+    if migrate_to_collection_id is not None:
+        # Validate the destination collection exists in the same household
+        dest_result = await db.execute(
+            select(Collection).where(
+                Collection.id == migrate_to_collection_id,
+                Collection.household_id == household_id,
+            )
+        )
+        dest = dest_result.scalar_one_or_none()
+        if not dest:
+            return False  # caller should surface a 404 with a clear message
+
+        from life_dashboard.domains.notes.models import Note
+        from life_dashboard.domains.documents.models import Document
+
+        await db.execute(
+            update(Note)
+            .where(Note.collection_id == collection_id)
+            .values(collection_id=migrate_to_collection_id)
+        )
+        await db.execute(
+            update(Document)
+            .where(Document.collection_id == collection_id)
+            .values(collection_id=migrate_to_collection_id)
+        )
+
     await db.delete(col)
     await db.commit()
     return True
@@ -160,14 +201,17 @@ async def ensure_today_entry(
     db: AsyncSession,
     collection_id: uuid.UUID,
     household_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user: "User",
 ) -> EnsureTodayResponse | None:
     """
-    For collections with an auto_create_rule, ensure that an entry for today
-    exists in the collection's domain, creating one if it doesn't.
+    For collections with an auto_create_rule, ensure an entry for today exists.
+
+    Resolves the entry title using {{variable}} syntax and the user's locale
+    settings. Copies content from the collection's default template if one is
+    assigned. Idempotent — returns the existing entry if today's title already
+    exists.
 
     Returns None if the collection doesn't exist or has no auto_create_rule.
-    The title is generated by strftime(title_template, today).
     """
     result = await db.execute(
         select(Collection).where(
@@ -179,55 +223,77 @@ async def ensure_today_entry(
     if not col or not col.auto_create_rule:
         return None
 
+    from life_dashboard.domains.templates.service import get_default_template
+    from life_dashboard.domains.templates.variables import resolve_variables
+
     rule = AutoCreateRule(**col.auto_create_rule)
-    today = date.today()
-    today_title = today.strftime(rule.title_template)
+    today_title = resolve_variables(rule.title_template, user)
+
+    # Load the default template (if assigned)
+    default_template = await get_default_template(db, col.id)
 
     if col.domain == "notes":
-        return await _ensure_today_note(db, col, today_title, household_id, user_id)
+        return await _ensure_today_note(
+            db, col, today_title, default_template, household_id, user
+        )
     else:
-        return await _ensure_today_document(db, col, today_title, household_id, user_id)
+        return await _ensure_today_document(
+            db, col, today_title, default_template, household_id, user
+        )
+
+
+def _today_window(user: "User") -> tuple[datetime, datetime]:
+    """Return (start_utc, end_utc) bracketing today in the user's local timezone."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(user.timezone) if user.timezone else timezone.utc
+    except (ImportError, KeyError):
+        tz = timezone.utc
+
+    now_local = datetime.now(tz=tz)
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
 async def _ensure_today_note(
     db: AsyncSession,
     col: Collection,
     today_title: str,
+    template: object | None,
     household_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user: "User",
 ) -> EnsureTodayResponse:
     from life_dashboard.domains.notes.models import Note, NoteTag
 
-    # Check for an existing entry with today's title in this collection
+    # Idempotency: return existing entry if one was created today (in user's tz)
+    # regardless of its title — prevents duplicates when titles mismatch or the
+    # user renamed their entry.
+    start_utc, end_utc = _today_window(user)
     stmt = select(Note).where(
         Note.household_id == household_id,
         Note.collection_id == col.id,
-        Note.title == today_title,
         Note.archived_at.is_(None),
-    )
+        Note.created_at >= start_utc,
+        Note.created_at < end_utc,
+    ).order_by(Note.created_at.asc()).limit(1)
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing:
         return EnsureTodayResponse(created=False, item_id=existing.id, item_domain="notes")
 
-    # Resolve template content if configured
-    content_json = None
-    if col.default_template_id:
-        from life_dashboard.domains.documents.models import Document
-        tmpl_result = await db.execute(
-            select(Document).where(
-                Document.id == col.default_template_id,
-                Document.household_id == household_id,
-            )
-        )
-        tmpl = tmpl_result.scalar_one_or_none()
-        if tmpl:
-            content_json = tmpl.editor_json
+    # Copy content from the default template if one is assigned
+    content_md: str | None = None
+    content_json: object | None = None
+    if template is not None:
+        content_md = getattr(template, "content_md", None)
+        content_json = getattr(template, "content_json", None)
 
     note = Note(
         household_id=household_id,
-        created_by_user_id=user_id,
+        created_by_user_id=user.id,
         collection_id=col.id,
         title=today_title,
+        content_md=content_md,
         content_json=content_json,
     )
     db.add(note)
@@ -245,35 +311,30 @@ async def _ensure_today_document(
     db: AsyncSession,
     col: Collection,
     today_title: str,
+    template: object | None,
     household_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user: "User",
 ) -> EnsureTodayResponse:
     from life_dashboard.domains.documents.models import Document
     import re
 
-    # Check for an existing entry with today's title in this collection
+    # Idempotency: return existing entry if one was created today (in user's tz)
+    start_utc, end_utc = _today_window(user)
     stmt = select(Document).where(
         Document.household_id == household_id,
         Document.collection_id == col.id,
-        Document.title == today_title,
         Document.archived_at.is_(None),
-    )
+        Document.created_at >= start_utc,
+        Document.created_at < end_utc,
+    ).order_by(Document.created_at.asc()).limit(1)
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing:
         return EnsureTodayResponse(created=False, item_id=existing.id, item_domain="documents")
 
-    # Resolve template content if configured
-    editor_json = None
-    if col.default_template_id:
-        tmpl_result = await db.execute(
-            select(Document).where(
-                Document.id == col.default_template_id,
-                Document.household_id == household_id,
-            )
-        )
-        tmpl = tmpl_result.scalar_one_or_none()
-        if tmpl:
-            editor_json = tmpl.editor_json
+    # Copy content from the default template if one is assigned
+    editor_json: object | None = None
+    if template is not None:
+        editor_json = getattr(template, "content_json", None)
 
     # Generate a slug from the title
     slug_base = re.sub(r"[^\w\s-]", "", today_title.lower())
@@ -296,7 +357,7 @@ async def _ensure_today_document(
 
     doc = Document(
         household_id=household_id,
-        created_by_user_id=user_id,
+        created_by_user_id=user.id,
         collection_id=col.id,
         title=today_title,
         slug=slug,

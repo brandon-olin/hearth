@@ -1,8 +1,9 @@
 .PHONY: api web migrate seed-app-projects seed-m1-subprojects update-m1-progress \
-        service-install service-uninstall service-start service-stop service-restart service-status service-logs
+        service-install service-uninstall service-start service-stop service-restart service-status service-logs \
+        desktop desktop-dev desktop-api desktop-web
 
 api:
-	cd api && .venv/bin/uvicorn life_dashboard.main:app --reload --port 8000
+	cd api && .venv/bin/uvicorn life_dashboard.main:app --reload --port 1339
 
 web:
 	cd web && npm run dev
@@ -41,3 +42,25 @@ service-status:
 
 service-logs:
 	./infra/scripts/service.sh logs
+
+# ── Desktop (Tauri) ────────────────────────────────────────────────────────────
+
+# Full build: PyInstaller API binary + Next.js export + tauri build
+desktop:
+	chmod +x scripts/build-desktop.sh
+	./scripts/build-desktop.sh
+
+# Open Tauri dev window (re-uses last binary + web build for speed)
+desktop-dev:
+	chmod +x scripts/build-desktop.sh
+	./scripts/build-desktop.sh --skip-api --skip-web --dev
+
+# Rebuild only the PyInstaller API binary (e.g. after Python changes)
+desktop-api:
+	chmod +x scripts/build-desktop.sh
+	./scripts/build-desktop.sh --skip-web
+
+# Rebuild only the Next.js static export (e.g. after frontend changes)
+desktop-web:
+	chmod +x scripts/build-desktop.sh
+	./scripts/build-desktop.sh --skip-api

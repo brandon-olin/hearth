@@ -20,10 +20,11 @@
  */
 
 import { useMemo } from "react";
-import { CheckSquare, FolderKanban, FileText } from "lucide-react";
+import { CheckSquare, FolderKanban, FileText, BookOpen } from "lucide-react";
 import { $api } from "@/lib/api/query";
 import { useSidebarConfig } from "./context";
 import { BUILTIN_NAV_ITEMS, type NavItem } from "./nav-items";
+import { resolveFolderIcon } from "./folder-icons";
 
 export type { NavItem };
 
@@ -57,14 +58,17 @@ export function useNavItems(): { items: NavItem[]; isLoading: boolean } {
   const isLoading = collectionsLoading || projectsLoading || (pinnedDocumentIds.length > 0 && documentsLoading);
 
   const items = useMemo<NavItem[]>(() => {
-    const collectionItems: NavItem[] = (collectionsData?.items ?? []).map((col) => ({
-      href: `/collections/${col.id}`,
-      label: col.name,
-      icon: col.icon ?? "📁",
-      isCollection: true,
-      collectionId: col.id,
-      collectionDomain: col.domain,
-    }));
+    const collectionItems: NavItem[] = (collectionsData?.items ?? [])
+      .filter((col) => col.show_in_nav)
+      .map((col) => ({
+        href: `/collections/${col.id}`,
+        label: col.name,
+        // Prefer a Lucide icon (stored as PascalCase name); fall back to emoji string
+        icon: (col.icon ? resolveFolderIcon(col.icon) : null) ?? col.icon ?? BookOpen,
+        isCollection: true,
+        collectionId: col.id,
+        collectionDomain: col.domain,
+      }));
 
     const projectItems: NavItem[] = (projectsData?.items ?? []).map((proj) => ({
       href: `/projects/${proj.id}`,

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
+import { useAuth } from "@/lib/auth/context";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   Sheet,
   SheetContent,
@@ -15,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
+import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
 
 type Goal = components["schemas"]["GoalResponse"];
@@ -65,13 +68,21 @@ interface GoalSheetProps {
 export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
   const qc = useQueryClient();
   const isEdit = goal !== null;
+  const { user } = useAuth();
+  const { can } = usePermissions();
+  const isOwnItem = !goal || goal.created_by_user_id === (user as { id?: string } | null)?.id;
+  const canManageThis = isOwnItem || can("goals", "manage_others");
   const [form, setForm] = useState<FormState>(blankForm());
+  const [visibility, setVisibility] = useState<Visibility>("personal");
+  const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setForm(goal ? formFromGoal(goal) : blankForm());
+      setVisibility((goal?.visibility as Visibility) ?? "personal");
+      setSharedWith(goal?.shared_with_user_ids ?? []);
       setError(null);
     }
   }, [open, goal]);
@@ -101,6 +112,8 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
         current_value: form.current_value.trim() || null,
         unit: form.unit.trim() || null,
         due_date: form.due_date || null,
+        visibility,
+        shared_with_user_ids: sharedWith,
       };
       if (isEdit) {
         await updateGoal({ params: { path: { goal_id: goal.id } }, body });
@@ -142,7 +155,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-md overflow-y-auto flex flex-col gap-0 p-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b">
+        <SheetHeader className="px-6 py-4 border-b">
           <SheetTitle>{isEdit ? "Edit goal" : "New goal"}</SheetTitle>
           <SheetDescription className="sr-only">
             {isEdit ? "Update this goal" : "Create a new goal"}
@@ -259,6 +272,16 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
             )}
           </div>
 
+          {/* Visibility */}
+          <div className="space-y-1.5">
+            <Label>Visibility</Label>
+            <VisibilityPicker
+              value={visibility}
+              sharedWith={sharedWith}
+              onChange={(v, sw) => { setVisibility(v); setSharedWith(sw); }}
+            />
+          </div>
+
           {/* Due date */}
           <div className="space-y-1.5">
             <Label htmlFor="goal-due">Due date</Label>
@@ -278,7 +301,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
           )}
           {!error && <span className="flex-1" />}
 
-          {isEdit && (
+          {isEdit && canManageThis && (
             <Button
               variant="ghost"
               size="sm"
@@ -292,10 +315,14 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
           <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-            {isEdit ? "Save" : "Create"}
-          </Button>
+          {isEdit && !canManageThis ? (
+            <span className="text-xs text-muted-foreground">View only</span>
+          ) : (
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+              {isEdit ? "Save" : "Create"}
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

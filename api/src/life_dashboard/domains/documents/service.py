@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.documents.models import Document
 from life_dashboard.domains.documents.schemas import (
     DocumentChildrenResponse,
@@ -79,6 +80,8 @@ async def create_document(
         kind=data.kind,
         source_markdown=data.source_markdown,
         editor_json=data.editor_json,
+        visibility=data.visibility,
+        shared_with_user_ids=data.shared_with_user_ids or [],
     )
     db.add(doc)
     await db.commit()
@@ -90,10 +93,12 @@ async def get_document(
     db: AsyncSession,
     doc_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> DocumentResponse | None:
-    result = await db.execute(
-        select(Document).where(Document.id == doc_id, Document.household_id == household_id)
-    )
+    query = select(Document).where(Document.id == doc_id, Document.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Document, user_id)
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     return _to_response(doc) if doc else None
 
@@ -101,6 +106,7 @@ async def get_document(
 async def list_documents(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     include_archived: bool = False,
     collection_id: uuid.UUID | None = None,
@@ -112,6 +118,8 @@ async def list_documents(
     When collection_id is given, only documents in that collection are returned.
     """
     query = select(Document).where(Document.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Document, user_id)
     if not include_archived:
         query = query.where(Document.archived_at.is_(None))
     if collection_id is not None:
@@ -145,7 +153,7 @@ async def update_document(
         doc.title = data.title
         doc.slug = await _unique_slug(db, household_id, _slugify(data.title))
 
-    for field in ("parent_id", "collection_id", "description", "icon", "kind"):
+    for field in ("parent_id", "collection_id", "description", "icon", "kind", "visibility", "shared_with_user_ids"):
         if field in sent:
             setattr(doc, field, getattr(data, field))
 
@@ -183,6 +191,7 @@ async def get_children(
     db: AsyncSession,
     doc_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     include_archived: bool = False,
 ) -> DocumentChildrenResponse | None:
@@ -200,6 +209,8 @@ async def get_children(
         Document.parent_id == doc_id,
         Document.household_id == household_id,
     )
+    if user_id is not None:
+        query = apply_visibility_filter(query, Document, user_id)
     if not include_archived:
         query = query.where(Document.archived_at.is_(None))
     query = query.order_by(Document.title.asc())
@@ -366,6 +377,7 @@ async def search_documents(
     db: AsyncSession,
     household_id: uuid.UUID,
     q: str,
+    user_id: uuid.UUID | None = None,
     *,
     limit: int = 20,
     offset: int = 0,
@@ -401,6 +413,11 @@ async def search_documents(
                 cast(Document.editor_json, SaText).ilike(q_like),
             ),
         )
+    )
+    if user_id is not None:
+        stmt = apply_visibility_filter(stmt, Document, user_id)
+    stmt = (
+        stmt
         .order_by(
             case(
                 (func.lower(Document.title) == q_lower, 1),

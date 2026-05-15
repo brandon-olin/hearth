@@ -8,6 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.calendar_events.models import CalendarEvent
 from life_dashboard.domains.calendar_events.schemas import (
     CalendarEventCreate,
     CalendarEventListResponse,
@@ -56,6 +62,12 @@ async def create_event(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CalendarEventResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "calendar", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create calendar events.",
+        )
     return await service.create_event(db, current_user.household_id, current_user.id, data)
 
 
@@ -66,6 +78,16 @@ async def update_event(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CalendarEventResponse:
+    creator_id = await get_item_creator(db, CalendarEvent, event_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "calendar", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' events.",
+            )
     event = await service.update_event(db, event_id, current_user.household_id, data)
     if event is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Event not found")
@@ -78,6 +100,16 @@ async def delete_event(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
+    creator_id = await get_item_creator(db, CalendarEvent, event_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "calendar", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete others' events.",
+            )
     deleted = await service.delete_event(db, event_id, current_user.household_id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Event not found")

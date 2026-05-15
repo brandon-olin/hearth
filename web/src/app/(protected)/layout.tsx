@@ -6,13 +6,14 @@ import { useAuth } from "@/lib/auth/context";
 import { Shell } from "@/components/shell/shell";
 import { FocusModeProvider } from "@/lib/focus/context";
 import { FocusOverlay } from "@/components/focus/focus-overlay";
+import { LocaleDetectedBanner } from "@/components/locale-detected-banner";
 
 export default function ProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, localeAutoDetected, dismissLocaleNotice } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -35,6 +36,12 @@ export default function ProtectedLayout({
     <FocusModeProvider>
       <Shell>{children}</Shell>
       <FocusOverlay />
+      {localeAutoDetected && (
+        <LocaleDetectedBanner
+          timezone={user.timezone ?? ""}
+          onDismiss={dismissLocaleNotice}
+        />
+      )}
     </FocusModeProvider>
   );
 }

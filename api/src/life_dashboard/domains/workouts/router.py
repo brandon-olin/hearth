@@ -37,6 +37,7 @@ async def list_workouts(
     return await service.list_workouts(
         db,
         current_user.household_id,
+        current_user.id,
         from_date=from_date,
         to_date=to_date,
         limit=limit,
@@ -62,7 +63,7 @@ async def get_workout(
     current_user: User = Depends(get_current_user),
 ) -> WorkoutWithEntriesResponse:
     workout = await service.get_workout_with_entries(
-        db, workout_id, current_user.household_id
+        db, workout_id, current_user.household_id, user_id=current_user.id
     )
     if workout is None:
         raise HTTPException(

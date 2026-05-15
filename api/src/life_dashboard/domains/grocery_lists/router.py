@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.grocery_lists.models import GroceryList
 from life_dashboard.domains.grocery_lists.schemas import (
     GroceryItemResponse,
     GroceryItemUpdate,
@@ -29,7 +35,8 @@ async def list_grocery_lists(
     current_user: User = Depends(get_current_user),
 ) -> GroceryListListResponse:
     return await service.list_grocery_lists(
-        db, current_user.household_id, status=status, limit=limit, offset=offset
+        db, current_user.household_id, current_user.id,
+        status=status, limit=limit, offset=offset,
     )
 
 
@@ -39,7 +46,7 @@ async def get_grocery_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GroceryListResponse:
-    grocery_list = await service.get_grocery_list(db, list_id, current_user.household_id)
+    grocery_list = await service.get_grocery_list(db, list_id, current_user.household_id, user_id=current_user.id)
     if grocery_list is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
@@ -53,6 +60,12 @@ async def create_grocery_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GroceryListResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "grocery", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create grocery lists.",
+        )
     return await service.create_grocery_list(
         db, current_user.household_id, current_user.id, data
     )
@@ -65,6 +78,18 @@ async def update_grocery_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GroceryListResponse:
+    creator_id = await get_item_creator(db, GroceryList, list_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "grocery", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' grocery lists.",
+            )
     grocery_list = await service.update_grocery_list(
         db, list_id, current_user.household_id, data
     )
@@ -81,6 +106,18 @@ async def delete_grocery_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
+    creator_id = await get_item_creator(db, GroceryList, list_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "grocery", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete others' grocery lists.",
+            )
     deleted = await service.delete_grocery_list(db, list_id, current_user.household_id)
     if not deleted:
         raise HTTPException(
@@ -96,6 +133,20 @@ async def update_grocery_item(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GroceryItemResponse:
+    # Item-level updates (check/uncheck, quantity changes) use the list's manage_others
+    # permission — these are collaborative actions on a shared list.
+    creator_id = await get_item_creator(db, GroceryList, list_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "grocery", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit this grocery list.",
+            )
     item = await service.update_grocery_item(
         db, list_id, item_id, current_user.household_id, data
     )

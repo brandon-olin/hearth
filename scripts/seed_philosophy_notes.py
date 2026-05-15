@@ -5,7 +5,7 @@ Demonstrates Zettelkasten-style atomic notes with tags and [[wikilinks]].
 Usage (from the repo root, with your local API running):
     python scripts/seed_philosophy_notes.py
 
-Defaults to http://localhost:8000 with your local dev credentials.
+Defaults to http://localhost:1338 with your local dev credentials.
 Override with env vars:
     API_URL=http://... EMAIL=... PASSWORD=... python scripts/seed_philosophy_notes.py
 """
@@ -18,7 +18,7 @@ import json
 import urllib.request
 import urllib.error
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
+API_URL = os.environ.get("API_URL", "http://localhost:1338").rstrip("/")
 EMAIL    = os.environ.get("EMAIL",    "brandon@life-dashboard.local")
 PASSWORD = os.environ.get("PASSWORD", "password")
 
@@ -450,7 +450,7 @@ See also: [[The Dichotomy of Control]], [[The Flow of the Tao]], [[Equanimity]]
 
 def main():
     print("=" * 60)
-    print("  Life Dashboard — Philosophy Notes Seed Script")
+    print("  Hearth — Philosophy Notes Seed Script")
     print("=" * 60)
     print(f"  API: {API_URL}\n")
 

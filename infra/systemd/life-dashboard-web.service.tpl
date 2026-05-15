@@ -1,5 +1,5 @@
 [Unit]
-Description=Life Dashboard Web (Next.js)
+Description=Hearth Web (Next.js)
 # Wait for the API to be up before starting the web process
 After=network.target life-dashboard-api.service
 
@@ -11,7 +11,7 @@ EnvironmentFile=-{{APP_DIR}}/infra/local.env
 
 ExecStart={{APP_DIR}}/web/node_modules/.bin/next start \
     --hostname 127.0.0.1 \
-    --port 3000
+    --port 1337
 
 Restart=on-failure
 RestartSec=10

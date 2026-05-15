@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from life_dashboard.core.pydantic_types import CoercedList
 
 GoalStatus = Literal["active", "completed", "paused", "archived"]
 GoalPriority = Literal["low", "medium", "high"]
@@ -19,6 +20,8 @@ class GoalCreate(BaseModel):
     current_value: Decimal | None = None
     unit: str | None = Field(default=None, max_length=100)
     due_date: date | None = None
+    visibility: str = "personal"
+    shared_with_user_ids: list[str] = []
 
 
 class GoalUpdate(BaseModel):
@@ -32,6 +35,8 @@ class GoalUpdate(BaseModel):
     unit: str | None = Field(default=None, max_length=100)
     due_date: date | None = None
     completed_at: datetime | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class GoalResponse(BaseModel):
@@ -50,6 +55,8 @@ class GoalResponse(BaseModel):
     unit: str | None
     due_date: date | None
     completed_at: datetime | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
 

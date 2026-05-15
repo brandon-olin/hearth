@@ -47,7 +47,7 @@ export const BUILTIN_NAV_ITEMS: NavItem[] = [
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/recipes", label: "Recipes", icon: ChefHat },
-  { href: "/grocery-lists", label: "Grocery Lists", icon: ShoppingCart },
+  { href: "/grocery-lists", label: "Groceries", icon: ShoppingCart },
   { href: "/workouts", label: "Workouts", icon: Dumbbell },
   { href: "/contacts", label: "Contacts", icon: Users },
 ];

@@ -1,42 +1,67 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
-import { Circle, CheckCircle2, Loader2 } from "lucide-react";
+import { Circle, CheckCircle2, Loader2, Link2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
-// HabitResponse extended with optional cadence sub-fields.
-// The actual API stores these inside the `cadence` JSONB blob; these optional
-// fields let the component compile until the habits UI is rebuilt in task 22.
-type Habit = components["schemas"]["HabitResponse"] & {
-  is_active?: boolean;
-  times_per_period?: number | null;
-  period_unit?: string | null;
-  preferred_time?: string | null;
-  start_date?: string | null;
-};
+type Habit = components["schemas"]["HabitWithStats"];
 type Occurrence = components["schemas"]["OccurrenceResponse"];
 
+// ── frequency label ───────────────────────────────────────────────────────────
+
+const DOW_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_SET = new Set([0, 1, 2, 3, 4]);
+
 export function frequencyLabel(habit: Habit): string {
-  const n = habit.times_per_period;
+  const c = (habit.cadence ?? {}) as Record<string, unknown>;
+  const n = c.times_per_period as number | null | undefined;
+  const dow = c.days_of_week as number[] | null | undefined;
+
+  if (dow && dow.length > 0) {
+    const sorted = [...dow].sort((a, b) => a - b);
+    // Check if it's exactly Mon–Fri
+    if (
+      sorted.length === 5 &&
+      sorted.every((d) => WEEKDAY_SET.has(d))
+    ) {
+      return "Weekdays";
+    }
+    return sorted.map((d) => DOW_SHORT[d]).join(", ");
+  }
+
   switch (habit.frequency) {
-    case "daily":
-      return "Daily";
-    case "weekly":
-      return n && n > 1 ? `${n}× per week` : "Weekly";
-    case "monthly":
-      return n && n > 1 ? `${n}× per month` : "Monthly";
-    case "custom":
-      return n && habit.period_unit
-        ? `${n}× per ${habit.period_unit}`
-        : habit.period_unit
-        ? `Per ${habit.period_unit}`
-        : "Custom";
-    default:
-      return habit.frequency;
+    case "daily":    return "Daily";
+    case "weekdays": return "Weekdays";
+    case "weekly":   return n && n > 1 ? `${n}× / week` : "Weekly";
+    case "monthly":  return n && n > 1 ? `${n}× / month` : "Monthly";
+    case "custom":   return n && c.period_unit ? `${n}× / ${c.period_unit}` : "Custom";
+    default:         return habit.frequency;
   }
 }
+
+// ── completion rate chip ──────────────────────────────────────────────────────
+
+function RateChip({ value }: { value: number | null }) {
+  if (value === null) {
+    return <span className="text-muted-foreground/40 tabular-nums">—</span>;
+  }
+  const pct = Math.round(value);
+  const cls =
+    pct >= 90 ? "text-green-500 dark:text-green-400" :
+    pct >= 70 ? "text-amber-500 dark:text-amber-400" :
+    pct >= 50 ? "text-orange-500 dark:text-orange-400" :
+                "text-red-500 dark:text-red-400";
+  return (
+    <span className={cn("tabular-nums font-medium", cls)}>
+      {pct}%
+    </span>
+  );
+}
+
+// ── table row ─────────────────────────────────────────────────────────────────
 
 interface HabitRowProps {
   habit: Habit;
@@ -45,7 +70,14 @@ interface HabitRowProps {
 }
 
 export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
+  const router = useRouter();
   const [toggling, setToggling] = useState(false);
+  const isActive = habit.status === "active";
+
+  // Read link from cadence JSONB
+  const cadence = (habit.cadence ?? {}) as Record<string, unknown>;
+  const linkRaw = cadence.link as { path: string; label: string } | null | undefined;
+  const habitLink = linkRaw?.path && linkRaw?.label ? linkRaw : null;
 
   const { data: occData, refetch } = $api.useQuery(
     "get",
@@ -72,64 +104,110 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
 
   async function handleToggle(e: React.MouseEvent) {
     e.stopPropagation();
-    if (!habit.is_active) return;
+    if (!isActive) return;
     setToggling(true);
     try {
-      let occ = occurrence;
-      if (!occ) {
-        // Create occurrence for today and mark it completed immediately
-        const created = await createOcc({
+      if (!occurrence) {
+        await createOcc({
           params: { path: { habit_id: habit.id } },
           body: { scheduled_date: today, status: "completed" },
         });
-        refetch();
-        if (created) return;
-      }
-      if (occ) {
+      } else {
         await updateOcc({
-          params: { path: { habit_id: habit.id, occurrence_id: occ.id } },
-          body: { status: occ.status === "completed" ? "pending" : "completed" },
+          params: { path: { habit_id: habit.id, occurrence_id: occurrence.id } },
+          body: { status: occurrence.status === "completed" ? "pending" : "completed" },
         });
-        refetch();
       }
+      refetch();
     } finally {
       setToggling(false);
     }
   }
 
   return (
-    <div
+    <tr
       className={cn(
-        "flex items-center gap-2 px-2 py-2 rounded-md hover:bg-muted/50 cursor-pointer group",
-        !habit.is_active && "opacity-50"
+        "border-b border-border/50 hover:bg-muted/30 transition-colors",
+        !isActive && "opacity-50"
       )}
       onClick={() => onEdit(habit)}
     >
-      <button
-        type="button"
-        onClick={handleToggle}
-        disabled={toggling || !habit.is_active}
-        className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer disabled:cursor-default"
-        aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
-      >
-        {toggling ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : isCompleted ? (
-          <CheckCircle2 className="h-4 w-4 text-primary" />
+      {/* Name — two affordances when a link is set:
+            • clicking the name/icon navigates to the linked page
+            • clicking anywhere else on the row opens the edit sheet  */}
+      <td className="py-2.5 pl-4 pr-3">
+        <div className="flex items-center gap-2 min-w-0">
+          {habitLink ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(habitLink.path);
+              }}
+              className="flex items-center gap-1.5 min-w-0 text-left group"
+              title={`Go to ${habitLink.label}`}
+            >
+              <span className="text-sm truncate group-hover:text-primary transition-colors">
+                {habit.name}
+              </span>
+              <Link2 className="h-3 w-3 shrink-0 text-muted-foreground/50 group-hover:text-primary transition-colors" />
+            </button>
+          ) : (
+            <span className="text-sm truncate cursor-pointer">{habit.name}</span>
+          )}
+          {habit.status === "paused" && (
+            <span className="badge badge-neutral shrink-0">Paused</span>
+          )}
+          {habit.status === "archived" && (
+            <span className="badge badge-neutral badge-faded shrink-0">Archived</span>
+          )}
+        </div>
+      </td>
+
+      {/* Frequency */}
+      <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
+        {frequencyLabel(habit)}
+      </td>
+
+      {/* Streak */}
+      <td className="py-2.5 px-3 text-xs whitespace-nowrap">
+        {isActive && habit.current_streak > 0 ? (
+          <span className="font-medium text-orange-500 dark:text-orange-400 tabular-nums">
+            {habit.current_streak}🔥
+          </span>
         ) : (
-          <Circle className="h-4 w-4" />
+          <span className="text-muted-foreground/40">—</span>
         )}
-      </button>
+      </td>
 
-      <span className="flex-1 min-w-0 text-sm truncate">{habit.name}</span>
+      {/* 7-day rate */}
+      <td className="py-2.5 px-3 text-xs">
+        <RateChip value={habit.completion_rate_7d ?? null} />
+      </td>
 
-      <div className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
-        {!habit.is_active && <span>Inactive</span>}
-        {habit.preferred_time && (
-          <span className="capitalize">{habit.preferred_time}</span>
-        )}
-        <span>{frequencyLabel(habit)}</span>
-      </div>
-    </div>
+      {/* 30-day rate */}
+      <td className="py-2.5 px-3 text-xs">
+        <RateChip value={habit.completion_rate_30d ?? null} />
+      </td>
+
+      {/* Today toggle */}
+      <td className="py-2.5 pl-3 pr-4">
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={toggling || !isActive}
+          className="block mx-auto text-muted-foreground hover:text-foreground disabled:cursor-default transition-colors"
+          aria-label={isCompleted ? "Mark incomplete" : "Mark complete for today"}
+        >
+          {toggling ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : isCompleted ? (
+            <CheckCircle2 className="h-4 w-4 text-primary" />
+          ) : (
+            <Circle className="h-4 w-4" />
+          )}
+        </button>
+      </td>
+    </tr>
   );
 }

@@ -21,7 +21,24 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 async def list_notes(
     include_archived: bool = False,
     tag_id: uuid.UUID | None = None,
-    collection_id: uuid.UUID | None = None,
+    collection_id: uuid.UUID | None = Query(
+        None,
+        description="Filter to a single collection. Mutually exclusive with collection_ids.",
+    ),
+    collection_ids: list[uuid.UUID] | None = Query(
+        None,
+        description=(
+            "Filter to notes in any of these collections. "
+            "Pass multiple times: ?collection_ids=<id1>&collection_ids=<id2>"
+        ),
+    ),
+    include_all_collections: bool = Query(
+        False,
+        description=(
+            "When true, return notes from all collections alongside uncollected notes. "
+            "Used by the graph view and global search."
+        ),
+    ),
     q: str | None = Query(None, description="Full-text filter on title and content"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -31,9 +48,12 @@ async def list_notes(
     return await service.list_notes(
         db,
         household_id=current_user.household_id,
+        user_id=current_user.id,
         include_archived=include_archived,
         tag_id=tag_id,
         collection_id=collection_id,
+        collection_ids=collection_ids,
+        include_all_collections=include_all_collections,
         q=q,
         limit=limit,
         offset=offset,
@@ -60,7 +80,7 @@ async def get_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    note = await service.get_note(db, note_id=note_id, household_id=current_user.household_id)
+    note = await service.get_note(db, note_id=note_id, household_id=current_user.household_id, user_id=current_user.id)
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     return note

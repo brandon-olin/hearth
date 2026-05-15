@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from life_dashboard.domains.notes.models import Note, NoteBacklink, NoteTag
 from life_dashboard.domains.notes.schemas import (
@@ -109,6 +108,9 @@ async def _load_note_response(db: AsyncSession, note: Note) -> NoteResponse:
         title=note.title,
         content_md=note.content_md,
         content_json=note.content_json,
+        collection_id=note.collection_id,
+        visibility=note.visibility,
+        shared_with_user_ids=note.shared_with_user_ids or [],
         archived_at=note.archived_at,
         created_at=note.created_at,
         updated_at=note.updated_at,
@@ -125,14 +127,35 @@ async def _load_note_response(db: AsyncSession, note: Note) -> NoteResponse:
 async def list_notes(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     include_archived: bool = False,
     tag_id: uuid.UUID | None = None,
     collection_id: uuid.UUID | None = None,
+    collection_ids: list[uuid.UUID] | None = None,
+    include_all_collections: bool = False,
     q: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> NoteListResponse:
+    """
+    List notes for a household.
+
+    Notes are always personal — only the creating user can see them.
+    The user_id filter is therefore a strict creator check, not a
+    visibility-mixin check.
+
+    Collection filtering behaviour:
+    - Default (no collection args): returns only uncollected notes
+      (collection_id IS NULL). This keeps the base notes view clean.
+    - collection_id=<uuid>: returns notes in that specific collection.
+    - collection_ids=[...]: returns notes in any of those collections.
+    - include_all_collections=True: no collection filter (used by graph
+      view and global search).
+    """
     stmt = select(Note).where(Note.household_id == household_id)
+    # Notes are strictly personal — always filter to the creator's own notes.
+    if user_id is not None:
+        stmt = stmt.where(Note.created_by_user_id == user_id)
 
     if not include_archived:
         stmt = stmt.where(Note.archived_at.is_(None))
@@ -143,7 +166,18 @@ async def list_notes(
         )
 
     if collection_id is not None:
+        # Explicit single-collection filter
         stmt = stmt.where(Note.collection_id == collection_id)
+    elif collection_ids is not None:
+        # Multi-collection filter
+        if len(collection_ids) == 0:
+            # Empty list → uncollected only (treat like default)
+            stmt = stmt.where(Note.collection_id.is_(None))
+        else:
+            stmt = stmt.where(Note.collection_id.in_(collection_ids))
+    elif not include_all_collections:
+        # Default: exclude notes belonging to any collection
+        stmt = stmt.where(Note.collection_id.is_(None))
 
     if q:
         pattern = f"%{q}%"
@@ -165,10 +199,13 @@ async def get_note(
     db: AsyncSession,
     note_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> NoteResponse | None:
-    result = await db.execute(
-        select(Note).where(Note.id == note_id, Note.household_id == household_id)
-    )
+    query = select(Note).where(Note.id == note_id, Note.household_id == household_id)
+    # Notes are strictly personal — only the creator can fetch them.
+    if user_id is not None:
+        query = query.where(Note.created_by_user_id == user_id)
+    result = await db.execute(query)
     note = result.scalar_one_or_none()
     if not note:
         return None
@@ -188,6 +225,9 @@ async def create_note(
         content_md=data.content_md,
         content_json=data.content_json,
         collection_id=data.collection_id,
+        # Notes are always personal — visibility and sharing are not exposed.
+        visibility="personal",
+        shared_with_user_ids=[],
     )
     db.add(note)
     await db.flush()  # Get note.id
@@ -210,9 +250,8 @@ async def update_note(
     household_id: uuid.UUID,
     data: NoteUpdate,
 ) -> NoteResponse | None:
-    result = await db.execute(
-        select(Note).where(Note.id == note_id, Note.household_id == household_id)
-    )
+    query = select(Note).where(Note.id == note_id, Note.household_id == household_id)
+    result = await db.execute(query)
     note = result.scalar_one_or_none()
     if not note:
         return None
@@ -226,6 +265,10 @@ async def update_note(
         note.content_json = data.content_json
     if "collection_id" in updated_fields:
         note.collection_id = data.collection_id
+    if "visibility" in updated_fields and data.visibility is not None:
+        note.visibility = data.visibility
+    if "shared_with_user_ids" in updated_fields:
+        note.shared_with_user_ids = data.shared_with_user_ids
 
     note.updated_at = datetime.now(tz=timezone.utc)
 
@@ -249,9 +292,8 @@ async def archive_note(
     note_id: uuid.UUID,
     household_id: uuid.UUID,
 ) -> bool:
-    result = await db.execute(
-        select(Note).where(Note.id == note_id, Note.household_id == household_id)
-    )
+    query = select(Note).where(Note.id == note_id, Note.household_id == household_id)
+    result = await db.execute(query)
     note = result.scalar_one_or_none()
     if not note:
         return False
@@ -265,9 +307,8 @@ async def delete_note(
     note_id: uuid.UUID,
     household_id: uuid.UUID,
 ) -> bool:
-    result = await db.execute(
-        select(Note).where(Note.id == note_id, Note.household_id == household_id)
-    )
+    query = select(Note).where(Note.id == note_id, Note.household_id == household_id)
+    result = await db.execute(query)
     note = result.scalar_one_or_none()
     if not note:
         return False

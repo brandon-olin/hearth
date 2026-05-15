@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth/context";
 import {
   Card,
@@ -40,9 +41,11 @@ export default function LoginPage() {
     <div className="min-h-full flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Life Dashboard</CardTitle>
+          <CardTitle>Hearth</CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
+        {/* This page should only appear when an account already exists.
+            First-time users are routed through /setup automatically. */}
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
@@ -73,6 +76,12 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isPending}>
               {isPending ? "Signing in…" : "Sign in"}
             </Button>
+            <p className="text-sm text-center text-muted-foreground">
+              Don&apos;t have an account?{" "}
+              <Link href="/register" className="text-foreground underline underline-offset-4 hover:text-primary">
+                Create one
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>

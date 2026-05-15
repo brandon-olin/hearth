@@ -3,13 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { apiClient } from "@/lib/api/client";
 
 type Status = "loading" | "needs_setup" | "ready";
 
 /**
- * Fetches /api/setup/status on every mount and redirects accordingly:
+ * Checks /setup/status on every mount and redirects accordingly:
  *   - needs_setup=true  + not on /setup  → replace("/setup")
  *   - needs_setup=false + on /setup      → replace("/")
+ *
+ * Uses apiClient so the correct base URL is used in both web and Tauri builds
+ * (raw fetch("/api/…") doesn't work in Tauri's static export — no Next.js proxy).
  *
  * Renders a full-screen spinner while the check is in flight so there's no
  * flash of whichever page was requested before the redirect fires.
@@ -25,10 +29,9 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    fetch("/api/setup/status")
-      .then((r) => r.json())
-      .then((data: { needs_setup: boolean }) => {
-        if (data.needs_setup) {
+    apiClient.GET("/setup/status")
+      .then(({ data }) => {
+        if (data?.needs_setup) {
           if (pathname !== "/setup") router.replace("/setup");
           setStatus("needs_setup");
         } else {

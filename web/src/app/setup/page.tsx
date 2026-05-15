@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { setAccessToken } from "@/lib/auth/token";
+import { apiClient } from "@/lib/api/client";
 import { BUILTIN_NAV_ITEMS } from "@/lib/sidebar/nav-items";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
@@ -99,7 +100,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-6">
         <LayoutGrid className="h-8 w-8 text-primary" />
       </div>
-      <h1 className="text-2xl font-semibold mb-3">Welcome to Life Dashboard</h1>
+      <h1 className="text-2xl font-semibold mb-3">Welcome to Hearth</h1>
       <p className="text-muted-foreground text-sm leading-relaxed max-w-sm mx-auto mb-8">
         Your household operating system for tasks, habits, documents, and everything
         in between. Let's get you set up in about a minute.
@@ -194,7 +195,7 @@ function HouseholdStep({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground leading-relaxed">
-        Everything in Life Dashboard belongs to a household — a shared space for
+        Everything in Hearth belongs to a household — a shared space for
         you and anyone you invite later.
       </p>
       <div className="space-y-1.5">
@@ -542,24 +543,24 @@ export default function SetupPage() {
         sidebar: { hidden: data.hidden_sections, order: [], folders: [] },
       };
 
-      const res = await fetch("/api/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // apiClient uses the correct base URL for both web (/api proxy) and
+      // Tauri (http://localhost:1338) builds — raw fetch("/api/…") doesn't
+      // work in Tauri's static export where there's no Next.js proxy.
+      const { data: result, error } = await apiClient.POST("/setup", {
+        body: {
           display_name: data.display_name.trim(),
           email: data.email.trim(),
           password: data.password,
           household_name: data.household_name.trim(),
           preferences,
-        }),
+        },
       });
 
-      if (!res.ok) {
-        const body = (await res.json()) as { detail?: string };
-        throw new Error(body.detail ?? "Setup failed. Please try again.");
+      if (error || !result) {
+        const detail = (error as { detail?: string } | undefined)?.detail;
+        throw new Error(detail ?? "Setup failed. Please try again.");
       }
 
-      const result = (await res.json()) as { access_token: string };
       setAccessToken(result.access_token);
 
       // Apply theme and sidebar locally so the app feels instant on first load.

@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from life_dashboard.core.pydantic_types import CoercedList
 
 GroceryListStatus = Literal["active", "completed", "archived"]
 
@@ -42,6 +43,8 @@ class GroceryListCreate(BaseModel):
     store: str | None = Field(default=None, max_length=200)
     status: GroceryListStatus = "active"
     items: list[GroceryItemData] = []
+    visibility: str = "household"
+    shared_with_user_ids: list[str] = []
 
 
 class GroceryListUpdate(BaseModel):
@@ -50,6 +53,8 @@ class GroceryListUpdate(BaseModel):
     store: str | None = Field(default=None, max_length=200)
     status: GroceryListStatus | None = None
     items: list[GroceryItemData] | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class GroceryListResponse(BaseModel):
@@ -62,6 +67,8 @@ class GroceryListResponse(BaseModel):
     name: str
     store: str | None
     status: str
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
     items: list[GroceryItemResponse] = []

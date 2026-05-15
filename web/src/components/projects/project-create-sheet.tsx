@@ -12,6 +12,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Loader2 } from "lucide-react";
+import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
+import { Label } from "@/components/ui/label";
 import type { components } from "@/lib/api/schema";
 
 type ProjectStatus = components["schemas"]["ProjectResponse"]["status"];
@@ -55,6 +57,8 @@ export function ProjectCreateSheet({
   const [status, setStatus]           = useState<ProjectStatus>("active");
   const [dueDate, setDueDate]         = useState("");
   const [parentId, setParentId]       = useState<string>(defaultParentId ?? "");
+  const [visibility, setVisibility]   = useState<Visibility>("household");
+  const [sharedWith, setSharedWith]   = useState<string[]>([]);
 
   // Only fetch the parent picker list when no defaultParentId is provided
   const { data: projectsData } = $api.useQuery("get", "/projects", {
@@ -74,6 +78,10 @@ export function ProjectCreateSheet({
         status,
         due_date: dueDate || null,
         parent_id: parentId || null,
+        show_in_nav: false,
+        sort_order: 0,
+        visibility,
+        shared_with_user_ids: sharedWith,
       },
     });
     qc.invalidateQueries({ queryKey: ["get", "/projects"] });
@@ -87,6 +95,8 @@ export function ProjectCreateSheet({
     setStatus("active");
     setDueDate("");
     setParentId(defaultParentId ?? "");
+    setVisibility("household");
+    setSharedWith([]);
     onClose();
   }
 
@@ -189,6 +199,16 @@ export function ProjectCreateSheet({
                 className={fieldClass}
               />
             </div>
+          </div>
+
+          {/* Visibility */}
+          <div className="space-y-1.5">
+            <Label>Visibility</Label>
+            <VisibilityPicker
+              value={visibility}
+              sharedWith={sharedWith}
+              onChange={(v, sw) => { setVisibility(v); setSharedWith(sw); }}
+            />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

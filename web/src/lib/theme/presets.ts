@@ -197,6 +197,36 @@ export const BASE_THEMES: BaseTheme[] = [
       "--sidebar-ring":      "oklch(0.55 0.025 60)",
     },
   },
+  // ── Hearth — ember-brown dark theme matching the app icon palette ──────────
+  {
+    id: "hearth",
+    label: "Hearth",
+    category: "dark",
+    swatch: "oklch(0.22 0.04 40)",
+    vars: {
+      "--background":        "oklch(0.14 0.022 40)",   // #1c1412 — icon background
+      "--foreground":        "oklch(0.93 0.015 75)",   // warm off-white
+      "--card":              "oklch(0.185 0.026 40)",  // slightly lighter surface
+      "--card-foreground":   "oklch(0.93 0.015 75)",
+      "--popover":           "oklch(0.185 0.026 40)",
+      "--popover-foreground":"oklch(0.93 0.015 75)",
+      "--secondary":         "oklch(0.24 0.032 40)",   // dark ember surface
+      "--secondary-foreground":"oklch(0.90 0.012 75)",
+      "--muted":             "oklch(0.24 0.032 40)",
+      "--muted-foreground":  "oklch(0.60 0.045 60)",   // warm amber-tinted muted text
+      "--accent":            "oklch(0.26 0.036 40)",
+      "--accent-foreground": "oklch(0.90 0.012 75)",
+      "--destructive":       "oklch(0.704 0.191 22.216)",
+      "--border":            "oklch(1 0 0 / 10%)",
+      "--input":             "oklch(1 0 0 / 15%)",
+      "--sidebar":           "oklch(0.16 0.025 40)",   // #1c1412 variant — slightly darker
+      "--sidebar-foreground":"oklch(0.93 0.015 75)",
+      "--sidebar-accent":    "oklch(0.24 0.032 40)",
+      "--sidebar-accent-foreground":"oklch(0.90 0.012 75)",
+      "--sidebar-border":    "oklch(1 0 0 / 10%)",
+      "--sidebar-ring":      "oklch(0.55 0.09 40)",
+    },
+  },
 ];
 
 // ── Accent colors ─────────────────────────────────────────────────────────────
@@ -304,6 +334,26 @@ export const ACCENT_COLORS: AccentColor[] = [
       "--primary-foreground":          "oklch(0.1 0 0)",
       "--ring":                        "oklch(0.59 0.22 10)",
       "--sidebar-primary":             "oklch(0.68 0.21 10)",
+      "--sidebar-primary-foreground":  "oklch(0.985 0 0)",
+    },
+  },
+  // ── Ember — coral-orange from the Hearth logo flame ──────────────────────────
+  {
+    id: "ember",
+    label: "Ember",
+    swatch: "oklch(0.52 0.18 35)",   // #C2410C — outer flame coral
+    light: {
+      "--primary":                     "oklch(0.52 0.18 35)",
+      "--primary-foreground":          "oklch(0.985 0 0)",
+      "--ring":                        "oklch(0.65 0.15 38)",
+      "--sidebar-primary":             "oklch(0.52 0.18 35)",
+      "--sidebar-primary-foreground":  "oklch(0.985 0 0)",
+    },
+    dark: {
+      "--primary":                     "oklch(0.64 0.18 38)",  // brighter for dark bg — closer to dark logo version
+      "--primary-foreground":          "oklch(0.985 0 0)",
+      "--ring":                        "oklch(0.52 0.18 35)",
+      "--sidebar-primary":             "oklch(0.60 0.19 36)",
       "--sidebar-primary-foreground":  "oklch(0.985 0 0)",
     },
   },

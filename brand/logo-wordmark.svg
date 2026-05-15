@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48" fill="none" role="img" aria-label="Hearth logo with wordmark">
+  <title>Hearth</title>
+  <!-- Icon: arch silhouette, scaled to fit 48px height with padding -->
+  <g transform="translate(0, 4)">
+    <!-- Arch silhouette -->
+    <path d="M3 40L3 20C3 4 29 4 29 20L29 40Z" fill="#7c2d12"/>
+    <!-- Flame — outer -->
+    <path d="M16 36C11 32 8 26 10 20C11 16 14 12 16 8C18 12 21 16 22 20C24 26 21 32 16 36Z" fill="#C2410C"/>
+    <!-- Flame — mid -->
+    <path d="M16 30C12 27 10 22 12 18C13 15 15 12 16 10C17 12 19 15 20 18C22 22 20 27 16 30Z" fill="#EF9F27"/>
+    <!-- Flame — inner core -->
+    <path d="M16 25C13 23 12 19 13 17C14 14 15 12 16 11C17 12 18 14 19 17C20 19 19 23 16 25Z" fill="#FAC775"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="42" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="300" letter-spacing="4" fill="#1c1917">hearth</text>
+</svg>

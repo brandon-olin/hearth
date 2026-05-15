@@ -6,14 +6,24 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useAuth } from "@/lib/auth/context";
-import { useSidebarConfig, useFolderOpen, type SidebarConfig, type SidebarFolder } from "@/lib/sidebar/context";
+import {
+  useSidebarConfig,
+  useFolderOpen,
+  type SidebarConfig,
+  type SidebarFolder,
+} from "@/lib/sidebar/context";
 import { ALL_NAV_ITEMS, type NavItem } from "@/lib/sidebar/nav-items";
+import { ROLE_LABEL } from "@/lib/roles";
 import { useNavItems } from "@/lib/sidebar/use-nav-items";
-import { resolveFolderIcon, DEFAULT_FOLDER_ICON } from "@/lib/sidebar/folder-icons";
+import {
+  resolveFolderIcon,
+  DEFAULT_FOLDER_ICON,
+} from "@/lib/sidebar/folder-icons";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandPalette } from "@/components/shell/command-palette";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { AiChat } from "@/components/ai/ai-chat";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +33,9 @@ import {
   MessageSquare,
   LogOut,
   Search,
+  UserRound,
+  Users,
+  X,
 } from "lucide-react";
 import {
   Tooltip,
@@ -48,7 +61,10 @@ function isFolder(entry: RenderEntry): entry is SidebarFolder {
   return "hrefs" in entry;
 }
 
-function getRootRenderList(config: SidebarConfig, allNavItems: NavItem[]): RenderEntry[] {
+function getRootRenderList(
+  config: SidebarConfig,
+  allNavItems: NavItem[],
+): RenderEntry[] {
   const folderedHrefs = new Set(config.folders.flatMap((f) => f.hrefs));
   const allHrefs = allNavItems.map((n) => n.href);
   const folderIds = config.folders.map((f) => f.id);
@@ -59,14 +75,13 @@ function getRootRenderList(config: SidebarConfig, allNavItems: NavItem[]): Rende
     const unknownNavHrefs = allHrefs.filter(
       (h) => !config.order.includes(h) && !folderedHrefs.has(h),
     );
-    const unknownFolderIds = folderIds.filter((id) => !config.order.includes(id));
+    const unknownFolderIds = folderIds.filter(
+      (id) => !config.order.includes(id),
+    );
     order = [...config.order, ...unknownNavHrefs, ...unknownFolderIds];
   } else {
     // Default: unfoldered nav items in definition order, then folders
-    order = [
-      ...allHrefs.filter((h) => !folderedHrefs.has(h)),
-      ...folderIds,
-    ];
+    order = [...allHrefs.filter((h) => !folderedHrefs.has(h)), ...folderIds];
   }
 
   // Resolve IDs → entries, deduplicating and filtering hidden / missing items
@@ -94,9 +109,19 @@ function getRootRenderList(config: SidebarConfig, allNavItems: NavItem[]): Rende
 }
 
 /** Renders a NavItem icon — handles both Lucide components and emoji strings. */
-function NavIcon({ icon, className }: { icon: LucideIcon | string; className?: string }) {
+function NavIcon({
+  icon,
+  className,
+}: {
+  icon: LucideIcon | string;
+  className?: string;
+}) {
   if (typeof icon === "string") {
-    return <span className={cn("shrink-0 text-base leading-none", className)}>{icon}</span>;
+    return (
+      <span className={cn("shrink-0 text-base leading-none", className)}>
+        {icon}
+      </span>
+    );
   }
   const Icon = icon;
   return <Icon className={cn("h-4 w-4 shrink-0", className)} />;
@@ -110,7 +135,10 @@ function NavIcon({ icon, className }: { icon: LucideIcon | string; className?: s
 // This is the single source of truth for active state — both the flat nav list
 // and folder contents use it, so the rule is universal regardless of item type.
 
-function getActiveHref(pathname: string, allNavItems: NavItem[]): string | null {
+function getActiveHref(
+  pathname: string,
+  allNavItems: NavItem[],
+): string | null {
   let best: string | null = null;
   for (const item of allNavItems) {
     const matches =
@@ -161,7 +189,9 @@ function FolderNavItem({
         )}
       >
         {(() => {
-          const ResolvedIcon = resolveFolderIcon(folder.icon) ?? resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
+          const ResolvedIcon =
+            resolveFolderIcon(folder.icon) ??
+            resolveFolderIcon(DEFAULT_FOLDER_ICON)!;
           return <ResolvedIcon className="h-4 w-4 shrink-0" />;
         })()}
         <span className="flex-1 text-left truncate">{folder.label}</span>
@@ -261,6 +291,8 @@ function NavLinks({
               </p>
             </TooltipContent>
           </Tooltip>
+
+          <NotificationBell />
         </div>
       </TooltipProvider>
 
@@ -305,6 +337,134 @@ function NavLinks({
 
 // ── sidebar content ───────────────────────────────────────────────────────────
 
+// ── Dev user-switcher popover ─────────────────────────────────────────────────
+
+function DevUserSwitcher({ onClose }: { onClose: () => void }) {
+  const { user, impersonating, impersonateUser, stopImpersonating } = useAuth();
+  const [members, setMembers] = useState<Array<{
+    user_id: string;
+    display_name: string | null;
+    email: string;
+    role: string;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { getAccessToken } = await import("@/lib/auth/token");
+        const token = getAccessToken();
+        const res = await fetch("/api/households/members", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json() as Array<{
+            user_id: string;
+            display_name: string | null;
+            email: string;
+            role: string;
+          }>;
+          setMembers(data.filter((m) => m.user_id !== user?.id));
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    void load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function initials(name: string | null, email: string) {
+    return (name ?? email)
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("");
+  }
+
+  async function handleSwitch(userId: string) {
+    setSwitching(userId);
+    try {
+      await impersonateUser(userId);
+      onClose();
+    } catch {
+      setSwitching(null);
+    }
+  }
+
+  return (
+    <div className="absolute bottom-full left-0 mb-2 w-64 rounded-lg border bg-card shadow-lg z-50">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Users className="h-3.5 w-3.5" />
+          <span>Dev: View as…</span>
+        </div>
+        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="p-1.5 space-y-0.5">
+        {/* Current user row */}
+        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-primary/5 text-primary">
+          <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center shrink-0">
+            {initials(user?.display_name ?? null, user?.email ?? "?")}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate">{user?.display_name ?? user?.email}</p>
+            <p className="text-[10px] opacity-70 truncate">{impersonating ? "admin (you)" : "you"}</p>
+          </div>
+          <span className="text-[10px] font-medium opacity-60 shrink-0">active</span>
+        </div>
+
+        {impersonating && (
+          <button
+            type="button"
+            onClick={() => { stopImpersonating(); onClose(); }}
+            className="flex items-center gap-2.5 px-2.5 py-2 w-full rounded-md text-left hover:bg-muted transition-colors cursor-pointer"
+          >
+            <div className="h-6 w-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center shrink-0">
+              <UserRound className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-xs text-muted-foreground">← Back to your account</span>
+          </button>
+        )}
+
+        {loading && (
+          <p className="text-xs text-muted-foreground px-2.5 py-2">Loading…</p>
+        )}
+
+        {!loading && members.length === 0 && !impersonating && (
+          <p className="text-xs text-muted-foreground px-2.5 py-2">No other members yet.</p>
+        )}
+
+        {members.map((m) => {
+          const isSwitching = switching === m.user_id;
+          return (
+            <button
+              key={m.user_id}
+              type="button"
+              disabled={!!switching}
+              onClick={() => handleSwitch(m.user_id)}
+              className="flex items-center gap-2.5 px-2.5 py-2 w-full rounded-md text-left hover:bg-muted transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            >
+              <div className="h-6 w-6 rounded-full bg-muted text-muted-foreground text-xs font-semibold flex items-center justify-center shrink-0">
+                {isSwitching ? "…" : initials(m.display_name, m.email)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate">{m.display_name ?? m.email}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{ROLE_LABEL[m.role] ?? m.role}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SidebarContent({
   onNavigate,
   onSearchOpen,
@@ -314,8 +474,9 @@ function SidebarContent({
   onSearchOpen: () => void;
   onAiOpen: () => void;
 }) {
-  const { user, logout } = useAuth();
+  const { user, impersonating, logout } = useAuth();
   const router = useRouter();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   async function handleLogout() {
     await logout();
@@ -325,25 +486,50 @@ function SidebarContent({
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 pt-5 pb-3 shrink-0">
-        <span className="px-2 text-base font-semibold tracking-tight">
-          Life Dashboard
+        <span className="text-base font-semibold tracking-tight">
+          {user?.household_name ?? "Hearth"}
         </span>
       </div>
 
-      <NavLinks onNavigate={onNavigate} onSearchOpen={onSearchOpen} onAiOpen={onAiOpen} />
+      <NavLinks
+        onNavigate={onNavigate}
+        onSearchOpen={onSearchOpen}
+        onAiOpen={onAiOpen}
+      />
 
-      {/* Footer — avatar → account settings | settings icon | logout */}
-      <div className="px-3 pb-4 pt-2 shrink-0 border-t mt-2">
+      {/* Impersonation banner */}
+      {impersonating && (
+        <div
+          className="mx-3 mb-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium flex items-center gap-1.5 border"
+          style={{
+            background: "var(--badge-warning-bg)",
+            color: "var(--badge-warning-fg)",
+            borderColor: "var(--badge-warning-fg)",
+            opacity: 0.9,
+          }}
+        >
+          <Users className="h-3 w-3 shrink-0" />
+          Viewing as {user?.display_name ?? user?.email}
+        </div>
+      )}
+
+      {/* Footer — avatar | settings | logout */}
+      <div className="px-3 pb-4 pt-2 shrink-0 border-t mt-2 relative">
+        {switcherOpen && (
+          <DevUserSwitcher onClose={() => setSwitcherOpen(false)} />
+        )}
         <div className="flex items-center gap-1">
-          {/* Avatar — initials, links to Account section of settings */}
+          {/* Avatar — click to open dev user-switcher */}
           <button
             type="button"
-            onClick={() => {
-              onNavigate?.();
-              router.push("/settings");
-            }}
-            title={user?.display_name ?? user?.email ?? "Account settings"}
-            className="h-7 w-7 shrink-0 rounded-full bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer"
+            onClick={() => setSwitcherOpen((o) => !o)}
+            title={user?.display_name ?? user?.email ?? "Account"}
+            className={cn(
+              "h-7 w-7 shrink-0 rounded-full text-xs font-semibold flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer",
+              impersonating
+                ? "bg-amber-500 text-white"
+                : "bg-primary text-primary-foreground",
+            )}
           >
             {(user?.display_name ?? user?.email ?? "?")
               .trim()
@@ -394,10 +580,11 @@ const AI_PANEL_DEFAULT = 480;
 const AI_PANEL_STORAGE_KEY = "ld-ai-panel-width";
 
 export function Shell({ children }: { children: React.ReactNode }) {
-  const [mobileOpen,   setMobileOpen]   = useState(false);
-  const [paletteOpen,  setPaletteOpen]  = useState(false);
-  const [aiPanelOpen,  setAiPanelOpen]  = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const { toggle: toggleFocus, focused } = useFocusMode();
+  const { user } = useAuth();
   const { width: sidebarWidth, startResize } = useResizablePanel({
     defaultWidth: 256,
     minWidth: 180,
@@ -410,7 +597,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return AI_PANEL_DEFAULT;
     const stored = localStorage.getItem(AI_PANEL_STORAGE_KEY);
     const parsed = stored ? parseInt(stored, 10) : NaN;
-    return isNaN(parsed) ? AI_PANEL_DEFAULT : Math.min(AI_PANEL_MAX, Math.max(AI_PANEL_MIN, parsed));
+    return isNaN(parsed)
+      ? AI_PANEL_DEFAULT
+      : Math.min(AI_PANEL_MAX, Math.max(AI_PANEL_MIN, parsed));
   });
 
   function startAiResize(e: React.MouseEvent) {
@@ -419,7 +608,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
     const startWidth = aiPanelWidth;
     const onMouseMove = (ev: MouseEvent) => {
       // Dragging left increases width (panel is on the right)
-      const next = Math.min(AI_PANEL_MAX, Math.max(AI_PANEL_MIN, startWidth + (startX - ev.clientX)));
+      const next = Math.min(
+        AI_PANEL_MAX,
+        Math.max(AI_PANEL_MIN, startWidth + (startX - ev.clientX)),
+      );
       setAiPanelWidth(next);
       localStorage.setItem(AI_PANEL_STORAGE_KEY, String(next));
     };
@@ -499,7 +691,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               />
             </SheetContent>
           </Sheet>
-          <span className="font-semibold text-sm">Life Dashboard</span>
+          <span className="font-semibold text-sm">
+            {user?.household_name ?? "Hearth"}
+          </span>
         </header>
 
         <main className="flex-1 overflow-y-auto">{children}</main>

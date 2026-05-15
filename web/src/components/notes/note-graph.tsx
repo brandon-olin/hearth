@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/auth/token";
 import { cn } from "@/lib/utils";
 import { RefreshCw } from "lucide-react";
@@ -161,7 +162,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
       queryKey: ["notes-by-tag", tag.id],
       queryFn: async (): Promise<{ tagId: string; noteIds: string[] }> => {
         const token = getAccessToken();
-        const res = await fetch(`/api/notes?tag_id=${tag.id}&limit=500`, {
+        const res = await fetch(`${apiBaseUrl}/notes?tag_id=${tag.id}&limit=500`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const data = await res.json();

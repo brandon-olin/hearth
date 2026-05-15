@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
-import { Circle, CheckCircle2, Loader2 } from "lucide-react";
+import { Circle, CheckCircle2, Loader2, Repeat2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
 type Todo = components["schemas"]["TodoResponse"];
@@ -131,6 +131,9 @@ export function TodoRow({ todo, onEdit, onToggled }: TodoRowProps) {
             <span className="text-xs text-muted-foreground">Cancelled</span>
           )}
           <PriorityChip priority={todo.priority} />
+          {todo.recurring && (
+            <Repeat2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Recurring" />
+          )}
           {dueInfo && !isDone && (
             <span className={cn("text-xs", dueInfo.className)}>{dueInfo.label}</span>
           )}

@@ -1,11 +1,14 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.ai import service
+from life_dashboard.ai import coach_service
 from life_dashboard.ai.models import AiMessageRole
 from life_dashboard.ai.schemas import (
     AiSettingsResponse,
@@ -21,6 +24,28 @@ from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+# ── Coach schemas (inline — small enough not to warrant a separate file) ───────
+
+class CoachDigestResponse(BaseModel):
+    id: str
+    date: date
+    kind: str
+    content: str
+    tone: str
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class CoachGenerateRequest(BaseModel):
+    kind: str  # "morning" | "evening"
+    tone: str = "supportive"
+    pinned_project_ids: list[str] = []
+    pinned_goal_ids: list[str] = []
+    pinned_habit_ids: list[str] = []
+    for_date: date | None = None  # defaults to today
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -111,6 +136,99 @@ async def delete_conversation(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
+
+
+# ── Coach ─────────────────────────────────────────────────────────────────────
+
+@router.get("/coach/digest", response_model=CoachDigestResponse | None)
+async def get_coach_digest(
+    kind: str = Query(default="morning", description="'morning' or 'evening'"),
+    for_date: date | None = Query(default=None, description="Date (YYYY-MM-DD); defaults to today"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CoachDigestResponse | None:
+    """Return the stored coach digest for the given day and kind.
+
+    Returns null (HTTP 200 with null body) when no digest has been generated yet
+    for that slot. The frontend uses this to show an empty state with a
+    'Generate now' button.
+    """
+    target_date = for_date or date.today()
+    digest = await coach_service.get_digest(db, current_user.id, target_date, kind)
+    if digest is None:
+        return None
+    return CoachDigestResponse(
+        id=str(digest.id),
+        date=digest.date,
+        kind=digest.kind,
+        content=digest.content,
+        tone=digest.tone,
+        created_at=digest.created_at.isoformat(),
+    )
+
+
+@router.post("/coach/digest/generate", response_model=CoachDigestResponse)
+async def generate_coach_digest(
+    data: CoachGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CoachDigestResponse:
+    """Generate (or regenerate) a coach digest on demand.
+
+    Replaces any existing digest for the same (user, date, kind) slot.
+    Called by the widget's 'Generate now' / 'Regenerate' button.
+    """
+    if data.kind not in ("morning", "evening"):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="kind must be 'morning' or 'evening'",
+        )
+
+    user_settings = await service.get_or_create_settings(db, current_user.id)
+    provider = service.get_provider(user_settings)
+    if provider is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "AI service is not configured. Add an Anthropic API key in Settings, "
+                "or ask your household admin to set the system key."
+            ),
+        )
+
+    target_date = data.for_date or date.today()
+    digest = await coach_service.generate_digest(
+        db=db,
+        provider=provider,
+        user_id=current_user.id,
+        household_id=current_user.household_id,
+        display_name=current_user.display_name or current_user.email,
+        for_date=target_date,
+        kind=data.kind,
+        tone=data.tone,
+        pinned_project_ids=data.pinned_project_ids,
+        pinned_goal_ids=data.pinned_goal_ids,
+        pinned_habit_ids=data.pinned_habit_ids,
+    )
+
+    return CoachDigestResponse(
+        id=str(digest.id),
+        date=digest.date,
+        kind=digest.kind,
+        content=digest.content,
+        tone=digest.tone,
+        created_at=digest.created_at.isoformat(),
+    )
+
+
+@router.get("/coach/tones")
+async def get_coach_tones(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the available coach tones with labels and descriptions."""
+    return {
+        key: {"label": val["label"], "description": val["description"]}
+        for key, val in coach_service.COACH_TONES.items()
+    }
 
 
 # ── Chat (streaming) ──────────────────────────────────────────────────────────

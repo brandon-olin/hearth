@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.documents.models import Document
 from life_dashboard.domains.documents.schemas import (
     DocumentChildrenResponse,
     DocumentCreate,
@@ -38,6 +44,12 @@ async def import_documents(
     express hierarchy. The server resolves them to real UUIDs and persists the
     pages in topological order.
     """
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "documents", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create documents.",
+        )
     return await service.bulk_import_documents(
         db, current_user.household_id, current_user.id, data
     )
@@ -62,6 +74,7 @@ async def list_documents(
     return await service.list_documents(
         db,
         current_user.household_id,
+        user_id=current_user.id,
         include_archived=include_archived,
         collection_id=collection_id,
     )
@@ -73,6 +86,12 @@ async def create_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "documents", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create documents.",
+        )
     return await service.create_document(db, current_user.household_id, current_user.id, data)
 
 
@@ -89,7 +108,7 @@ async def search_documents(
     Results are ranked: title exact match > title contains > body contains.
     """
     return await service.search_documents(
-        db, current_user.household_id, q, limit=limit, offset=offset
+        db, current_user.household_id, q, current_user.id, limit=limit, offset=offset
     )
 
 
@@ -99,7 +118,7 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
-    doc = await service.get_document(db, doc_id, current_user.household_id)
+    doc = await service.get_document(db, doc_id, current_user.household_id, user_id=current_user.id)
     if doc is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND, detail="Document not found"
@@ -114,6 +133,18 @@ async def update_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
+    creator_id = await get_item_creator(db, Document, doc_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "documents", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' documents.",
+            )
     doc = await service.update_document(db, doc_id, current_user.household_id, data)
     if doc is None:
         raise HTTPException(
@@ -129,6 +160,18 @@ async def archive_document(
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
     """Soft-delete: sets archived_at. Returns the archived document."""
+    creator_id = await get_item_creator(db, Document, doc_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "documents", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to archive others' documents.",
+            )
     doc = await service.archive_document(db, doc_id, current_user.household_id)
     if doc is None:
         raise HTTPException(
@@ -145,7 +188,7 @@ async def get_children(
     current_user: User = Depends(get_current_user),
 ) -> DocumentChildrenResponse:
     result = await service.get_children(
-        db, doc_id, current_user.household_id, include_archived=include_archived
+        db, doc_id, current_user.household_id, current_user.id, include_archived=include_archived
     )
     if result is None:
         raise HTTPException(

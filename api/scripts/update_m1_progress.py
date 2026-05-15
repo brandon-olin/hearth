@@ -100,11 +100,11 @@ async def main() -> None:
         # ── Find root → M1 ───────────────────────────────────────────────────
         root_row = (await db.execute(sa.text(
             "SELECT id, household_id, created_by_user_id FROM projects "
-            "WHERE name ILIKE '%Life Dashboard%' AND parent_id IS NULL "
+            "WHERE name ILIKE '%Hearth%' AND parent_id IS NULL "
             "ORDER BY created_at LIMIT 1"
         ))).fetchone()
         if root_row is None:
-            print("ERROR: 'Life Dashboard App' root project not found.")
+            print("ERROR: 'Hearth App' root project not found.")
             return
         root_id, household_id, user_id = root_row
         print(f"Root project : {root_id}")

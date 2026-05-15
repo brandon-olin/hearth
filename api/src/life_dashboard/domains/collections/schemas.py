@@ -10,7 +10,10 @@ CollectionDomain = Literal["notes", "documents"]
 class AutoCreateRule(BaseModel):
     """Rule for automatic entry creation inside a collection."""
     frequency: Literal["daily"]
-    title_template: str = "%B %d, %Y"  # strftime format
+    # {{variable}} syntax — resolved with the creating user's locale settings.
+    # Available: {{date}}, {{day}}, {{day_of_week}}, {{week_number}},
+    #            {{month}}, {{month_num}}, {{year}}, {{time}}, {{user_name}}
+    title_template: str = "{{day_of_week}}, {{month}} {{day}}, {{year}}"
 
 
 class CollectionCreate(BaseModel):
@@ -18,8 +21,8 @@ class CollectionCreate(BaseModel):
     icon: str | None = None
     domain: CollectionDomain
     default_tags: list[uuid.UUID] = []
-    default_template_id: uuid.UUID | None = None
     auto_create_rule: AutoCreateRule | None = None
+    show_in_nav: bool = False
     sort_order: int = 0
 
 
@@ -27,8 +30,8 @@ class CollectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     icon: str | None = None
     default_tags: list[uuid.UUID] | None = None
-    default_template_id: uuid.UUID | None = None
     auto_create_rule: AutoCreateRule | None = None
+    show_in_nav: bool | None = None
     sort_order: int | None = None
 
 
@@ -42,8 +45,8 @@ class CollectionResponse(BaseModel):
     icon: str | None
     domain: CollectionDomain
     default_tags: list[uuid.UUID]
-    default_template_id: uuid.UUID | None
     auto_create_rule: AutoCreateRule | None
+    show_in_nav: bool
     sort_order: int
     created_at: datetime
     updated_at: datetime

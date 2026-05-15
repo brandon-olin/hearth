@@ -4,15 +4,42 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { TodoRow } from "@/components/todos/todo-row";
 import { TodoSheet } from "@/components/todos/todo-sheet";
 import { QuickAdd } from "@/components/todos/quick-add";
 import { cn } from "@/lib/utils";
 import { Plus, Loader2 } from "lucide-react";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import type { components } from "@/lib/api/schema";
 
 type Todo = components["schemas"]["TodoResponse"];
 type Filter = "active" | "all" | "done";
+type Sort = "due_date" | "priority" | "created";
+
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+function sortTodos(todos: Todo[], sort: Sort): Todo[] {
+  if (sort === "priority") {
+    return [...todos].sort((a, b) => {
+      const pa = PRIORITY_ORDER[a.priority ?? ""] ?? 3;
+      const pb = PRIORITY_ORDER[b.priority ?? ""] ?? 3;
+      if (pa !== pb) return pa - pb;
+      // Secondary: due date ascending
+      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+      if (a.due_date) return -1;
+      if (b.due_date) return 1;
+      return 0;
+    });
+  }
+  if (sort === "created") {
+    return [...todos].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }
+  // "due_date" — keep server order (already sorted by due_date asc, nulls last)
+  return todos;
+}
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "active", label: "Active" },
@@ -124,7 +151,9 @@ function GroupHeader({
 export default function TodosPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { can } = usePermissions();
   const [filter, setFilter] = useState<Filter>("active");
+  const [sort, setSort] = useState<Sort>("due_date");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
 
@@ -144,7 +173,7 @@ export default function TodosPage() {
     }
   }, [searchParams, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const allItems = data?.items ?? [];
+  const allItems = sortTodos(data?.items ?? [], sort);
 
   function countForFilter(f: Filter) {
     if (f === "active")
@@ -177,14 +206,27 @@ export default function TodosPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold">To-dos</h1>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-1" />
-          New
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            className="text-xs h-8 w-36"
+          >
+            <option value="due_date">Sort: Due date</option>
+            <option value="priority">Sort: Priority</option>
+            <option value="created">Sort: Recently added</option>
+          </Select>
+          {can("todos", "create") && (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1" />
+              New
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter tabs */}
@@ -218,8 +260,8 @@ export default function TodosPage() {
         ))}
       </div>
 
-      {/* Quick-add row — hidden on the Done tab */}
-      {filter !== "done" && (
+      {/* Quick-add row — hidden on the Done tab, and hidden if user can't create */}
+      {filter !== "done" && can("todos", "create") && (
         <QuickAdd className="mb-4" />
       )}
 
@@ -244,7 +286,7 @@ export default function TodosPage() {
               ? "No completed todos yet."
               : "No todos yet."}
           </p>
-          {filter !== "done" && (
+          {filter !== "done" && can("todos", "create") && (
             <Button
               variant="outline"
               size="sm"

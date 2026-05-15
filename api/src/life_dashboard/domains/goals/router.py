@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.goals.models import Goal
 from life_dashboard.domains.goals.schemas import (
     GoalCreate,
     GoalListResponse,
@@ -29,7 +35,7 @@ async def list_goals(
     current_user: User = Depends(get_current_user),
 ) -> GoalListResponse:
     return await service.list_goals(
-        db, current_user.household_id,
+        db, current_user.household_id, current_user.id,
         status=status, parent_id=parent_id, limit=limit, offset=offset,
     )
 
@@ -40,7 +46,7 @@ async def get_goal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GoalResponse:
-    goal = await service.get_goal(db, goal_id, current_user.household_id)
+    goal = await service.get_goal(db, goal_id, current_user.household_id, user_id=current_user.id)
     if goal is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
     return goal
@@ -52,6 +58,12 @@ async def create_goal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GoalResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "goals", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create goals.",
+        )
     return await service.create_goal(db, current_user.household_id, current_user.id, data)
 
 
@@ -62,6 +74,16 @@ async def update_goal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GoalResponse:
+    creator_id = await get_item_creator(db, Goal, goal_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "goals", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' goals.",
+            )
     goal = await service.update_goal(db, goal_id, current_user.household_id, data)
     if goal is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
@@ -74,6 +96,16 @@ async def delete_goal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
+    creator_id = await get_item_creator(db, Goal, goal_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "goals", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete others' goals.",
+            )
     deleted = await service.delete_goal(db, goal_id, current_user.household_id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Goal not found")

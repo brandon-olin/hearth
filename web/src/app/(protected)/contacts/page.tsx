@@ -2,7 +2,7 @@ import { Users } from "lucide-react";
 
 export default function ContactsPage() {
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="page-content">
       <div className="flex items-center gap-2 mb-6">
         <Users className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-xl font-semibold">Contacts</h1>

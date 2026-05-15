@@ -4,6 +4,7 @@ from datetime import date
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.workouts.models import ExerciseEntry, Workout
 from life_dashboard.domains.workouts.schemas import (
     ExerciseEntryCreate,
@@ -60,6 +61,7 @@ async def _load_entries(
 async def list_workouts(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     from_date: date | None = None,
     to_date: date | None = None,
@@ -67,6 +69,8 @@ async def list_workouts(
     offset: int = 0,
 ) -> WorkoutListResponse:
     query = select(Workout).where(Workout.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Workout, user_id)
     if from_date is not None:
         query = query.where(Workout.workout_date >= from_date)
     if to_date is not None:
@@ -127,14 +131,15 @@ async def get_workout(
     db: AsyncSession,
     workout_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> WorkoutResponse | None:
-    result = await db.execute(
-        select(Workout).where(
-            Workout.id == workout_id,
-            Workout.household_id == household_id,
-        )
+    query = select(Workout).where(
+        Workout.id == workout_id,
+        Workout.household_id == household_id,
     )
-    workout = result.scalar_one_or_none()
+    if user_id is not None:
+        query = apply_visibility_filter(query, Workout, user_id)
+    workout = (await db.execute(query)).scalar_one_or_none()
     return _workout_response(workout) if workout else None
 
 
@@ -142,14 +147,15 @@ async def get_workout_with_entries(
     db: AsyncSession,
     workout_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> WorkoutWithEntriesResponse | None:
-    result = await db.execute(
-        select(Workout).where(
-            Workout.id == workout_id,
-            Workout.household_id == household_id,
-        )
+    query = select(Workout).where(
+        Workout.id == workout_id,
+        Workout.household_id == household_id,
     )
-    workout = result.scalar_one_or_none()
+    if user_id is not None:
+        query = apply_visibility_filter(query, Workout, user_id)
+    workout = (await db.execute(query)).scalar_one_or_none()
     if workout is None:
         return None
 
@@ -171,6 +177,9 @@ async def create_workout(
         name=data.name,
         workout_date=data.workout_date,
         notes=data.notes,
+        # Workouts are always personal — visibility is not user-configurable.
+        visibility="personal",
+        shared_with_user_ids=[],
     )
     db.add(workout)
     await db.flush()  # populate workout.id before creating entries

@@ -434,11 +434,14 @@ async def search_messages(
 ) -> MessageSearchResponse:
     """Full-text search across all messages belonging to this user.
 
-    Uses the GIN index on ai_messages.search_vector via plainto_tsquery, which
-    handles multi-word phrases naturally without requiring special syntax from
-    the user.
+    On Postgres: uses the GIN index on ai_messages.search_vector via
+    plainto_tsquery for accurate multi-word phrase matching.
+    On SQLite: falls back to a simple LIKE search (no FTS index).
     """
-    stmt = (
+    dialect = db.bind.dialect.name if db.bind else "postgresql"
+    q_like = f"%{q}%"
+
+    base = (
         select(
             AiMessage.id,
             AiMessage.conversation_id,
@@ -448,15 +451,18 @@ async def search_messages(
             AiConversation.title.label("conversation_title"),
         )
         .join(AiConversation, AiMessage.conversation_id == AiConversation.id)
-        .where(
-            AiConversation.user_id == user_id,
-            # Use raw text() for the FTS predicate so the GIN index is used
-            # without relying on ORM column expression magic for a computed col.
-            text("ai_messages.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
-        )
+        .where(AiConversation.user_id == user_id)
         .order_by(AiMessage.created_at.desc())
         .limit(limit)
     )
+
+    if dialect == "sqlite":
+        stmt = base.where(AiMessage.content.ilike(q_like))
+    else:
+        # Postgres: use tsvector GIN index via raw SQL predicate.
+        stmt = base.where(
+            text("ai_messages.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
+        )
     rows = (await db.execute(stmt)).all()
 
     items = []

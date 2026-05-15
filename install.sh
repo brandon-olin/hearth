@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Life Dashboard local installer
+# install.sh — Hearth local installer
 #
 # Usage (one-liner):
 #   curl -fsSL https://raw.githubusercontent.com/brandon-olin/life-dashboard/main/install.sh | bash
@@ -186,7 +186,7 @@ run_service_install() {
 
 main() {
   echo
-  echo -e "${BOLD}Life Dashboard — Local Installer${NC}"
+  echo -e "${BOLD}Hearth — Local Installer${NC}"
   echo    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo
 
@@ -200,7 +200,7 @@ main() {
   echo
   echo -e "${BOLD}${GREEN}All done!${NC}"
   echo
-  echo    "  Life Dashboard is running at http://localhost:3000"
+  echo    "  Hearth is running at http://localhost:1337"
   echo    "  Open the URL in your browser to finish setup."
   echo
   echo    "  Useful commands:"

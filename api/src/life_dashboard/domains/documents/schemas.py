@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from life_dashboard.core.pydantic_types import CoercedList
 
 DocumentKind = Literal["page", "template"]
 
@@ -16,6 +17,8 @@ class DocumentCreate(BaseModel):
     kind: DocumentKind = "page"
     source_markdown: str | None = None
     editor_json: dict[str, Any] | None = None
+    visibility: str = "personal"
+    shared_with_user_ids: list[str] = []
 
 
 class DocumentUpdate(BaseModel):
@@ -27,6 +30,8 @@ class DocumentUpdate(BaseModel):
     kind: DocumentKind | None = None
     source_markdown: str | None = None
     editor_json: dict[str, Any] | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -44,6 +49,8 @@ class DocumentResponse(BaseModel):
     kind: DocumentKind
     source_markdown: str | None
     editor_json: dict[str, Any] | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -61,6 +68,8 @@ class DocumentSummary(BaseModel):
     description: str | None
     icon: str | None
     kind: DocumentKind
+    visibility: str
+    shared_with_user_ids: CoercedList
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime

@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel
+from life_dashboard.core.pydantic_types import CoercedList
 
 ProjectStatus = Literal["backlog", "active", "on_deck", "in_progress", "complete", "archived"]
 
@@ -17,6 +18,8 @@ class ProjectCreate(BaseModel):
     parent_id: uuid.UUID | None = None
     show_in_nav: bool = False
     sort_order: int = 0
+    visibility: str = "household"
+    shared_with_user_ids: list[str] = []
 
 
 class ProjectUpdate(BaseModel):
@@ -27,6 +30,8 @@ class ProjectUpdate(BaseModel):
     parent_id: uuid.UUID | None = None
     show_in_nav: bool | None = None
     sort_order: int | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -42,6 +47,8 @@ class ProjectResponse(BaseModel):
     show_in_nav: bool
     sort_order: int
     archived_at: datetime | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
 

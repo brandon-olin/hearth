@@ -6,7 +6,7 @@ Root context for the `life-dashboard` monorepo. Each subdirectory has its own `C
 
 ## What this is
 
-**Life Dashboard** is a household operating system for planning, tasks, habits, documents, routines, and life administration. It is designed for real households — meaning multiple people sharing data, with clear privacy boundaries between personal and shared content.
+**Hearth** is a household operating system for planning, tasks, habits, documents, routines, and life administration. It is designed for real households — meaning multiple people sharing data, with clear privacy boundaries between personal and shared content.
 
 The product is built open-core: the core app and self-hosted path are fully functional and free; cloud hosting with managed infrastructure is the premium tier.
 
@@ -25,7 +25,7 @@ Three tiers, in order of implementation priority:
 3. **Cloud-hosted / managed** *(future, paid)*
    Deployed to Vercel (web) + managed Postgres, with payment processing. Tiered pricing: free self-hosted forever; paid for managed hosting, backups, mobile push, managed AI credits.
 
-**Current dev workflow:** run API locally with `cd api && source .venv/bin/activate && uvicorn life_dashboard.main:app --reload --port 8000`. Run migrations with `alembic upgrade head` from the same `api/` directory. Run web with `cd web && npm run dev`.
+**Current dev workflow:** run API locally with `cd api && source .venv/bin/activate && uvicorn life_dashboard.main:app --reload --port 1338`. Run migrations with `alembic upgrade head` from the same `api/` directory. Run web with `cd web && npm run dev`.
 
 When making design decisions, prefer the approach that works across all three tiers without requiring a rewrite.
 
@@ -54,9 +54,9 @@ agent/      (planned) AI automation and provider integrations
 ```
 
 Sub-level CLAUDE.md files contain stack-specific conventions:
-- `api/CLAUDE.md` — Python/FastAPI patterns, domain layout, testing
-- `web/CLAUDE.md` — Next.js patterns, component structure, API client
-- `infra/CLAUDE.md` — deployment, container rebuild commands, Caddy setup
+- `api/CLAUDE.md` — Python/FastAPI patterns, domain layout, JSONB conventions, habits/todos domain detail
+- `web/CLAUDE.md` — Next.js patterns, UI primitive inventory, anti-patterns, habits/todos frontend detail
+- `infra/CLAUDE.md` — local install (launchd/systemd), Docker Compose, NAS deployment
 
 ---
 

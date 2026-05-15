@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
+from life_dashboard.core.pydantic_types import CoercedList
 
 ExerciseType = Literal["strength", "cardio", "hiit", "flexibility", "other"]
 
@@ -50,6 +51,7 @@ class WorkoutCreate(BaseModel):
     # Optionally inline entries on creation — saves a round-trip for the common
     # case of logging a workout with exercises in one shot.
     entries: list[ExerciseEntryCreate] = []
+    # Workouts are always personal — visibility cannot be changed.
 
 
 class WorkoutUpdate(BaseModel):
@@ -58,6 +60,7 @@ class WorkoutUpdate(BaseModel):
     name: str | None = None
     workout_date: date | None = None
     notes: str | None = None
+    # Workouts are always personal — visibility cannot be changed.
 
 
 class WorkoutResponse(BaseModel):
@@ -69,6 +72,8 @@ class WorkoutResponse(BaseModel):
     name: str | None
     workout_date: date
     notes: str | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
     # Populated by list_workouts for the card summary; empty on single-fetch responses.

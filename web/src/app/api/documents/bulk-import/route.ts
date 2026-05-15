@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = process.env.API_URL ?? "http://localhost:8000";
+const API_URL = process.env.API_URL ?? "http://localhost:1338";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const targetUrl = `${API_URL}/documents/bulk-import`;

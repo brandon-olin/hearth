@@ -1,5 +1,5 @@
 [Unit]
-Description=Life Dashboard PostgreSQL
+Description=Hearth PostgreSQL
 After=network.target
 
 [Service]

@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from life_dashboard.domains.tags.schemas import TagSummary
+from life_dashboard.core.pydantic_types import CoercedList
 
 
 class IngredientData(BaseModel):
@@ -46,6 +47,8 @@ class RecipeCreate(BaseModel):
     ingredients: list[IngredientData] = []
     steps: list[StepData] = []
     body: dict | None = None
+    visibility: str = "household"
+    shared_with_user_ids: list[str] = []
 
 
 class RecipeUpdate(BaseModel):
@@ -61,6 +64,8 @@ class RecipeUpdate(BaseModel):
     ingredients: list[IngredientData] | None = None
     steps: list[StepData] | None = None
     body: dict | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class RecipeResponse(BaseModel):
@@ -79,6 +84,8 @@ class RecipeResponse(BaseModel):
     servings: int | None
     notes: str | None
     body: dict | None
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
     ingredients: list[IngredientResponse] = []

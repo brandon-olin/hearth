@@ -1,27 +1,27 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Text, UniqueConstraint, Uuid
 from sqlalchemy import Enum as SaEnum
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from life_dashboard.core.database import Base
+from life_dashboard.core.visibility import VisibilityMixin
 
 
-class Project(Base):
+class Project(VisibilityMixin, Base):
     __tablename__ = "projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+        Uuid(), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
 
     name: Mapped[str] = mapped_column(Text)
@@ -29,8 +29,7 @@ class Project(Base):
     status: Mapped[str] = mapped_column(
         SaEnum(
             "backlog", "active", "on_deck", "in_progress", "complete", "archived",
-            name="project_status",
-            create_type=False,
+            native_enum=False,
         ),
         default="active",
         server_default="active",
@@ -61,11 +60,11 @@ class ProjectGoal(Base):
         UniqueConstraint("project_id", "goal_id", name="uq_project_goals"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("projects.id", ondelete="CASCADE")
     )
     goal_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("goals.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("goals.id", ondelete="CASCADE")
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

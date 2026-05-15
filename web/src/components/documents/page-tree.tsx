@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 // Module-level set: survives component unmounts when navigating between sections.
 // Stores IDs of all nodes the user has explicitly expanded.
 const _expandedIds = new Set<string>();
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import {
@@ -87,6 +88,7 @@ function TreeNodeRow({
 
   const isDragging = drag.draggingId === node.doc.id;
   const isDropTarget = drag.dropTargetId === node.doc.id && drag.draggingId !== node.doc.id;
+  const dragStartedRef = useRef(false);
 
   const toggle = useCallback(() => {
     setExpanded((v) => {
@@ -104,6 +106,7 @@ function TreeNodeRow({
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", node.doc.id);
+          dragStartedRef.current = true;
           drag.onDragStart(node.doc.id);
         }}
         onDragOver={(e) => {
@@ -111,12 +114,19 @@ function TreeNodeRow({
           e.dataTransfer.dropEffect = "move";
           drag.onDragOver(node.doc.id);
         }}
-        onDragLeave={drag.onDragLeave}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            drag.onDragLeave();
+          }
+        }}
         onDrop={(e) => {
           e.preventDefault();
           drag.onDrop(node.doc.id);
         }}
-        onDragEnd={drag.onDragEnd}
+        onDragEnd={(e) => {
+          drag.onDragEnd();
+          setTimeout(() => { dragStartedRef.current = false; }, 100);
+        }}
         className={cn(
           "group flex items-center gap-1 rounded-md pr-1 cursor-pointer select-none transition-all",
           isActive ? "bg-accent text-accent-foreground" : "hover:bg-muted/60 text-foreground",
@@ -124,7 +134,10 @@ function TreeNodeRow({
           isDropTarget && "ring-2 ring-primary/50 bg-primary/5",
         )}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
-        onClick={() => router.push(`/documents/${node.doc.id}`)}
+        onClick={() => {
+          if (dragStartedRef.current) return;
+          router.push(`/documents/${node.doc.id}`);
+        }}
       >
         {/* Expand / collapse toggle */}
         <button
@@ -231,7 +244,7 @@ export function PageTree() {
       const token = (await import("@/lib/auth/token")).getAccessToken();
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      await fetch("/api/documents", { method: "DELETE", headers, credentials: "same-origin" });
+      await fetch(`${apiBaseUrl}/documents`, { method: "DELETE", headers, credentials: "same-origin" });
       qc.invalidateQueries({ queryKey: ["get", "/documents"] });
       router.push("/documents");
     } finally {

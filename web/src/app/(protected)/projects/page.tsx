@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
 import { ProjectCreateSheet } from "@/components/projects/project-create-sheet";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import {
   Plus,
@@ -21,12 +22,12 @@ type ProjectStatus = Project["status"];
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<ProjectStatus, string> = {
-  backlog:     "bg-muted text-muted-foreground",
-  active:      "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  on_deck:     "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  in_progress: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
-  complete:    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  archived:    "bg-muted text-muted-foreground opacity-60",
+  backlog:     "badge-neutral",
+  active:      "badge-primary",
+  on_deck:     "badge-warning",
+  in_progress: "badge-progress",
+  complete:    "badge-success",
+  archived:    "badge-neutral badge-faded",
 };
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
@@ -97,12 +98,7 @@ function ProjectRow({ project }: { project: Project }) {
             Due {project.due_date}
           </span>
         )}
-        <span
-          className={cn(
-            "text-[11px] font-medium px-2 py-0.5 rounded-full",
-            STATUS_BADGE[project.status],
-          )}
-        >
+        <span className={cn("badge", STATUS_BADGE[project.status])}>
           {STATUS_LABEL[project.status]}
         </span>
         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
@@ -116,6 +112,7 @@ function ProjectRow({ project }: { project: Project }) {
 export default function ProjectsPage() {
   const [filter, setFilter] = useState<Filter>("active");
   const [createOpen, setCreateOpen] = useState(false);
+  const { can } = usePermissions();
 
   const { data, isLoading, isError } = $api.useQuery("get", "/projects", {
     params: { query: { root_only: true, include_archived: true } },
@@ -135,17 +132,19 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <FolderKanban className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Projects</h1>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          New project
-        </Button>
+        {can("projects", "create") && (
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            New project
+          </Button>
+        )}
       </div>
 
       {/* Filter tabs */}
@@ -197,7 +196,7 @@ export default function ProjectsPage() {
               ? "No completed projects."
               : "No projects yet."}
           </p>
-          {filter !== "complete" && (
+          {filter !== "complete" && can("projects", "create") && (
             <Button
               variant="outline"
               size="sm"

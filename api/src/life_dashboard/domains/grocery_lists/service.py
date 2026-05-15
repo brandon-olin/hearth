@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.grocery_lists.models import GroceryItem, GroceryList
 from life_dashboard.domains.grocery_lists.schemas import (
     GroceryItemData,
@@ -62,6 +63,8 @@ async def create_grocery_list(
         name=data.name,
         store=data.store,
         status=data.status,
+        visibility=data.visibility,
+        shared_with_user_ids=data.shared_with_user_ids or [],
     )
     db.add(grocery_list)
     await db.flush()
@@ -79,13 +82,14 @@ async def get_grocery_list(
     db: AsyncSession,
     list_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> GroceryListResponse | None:
-    result = await db.execute(
-        select(GroceryList).where(
-            GroceryList.id == list_id, GroceryList.household_id == household_id
-        )
+    query = select(GroceryList).where(
+        GroceryList.id == list_id, GroceryList.household_id == household_id
     )
-    grocery_list = result.scalar_one_or_none()
+    if user_id is not None:
+        query = apply_visibility_filter(query, GroceryList, user_id)
+    grocery_list = (await db.execute(query)).scalar_one_or_none()
     if grocery_list is None:
         return None
     item_map = await _load_items(db, [grocery_list.id])
@@ -95,12 +99,15 @@ async def get_grocery_list(
 async def list_grocery_lists(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> GroceryListListResponse:
     query = select(GroceryList).where(GroceryList.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, GroceryList, user_id)
     if status is not None:
         query = query.where(GroceryList.status == status)
 
@@ -135,7 +142,7 @@ async def update_grocery_list(
         return None
 
     sent = data.model_fields_set
-    for field in ("todo_id", "name", "store", "status"):
+    for field in ("todo_id", "name", "store", "status", "visibility", "shared_with_user_ids"):
         if field in sent:
             setattr(grocery_list, field, getattr(data, field))
 

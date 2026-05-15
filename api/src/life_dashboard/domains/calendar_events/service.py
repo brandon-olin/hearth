@@ -11,6 +11,7 @@ from life_dashboard.domains.calendar_events.schemas import (
     CalendarEventResponse,
     CalendarEventUpdate,
 )
+from life_dashboard.domains.notifications import service as notifications
 
 
 async def create_event(
@@ -43,6 +44,25 @@ async def create_event(
         calendar_name=data.calendar_name,
     )
     db.add(event)
+    await db.flush()  # get event.id before committing
+
+    # Notify all other household members that a new event was added.
+    # Skip external-sync events (source is set) to avoid flooding the feed
+    # during a bulk calendar import.
+    if not data.source:
+        await notifications.dispatch_to_household(
+            db,
+            household_id=household_id,
+            actor_id=user_id,
+            type="event_created",
+            entity_type="calendar_event",
+            entity_id=event.id,
+            payload={
+                "title": event.title,
+                "starts_at": event.starts_at.isoformat(),
+            },
+        )
+
     await db.commit()
     await db.refresh(event)
     return CalendarEventResponse.model_validate(event)

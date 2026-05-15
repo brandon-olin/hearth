@@ -29,6 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Loader2, Check, Trash2, FilePlus, FileText, ChevronRight } from "lucide-react";
+import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { Block } from "@blocknote/core";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -121,6 +122,8 @@ function EditorInner({ documentId }: { documentId: string }) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<string>("");
   const [title, setTitle] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("personal");
+  const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isCreatingSubpage, setIsCreatingSubpage] = useState(false);
@@ -149,6 +152,8 @@ function EditorInner({ documentId }: { documentId: string }) {
     const loadedTitle = data.title ?? "";
     setTitle(loadedTitle);
     titleRef.current = loadedTitle;
+    setVisibility((data.visibility as Visibility) ?? "personal");
+    setSharedWith(data.shared_with_user_ids ?? []);
 
     const blocks = (data.editor_json as { blocks?: Block[] } | null)?.blocks;
     if (blocks?.length) {
@@ -200,6 +205,17 @@ function EditorInner({ documentId }: { documentId: string }) {
       e.preventDefault();
       editor.focus();
     }
+  }
+
+  async function handleVisibilityChange(v: Visibility, sw: string[]) {
+    setVisibility(v);
+    setSharedWith(sw);
+    try {
+      await patchDocument({
+        params: { path: { doc_id: documentId } },
+        body: { visibility: v, shared_with_user_ids: sw },
+      });
+    } catch { /* ignore */ }
   }
 
   async function handleDelete() {
@@ -334,6 +350,15 @@ function EditorInner({ documentId }: { documentId: string }) {
             </AlertDialogContent>
           </AlertDialog>
         </div>
+      </div>
+
+      {/* Visibility */}
+      <div className="px-10 pb-3">
+        <VisibilityPicker
+          value={visibility}
+          sharedWith={sharedWith}
+          onChange={handleVisibilityChange}
+        />
       </div>
 
       {/* BlockNote editor */}

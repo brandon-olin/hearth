@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Plus, X, Loader2, Dumbbell, Trash2, Check, AlertCircle } from "lucide-react";
+import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
 
 type WorkoutSummary   = components["schemas"]["WorkoutResponse"];
@@ -361,6 +363,8 @@ function WorkoutEditor({
   const [date,  setDate]  = useState("");
   const [name,  setName]  = useState("");
   const [notes, setNotes] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("personal");
+  const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [entries, setEntries] = useState<EntryState[]>([]);
   const [headerStatus, setHeaderStatus] = useState<EntryState["saveStatus"]>("idle");
   const [addingEntry, setAddingEntry] = useState(false);
@@ -378,6 +382,8 @@ function WorkoutEditor({
     setDate(initial.workout_date);
     setName(initial.name ?? "");
     setNotes(initial.notes ?? "");
+    setVisibility((initial.visibility as Visibility) ?? "personal");
+    setSharedWith(initial.shared_with_user_ids ?? []);
     setEntries((initial as WorkoutDetail).entries?.map(entryResponseToState) ?? []);
   }, [initial?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -411,6 +417,17 @@ function WorkoutEditor({
   function handleDateChange(value: string)  { setDate(value);  scheduleHeaderSave({ date: value, name, notes }); }
   function handleNameChange(value: string)  { setName(value);  scheduleHeaderSave({ date, name: value, notes }); }
   function handleNotesChange(value: string) { setNotes(value); scheduleHeaderSave({ date, name, notes: value }); }
+
+  async function handleVisibilityChange(v: Visibility, sw: string[]) {
+    setVisibility(v);
+    setSharedWith(sw);
+    try {
+      await patchWorkout({
+        params: { path: { workout_id: workoutId } },
+        body: { visibility: v, shared_with_user_ids: sw },
+      });
+    } catch { /* ignore */ }
+  }
 
   // ── entry auto-save ────────────────────────────────────────────────────────
 
@@ -603,6 +620,16 @@ function WorkoutEditor({
             placeholder="How it felt, PRs, anything notable…"
           />
         </div>
+
+        {/* Visibility */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Visibility</Label>
+          <VisibilityPicker
+            value={visibility}
+            sharedWith={sharedWith}
+            onChange={handleVisibilityChange}
+          />
+        </div>
       </div>
 
       {/* Footer */}
@@ -642,7 +669,7 @@ function WorkoutSheet({
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-md overflow-hidden flex flex-col gap-0 p-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+        <SheetHeader className="px-6 py-4 border-b shrink-0">
           <SheetTitle>Workout</SheetTitle>
           <SheetDescription className="sr-only">Edit workout session</SheetDescription>
         </SheetHeader>
@@ -678,7 +705,7 @@ export default function WorkoutsPage() {
     setClearing(true);
     try {
       const token = (await import("@/lib/auth/token")).getAccessToken();
-      await fetch("/api/workouts", {
+      await fetch(`${apiBaseUrl}/workouts`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -727,7 +754,7 @@ export default function WorkoutsPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="page-content">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Dumbbell className="h-5 w-5 text-muted-foreground" />

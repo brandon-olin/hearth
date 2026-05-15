@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import {
   Eye,
   EyeOff,
@@ -25,11 +25,16 @@ import {
   Pin,
   PinOff,
   Lock,
+  LogOut,
+  Shield,
 } from "lucide-react";
+import { VisibilitySettingsSection } from "@/components/settings/visibility-settings-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
+import { useAuth } from "@/lib/auth/context";
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
   BASE_THEMES,
@@ -40,6 +45,7 @@ import {
   type ThemeConfig,
 } from "@/lib/theme/presets";
 import { useSidebarConfig, newFolderId, type SidebarFolder } from "@/lib/sidebar/context";
+import { ROLE_LABEL } from "@/lib/roles";
 import { type NavItem } from "@/lib/sidebar/nav-items";
 import { useNavItems } from "@/lib/sidebar/use-nav-items";
 import {
@@ -50,41 +56,86 @@ import {
 
 // ── Left nav ──────────────────────────────────────────────────────────────────
 
-type Section = "appearance" | "navigation" | "account" | "household" | "ai";
+type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
-  { id: "appearance",  label: "Appearance",  icon: Palette       },
-  { id: "navigation",  label: "Navigation",  icon: GripVertical  },
-  { id: "account",     label: "Account",     icon: User          },
   { id: "household",   label: "Household",   icon: Home          },
+  { id: "visibility",  label: "Visibility",  icon: Shield        },
+  { id: "account",     label: "Account",     icon: User          },
+  { id: "navigation",  label: "Navigation",  icon: GripVertical  },
+  { id: "appearance",  label: "Appearance",  icon: Palette       },
+  { id: "templates",    label: "Templates",   icon: BookOpen      },
+  { id: "collections", label: "Collections", icon: FolderKanban  },
   { id: "ai",          label: "AI",          icon: Bot           },
 ];
 
-function SettingsNav({
-  active,
-  onChange,
-}: {
+const ADMIN_ROLES = new Set(["owner", "admin"]);
+
+const ADMIN_SECTION_IDS = new Set<Section>(["household", "visibility"]);
+
+function NavItem({ id, label, icon: Icon, active, onChange }: {
+  id: Section;
+  label: string;
+  icon: React.ElementType;
   active: Section;
   onChange: (s: Section) => void;
 }) {
   return (
-    <nav className="space-y-0.5">
-      {SECTIONS.map(({ id, label, icon: Icon }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => onChange(id)}
-          className={cn(
-            "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors text-left",
-            active === id
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          )}
-        >
-          <Icon className="h-4 w-4 shrink-0" />
-          {label}
-        </button>
-      ))}
+    <button
+      key={id}
+      type="button"
+      onClick={() => onChange(id)}
+      className={cn(
+        "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors text-left",
+        active === id
+          ? "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {label}
+    </button>
+  );
+}
+
+function SettingsNav({
+  active,
+  onChange,
+  visibleSections,
+  isAdmin,
+}: {
+  active: Section;
+  onChange: (s: Section) => void;
+  visibleSections: Set<Section>;
+  isAdmin: boolean;
+}) {
+  const adminSections = SECTIONS.filter((s) => visibleSections.has(s.id) && ADMIN_SECTION_IDS.has(s.id));
+  const userSections  = SECTIONS.filter((s) => visibleSections.has(s.id) && !ADMIN_SECTION_IDS.has(s.id));
+
+  return (
+    <nav className="space-y-4">
+      {isAdmin && adminSections.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+            Admin Settings
+          </p>
+          <div className="space-y-0.5">
+            {adminSections.map(({ id, label, icon }) => (
+              <NavItem key={id} id={id} label={label} icon={icon} active={active} onChange={onChange} />
+            ))}
+          </div>
+        </div>
+      )}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+          {isAdmin ? "General Settings" : "Settings"}
+        </p>
+        <div className="space-y-0.5">
+          {userSections.map(({ id, label, icon }) => (
+            <NavItem key={id} id={id} label={label} icon={icon} active={active} onChange={onChange} />
+          ))}
+        </div>
+      </div>
     </nav>
   );
 }
@@ -202,24 +253,28 @@ function InlineIconPicker({
 function SidebarCustomizer({
   onCreateProject,
   onCreatePage,
+  onSelectCollection,
 }: {
   onCreateProject?: () => void;
   onCreatePage?: () => void;
+  onSelectCollection?: () => void;
 }) {
   const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
   const { items: allNavItems } = useNavItems();
   const qc = useQueryClient();
   const { mutateAsync: updateProject } = $api.useMutation("patch", "/projects/{project_id}");
+  const { mutateAsync: updateCollection } = $api.useMutation("patch", "/collections/{collection_id}");
 
   // Unified drag state — works for both nav item hrefs and folder IDs
   const dragIdRef = useRef<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
-  // Tracks what's being dragged so we can style folder drop zones correctly
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // dropIndicator: where the dragged item will land
+  //   "before"/"after" = reorder line above/below target
+  //   "into"           = insert into folder (folder highlight)
+  const [dropIndicator, setDropIndicator] = useState<{ id: string; action: "before" | "after" | "into" } | null>(null);
 
   // Drag state for reordering items within a folder's expanded contents panel
   const folderDragRef = useRef<string | null>(null);
-  const [folderDragOverHref, setFolderDragOverHref] = useState<string | null>(null);
+  const [folderDropIndicator, setFolderDropIndicator] = useState<{ href: string; position: "before" | "after" } | null>(null);
 
   // "Add nav item" picker
   const [navPickerOpen, setNavPickerOpen] = useState(false);
@@ -289,7 +344,7 @@ function SidebarCustomizer({
     setSidebarConfig({ ...sidebarConfig, hidden: nextHidden });
   }
 
-  /** Remove a project or document from the sidebar nav entirely */
+  /** Remove a project, document, or collection from the sidebar nav */
   async function removeFromNav(item: NavItem) {
     if (item.isProject && item.projectId) {
       await updateProject({
@@ -308,6 +363,17 @@ function SidebarCustomizer({
         pinnedDocumentIds: (sidebarConfig.pinnedDocumentIds ?? []).filter(
           (id) => id !== item.documentId,
         ),
+        order: order.filter((id) => id !== item.href),
+        folders: folders.map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== item.href) })),
+      });
+    } else if (item.isCollection && item.collectionId) {
+      await updateCollection({
+        params: { path: { collection_id: item.collectionId } },
+        body: { show_in_nav: false },
+      });
+      qc.invalidateQueries({ queryKey: ["get", "/collections"] });
+      setSidebarConfig({
+        ...sidebarConfig,
         order: order.filter((id) => id !== item.href),
         folders: folders.map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== item.href) })),
       });
@@ -365,7 +431,7 @@ function SidebarCustomizer({
     });
   }
 
-  function reorderInFolder(folderId: string, fromHref: string, toHref: string) {
+  function reorderInFolder(folderId: string, fromHref: string, toHref: string, position: "before" | "after") {
     setSidebarConfig({
       ...sidebarConfig,
       folders: folders.map((f) => {
@@ -375,7 +441,9 @@ function SidebarCustomizer({
         const toIdx   = next.indexOf(toHref);
         if (fromIdx === -1 || toIdx === -1) return f;
         next.splice(fromIdx, 1);
-        next.splice(toIdx, 0, fromHref);
+        const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx;
+        const insertAt = position === "after" ? adjustedToIdx + 1 : adjustedToIdx;
+        next.splice(insertAt, 0, fromHref);
         return { ...f, hrefs: next };
       }),
     });
@@ -388,7 +456,26 @@ function SidebarCustomizer({
     setSidebarConfig({
       ...sidebarConfig,
       folders: updatedFolders,
-      order: order.filter((o) => o !== href), // remove from root order
+      order: order.filter((o) => o !== href),
+    });
+  }
+
+  /** Insert href into a folder at a specific position relative to another item. */
+  function moveToFolderAtPosition(href: string, targetFolderId: string, relativeToHref: string, position: "before" | "after") {
+    const updatedFolders = folders
+      .map((f) => ({ ...f, hrefs: f.hrefs.filter((h) => h !== href) }))
+      .map((f) => {
+        if (f.id !== targetFolderId) return f;
+        const hrefs = [...f.hrefs];
+        const relIdx = hrefs.indexOf(relativeToHref);
+        const insertAt = relIdx === -1 ? hrefs.length : position === "after" ? relIdx + 1 : relIdx;
+        hrefs.splice(insertAt, 0, href);
+        return { ...f, hrefs };
+      });
+    setSidebarConfig({
+      ...sidebarConfig,
+      folders: updatedFolders,
+      order: order.filter((o) => o !== href),
     });
   }
 
@@ -396,43 +483,76 @@ function SidebarCustomizer({
 
   function handleDragStart(id: string) {
     dragIdRef.current = id;
-    setDraggingId(id);
   }
 
   function handleDragOver(e: React.DragEvent, targetId: string) {
     e.preventDefault();
-    if (dragIdRef.current !== targetId) setDragOverId(targetId);
+    if (dragIdRef.current === targetId) return;
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY  = (e.clientY - rect.top) / rect.height;
+
+    const targetIsFolder  = !targetId.startsWith("/") && folders.some((f) => f.id === targetId);
+    const fromIsNavItem   = dragIdRef.current?.startsWith("/") ?? false;
+
+    let action: "before" | "after" | "into";
+    if (targetIsFolder && fromIsNavItem) {
+      // Top 25% → line above folder, bottom 25% → line below, middle → insert into folder
+      action = relY < 0.25 ? "before" : relY > 0.75 ? "after" : "into";
+    } else {
+      action = relY < 0.5 ? "before" : "after";
+    }
+
+    setDropIndicator({ id: targetId, action });
   }
 
   function handleDrop(targetId: string) {
     const fromId = dragIdRef.current;
-    if (!fromId || fromId === targetId) { setDragOverId(null); return; }
+    if (!fromId || fromId === targetId) { setDropIndicator(null); return; }
 
-    // ── Drop onto a folder → move item into that folder ──────────────────────
-    const targetIsFolder = !targetId.startsWith("/") && folders.some((f) => f.id === targetId);
-    if (targetIsFolder && fromId.startsWith("/")) {
+    const action = dropIndicator?.action ?? "after";
+
+    if (action === "into") {
       moveToFolder(fromId, targetId);
       dragIdRef.current = null;
-      setDragOverId(null);
+      setDropIndicator(null);
       return;
     }
 
-    // ── Drop onto another item → reorder ─────────────────────────────────────
-    const next = [...orderedIds];
-    const fromIdx = next.indexOf(fromId);
-    const toIdx   = next.indexOf(targetId);
-    if (fromIdx === -1 || toIdx === -1) { setDragOverId(null); return; }
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromId);
-    setSidebarConfig({ ...sidebarConfig, order: next });
+    const toIdx = orderedIds.indexOf(targetId);
+    if (toIdx === -1) { setDropIndicator(null); return; }
+
+    // Check if the dragged item is coming from a folder (not in root orderedIds)
+    const sourceFolder = folders.find((f) => f.hrefs.includes(fromId));
+
+    if (sourceFolder) {
+      // Folder item → root: remove from folder, insert at root position
+      const newOrder = [...orderedIds];
+      const insertAt = action === "after" ? toIdx + 1 : toIdx;
+      newOrder.splice(insertAt, 0, fromId);
+      const updatedFolders = folders.map((f) =>
+        f.id === sourceFolder.id ? { ...f, hrefs: f.hrefs.filter((h) => h !== fromId) } : f,
+      );
+      setSidebarConfig({ ...sidebarConfig, order: newOrder, folders: updatedFolders });
+    } else {
+      // Root → root reorder
+      const newOrder = [...orderedIds];
+      const fromIdx = newOrder.indexOf(fromId);
+      if (fromIdx === -1) { setDropIndicator(null); return; }
+      newOrder.splice(fromIdx, 1);
+      const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx;
+      const insertAt = action === "after" ? adjustedToIdx + 1 : adjustedToIdx;
+      newOrder.splice(insertAt, 0, fromId);
+      setSidebarConfig({ ...sidebarConfig, order: newOrder });
+    }
+
     dragIdRef.current = null;
-    setDragOverId(null);
+    setDropIndicator(null);
   }
 
   function handleDragEnd() {
     dragIdRef.current = null;
-    setDraggingId(null);
-    setDragOverId(null);
+    setDropIndicator(null);
   }
 
   // ── render ──────────────────────────────────────────────────────────────────
@@ -467,6 +587,14 @@ function SidebarCustomizer({
                 >
                   <FolderPlus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   Folder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onSelectCollection?.(); setNavPickerOpen(false); }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
+                >
+                  <FolderKanban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  Collection
                 </button>
                 <button
                   type="button"
@@ -555,19 +683,21 @@ function SidebarCustomizer({
       {/* Unified drag list */}
       <div className="space-y-1">
         {rootEntries.map((entry) => {
-          const entryId    = entry.kind === "nav" ? entry.item.href : entry.folder.id;
-          const isDragOver = dragOverId === entryId;
-          // A folder becomes a drop zone (different highlight) when dragging a nav item over it
-          const isFolderDropTarget = isDragOver && entry.kind === "folder" && draggingId?.startsWith("/");
+          const entryId          = entry.kind === "nav" ? entry.item.href : entry.folder.id;
+          const indicator        = dropIndicator?.id === entryId ? dropIndicator.action : null;
+          const showLineBefore   = indicator === "before";
+          const showLineAfter    = indicator === "after";
+          const isFolderDropInto = indicator === "into" && entry.kind === "folder";
 
           // ── nav item row ──────────────────────────────────────────────────
           if (entry.kind === "nav") {
             const { item } = entry;
             const isHidden   = hidden.includes(item.href);
-            const isDynamic  = !!(item.isProject || item.isDocument); // user-added; has remove btn
+            const isDynamic  = !!(item.isProject || item.isDocument || item.isCollection); // user-added; has remove btn
             return (
+              <Fragment key={entryId}>
+                {showLineBefore && <div className="h-0.5 bg-primary rounded-full mx-1" />}
               <div
-                key={entryId}
                 draggable
                 onDragStart={() => handleDragStart(entryId)}
                 onDragOver={(e) => handleDragOver(e, entryId)}
@@ -576,13 +706,27 @@ function SidebarCustomizer({
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
                   isHidden && "opacity-40",
-                  isDragOver && "border-primary bg-primary/5 scale-[1.01]",
                 )}
               >
                 <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
                 <ItemIcon icon={item.icon} className="text-muted-foreground" />
                 <span className="flex-1 text-sm font-medium">{item.label}</span>
-                {/* Dynamic items (projects, docs): show remove button */}
+                {/* Move to folder select — shown when there are folders */}
+                {folders.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) moveToFolder(item.href, e.target.value); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[11px] text-muted-foreground bg-transparent border-0 outline-none cursor-pointer hover:text-foreground py-0 pr-4 pl-0 appearance-none"
+                    title="Move to folder"
+                  >
+                    <option value="">📂 Move…</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.label}</option>
+                    ))}
+                  </select>
+                )}
+                {/* Dynamic items (projects, docs, collections): show remove button */}
                 {isDynamic ? (
                   <button
                     type="button"
@@ -604,6 +748,8 @@ function SidebarCustomizer({
                   </button>
                 )}
               </div>
+                {showLineAfter && <div className="h-0.5 bg-primary rounded-full mx-1" />}
+              </Fragment>
             );
           }
 
@@ -614,11 +760,11 @@ function SidebarCustomizer({
           const folderItems = folder.hrefs
             .map((href) => allNavItems.find((n) => n.href === href))
             .filter((n): n is NavItem => !!n);
-          // Items available to add: everything not already in this folder
-          const available = allNavItems.filter((n) => !folder.hrefs.includes(n.href));
 
           return (
-            <div key={entryId}>
+            <Fragment key={entryId}>
+              {showLineBefore && <div className="h-0.5 bg-primary rounded-full mx-1" />}
+            <div>
               <div
                 draggable={!isEditing}
                 onDragStart={() => handleDragStart(entryId)}
@@ -627,10 +773,8 @@ function SidebarCustomizer({
                 onDragEnd={handleDragEnd}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background transition-all select-none",
-                  // Folder drop zone: emerald highlight to signal "move into folder"
-                  isFolderDropTarget && "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 scale-[1.01]",
-                  // Regular reorder highlight
-                  isDragOver && !isFolderDropTarget && "border-primary bg-primary/5 scale-[1.01]",
+                  // Folder drop zone: emerald highlight when dragging an item into the folder
+                  isFolderDropInto && "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30",
                   (isExpanded || (isEditing && iconPickerTarget === folder.id)) && "rounded-b-none border-b-0",
                 )}
               >
@@ -734,85 +878,114 @@ function SidebarCustomizer({
 
               {/* Folder contents panel */}
               {isExpanded && (
-                <div className="border border-t-0 rounded-b-md bg-muted/20 px-3 py-2 space-y-1">
+                <div className="border border-t-0 rounded-b-md bg-muted/20 px-3 py-2 space-y-0">
                   {folderItems.map((item) => {
-                    const isHidden       = hidden.includes(item.href);
-                    const isDynamic      = !!(item.isProject || item.isDocument);
-                    const isFolderDragOver = folderDragOverHref === item.href;
+                    const isHidden    = hidden.includes(item.href);
+                    const isDynamic   = !!(item.isProject || item.isDocument || item.isCollection);
+                    const indBefore   = folderDropIndicator?.href === item.href && folderDropIndicator.position === "before";
+                    const indAfter    = folderDropIndicator?.href === item.href && folderDropIndicator.position === "after";
                     return (
-                      <div
-                        key={item.href}
-                        draggable
-                        onDragStart={() => { folderDragRef.current = item.href; }}
-                        onDragOver={(e) => { e.preventDefault(); if (folderDragRef.current !== item.href) setFolderDragOverHref(item.href); }}
-                        onDrop={() => {
-                          const from = folderDragRef.current;
-                          if (from && from !== item.href) reorderInFolder(folder.id, from, item.href);
-                          folderDragRef.current = null;
-                          setFolderDragOverHref(null);
-                        }}
-                        onDragEnd={() => { folderDragRef.current = null; setFolderDragOverHref(null); }}
-                        className={cn(
-                          "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm",
-                          "cursor-grab active:cursor-grabbing",
-                          isHidden && "opacity-40",
-                          isFolderDragOver && "ring-1 ring-primary bg-primary/5",
-                        )}
-                      >
-                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                        <ItemIcon icon={item.icon} className="text-muted-foreground" />
-                        <span className="flex-1 text-muted-foreground">{item.label}</span>
-                        {isDynamic ? (
-                          <button
-                            type="button"
-                            onClick={() => removeFromNav(item)}
-                            className="text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
-                            title="Remove from sidebar"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => toggleHidden(item.href)}
-                            className="text-muted-foreground hover:text-foreground cursor-pointer"
-                            title={isHidden ? "Show in sidebar" : "Hide from sidebar"}
-                          >
-                            {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeFromFolder(folder.id, item.href)}
-                          className="text-muted-foreground hover:text-foreground cursor-pointer"
-                          title="Remove from folder"
+                      <Fragment key={item.href}>
+                        {indBefore && <div className="h-0.5 bg-primary rounded-full mx-1 my-0.5" />}
+                        <div
+                          draggable
+                          onDragStart={() => {
+                            folderDragRef.current = item.href;
+                            dragIdRef.current = item.href; // allow root-level drop handlers to see this drag
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            const activeDrag = folderDragRef.current ?? dragIdRef.current;
+                            if (activeDrag === item.href) return;
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            const position = (e.clientY - rect.top) / rect.height < 0.5 ? "before" : "after";
+                            setFolderDropIndicator({ href: item.href, position });
+                          }}
+                          onDrop={() => {
+                            const fromInFolder = folderDragRef.current;
+                            const fromRoot     = dragIdRef.current;
+                            const pos          = folderDropIndicator?.position ?? "after";
+                            if (fromInFolder && fromInFolder !== item.href) {
+                              // Within-folder reorder
+                              reorderInFolder(folder.id, fromInFolder, item.href, pos);
+                            } else if (fromRoot && fromRoot !== item.href && !folderDragRef.current) {
+                              // Root item dropped into this folder at a specific position
+                              moveToFolderAtPosition(fromRoot, folder.id, item.href, pos);
+                            }
+                            folderDragRef.current = null;
+                            dragIdRef.current = null;
+                            setFolderDropIndicator(null);
+                            setDropIndicator(null);
+                          }}
+                          onDragEnd={() => {
+                            folderDragRef.current = null;
+                            dragIdRef.current = null;
+                            setFolderDropIndicator(null);
+                            setDropIndicator(null);
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm select-none",
+                            "cursor-grab active:cursor-grabbing",
+                            isHidden && "opacity-40",
+                          )}
                         >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                          <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                          <ItemIcon icon={item.icon} className="text-muted-foreground" />
+                          <span className="flex-1 text-muted-foreground">{item.label}</span>
+                          {/* Consistent folder-action select: move to another folder or remove from this one */}
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "__remove__") removeFromFolder(folder.id, item.href);
+                              else if (val) moveToFolder(item.href, val);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[11px] text-muted-foreground bg-transparent border-0 outline-none cursor-pointer hover:text-foreground py-0 pr-4 pl-0 appearance-none"
+                            title="Move or remove from folder"
+                          >
+                            <option value="">📂 Move…</option>
+                            <option value="__remove__">↑ Remove from folder</option>
+                            {folders.filter((f) => f.id !== folder.id).map((f) => (
+                              <option key={f.id} value={f.id}>{f.label}</option>
+                            ))}
+                          </select>
+                          {/* Visibility / remove-from-nav control */}
+                          {isDynamic ? (
+                            <button
+                              type="button"
+                              onClick={() => removeFromNav(item)}
+                              className="text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                              title="Remove from sidebar"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleHidden(item.href)}
+                              className="text-muted-foreground hover:text-foreground cursor-pointer"
+                              title={isHidden ? "Show in sidebar" : "Hide from sidebar"}
+                            >
+                              {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                        {indAfter && <div className="h-0.5 bg-primary rounded-full mx-1 my-0.5" />}
+                      </Fragment>
                     );
                   })}
 
-                  {available.length > 0 && (
-                    <div className="relative mt-1">
-                      <select
-                        className="w-full text-xs text-muted-foreground bg-background border border-border rounded-md px-2 py-1.5 cursor-pointer appearance-none pr-6 outline-none hover:bg-muted/50 transition-colors"
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) moveToFolder(e.target.value, folder.id);
-                        }}
-                      >
-                        <option value="">+ Add item to folder…</option>
-                        {available.map((n) => (
-                          <option key={n.href} value={n.href}>{n.label}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="h-3 w-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
+                  {folderItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground px-2 py-1">
+                      Drag items here from the list above.
+                    </p>
                   )}
                 </div>
               )}
             </div>
+              {showLineAfter && <div className="h-0.5 bg-primary rounded-full mx-1" />}
+            </Fragment>
           );
         })}
       </div>
@@ -969,7 +1142,7 @@ function ThemePicker() {
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold shrink-0">L</div>
             <div>
-              <p className="text-sm font-semibold">Life Dashboard</p>
+              <p className="text-sm font-semibold">Hearth</p>
               <p className="text-xs text-muted-foreground">Your household OS</p>
             </div>
           </div>
@@ -1392,8 +1565,109 @@ function SelectProjectDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Select-collection-for-nav dialog ────────────────────────────────────────
+
+function SelectCollectionDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
+  const [search, setSearch] = useState("");
+
+  const { data: collectionsData, isLoading } = $api.useQuery("get", "/collections");
+  const { mutateAsync: updateCollection } = $api.useMutation("patch", "/collections/{collection_id}");
+
+  const allCollections = collectionsData?.items ?? [];
+
+  const filtered = allCollections.filter((c) =>
+    !search.trim() || c.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  async function selectCollection(col: typeof allCollections[0]) {
+    if (col.show_in_nav) { onClose(); return; }
+
+    await updateCollection({
+      params: { path: { collection_id: col.id } },
+      body: { show_in_nav: true },
+    });
+    qc.invalidateQueries({ queryKey: ["get", "/collections"] });
+
+    const href = `/collections/${col.id}`;
+    setSidebarConfig({
+      ...sidebarConfig,
+      order: sidebarConfig.order.includes(href)
+        ? sidebarConfig.order
+        : [...sidebarConfig.order, href],
+    });
+
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4">
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b">
+          <h2 className="text-base font-semibold flex-1">Add collection to nav</h2>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <input
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search collections…"
+            className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <div className="max-h-64 overflow-y-auto space-y-0.5">
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading…
+              </div>
+            )}
+            {!isLoading && filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                {search ? "No collections match." : "No collections yet."}
+              </p>
+            )}
+            {filtered.map((col) => {
+              const isAlreadyInNav = col.show_in_nav;
+              const ColIcon = col.icon ? resolveFolderIcon(col.icon) : null;
+              return (
+                <button
+                  key={col.id}
+                  type="button"
+                  disabled={isAlreadyInNav}
+                  onClick={() => selectCollection(col)}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-left text-sm transition-colors",
+                    isAlreadyInNav
+                      ? "opacity-40 cursor-default"
+                      : "hover:bg-muted cursor-pointer",
+                  )}
+                >
+                  <span className="text-base w-5 text-center shrink-0 flex items-center justify-center">
+                    {ColIcon ? <ColIcon className="h-4 w-4" /> : (col.icon ?? "📁")}
+                  </span>
+                  <span className="flex-1 truncate font-medium">{col.name}</span>
+                  {isAlreadyInNav && (
+                    <span className="text-[10px] text-muted-foreground font-medium border rounded px-1.5 py-0.5 shrink-0">
+                      In nav
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NavigationSection() {
-  const [navCreateType, setNavCreateType] = useState<"project" | "document" | null>(null);
+  const [navCreateType, setNavCreateType] = useState<"project" | "document" | "collection" | null>(null);
 
   return (
     <div className="space-y-5">
@@ -1402,6 +1676,7 @@ function NavigationSection() {
         <SidebarCustomizer
           onCreateProject={() => setNavCreateType("project")}
           onCreatePage={() => setNavCreateType("document")}
+          onSelectCollection={() => setNavCreateType("collection")}
         />
       </SubSection>
 
@@ -1411,6 +1686,10 @@ function NavigationSection() {
 
       {navCreateType === "document" && (
         <PinDocumentDialog onClose={() => setNavCreateType(null)} />
+      )}
+
+      {navCreateType === "collection" && (
+        <SelectCollectionDialog onClose={() => setNavCreateType(null)} />
       )}
     </div>
   );
@@ -1424,14 +1703,16 @@ type CollectionFormState = {
   domain: "notes" | "documents";
   hasAutoCreate: boolean;
   titleTemplate: string;
+  default_template_id: string | null;
 };
 
 const DEFAULT_COLLECTION_FORM: CollectionFormState = {
   name: "",
-  icon: "",
+  icon: "BookOpen",
   domain: "notes",
   hasAutoCreate: false,
-  titleTemplate: "%B %d, %Y",
+  titleTemplate: "{{day_of_week}}, {{month}} {{day}}, {{year}}",
+  default_template_id: null,
 };
 
 function CollectionDialog({
@@ -1451,6 +1732,10 @@ function CollectionDialog({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+
+  const { data: templatesData } = $api.useQuery("get", "/templates");
+  const templates = (templatesData?.items ?? []).filter((t) => t.domain === form.domain);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1489,17 +1774,33 @@ function CollectionDialog({
 
           {/* Icon */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              Icon <span className="font-normal opacity-60">(emoji, optional)</span>
-            </label>
-            <input
-              type="text"
-              value={form.icon}
-              onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value }))}
-              placeholder="📓"
-              maxLength={4}
-              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
+            <label className="text-xs font-medium text-muted-foreground">Icon</label>
+            <div className={cn("border rounded-lg", iconPickerOpen ? "rounded-b-none" : "")}>
+              <button
+                type="button"
+                title="Choose icon"
+                onClick={() => setIconPickerOpen((o) => !o)}
+                className={cn(
+                  "w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm transition-colors",
+                  iconPickerOpen
+                    ? "border-primary bg-primary/10 text-primary rounded-b-none"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {(() => {
+                  const IconComp = resolveFolderIcon(form.icon || "BookOpen") ?? resolveFolderIcon("BookOpen")!;
+                  return <IconComp className="h-4 w-4 shrink-0" />;
+                })()}
+                <span className="text-xs">{form.icon || "BookOpen"}</span>
+              </button>
+              {iconPickerOpen && (
+                <InlineIconPicker
+                  currentIcon={form.icon || "BookOpen"}
+                  onSelect={(name) => { setForm((f) => ({ ...f, icon: name })); setIconPickerOpen(false); }}
+                  onClose={() => setIconPickerOpen(false)}
+                />
+              )}
+            </div>
           </div>
 
           {/* Domain */}
@@ -1568,6 +1869,28 @@ function CollectionDialog({
             )}
           </div>
 
+          {/* Default template */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Default template <span className="font-normal opacity-60">(optional)</span>
+            </label>
+            <select
+              value={form.default_template_id ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, default_template_id: e.target.value || null }))}
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">No template</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            {templates.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                No {form.domain} templates yet — create one in Settings → Templates.
+              </p>
+            )}
+          </div>
+
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
@@ -1594,6 +1917,7 @@ function CollectionDialog({
 
 function PagesSection() {
   const qc = useQueryClient();
+  const { sidebarConfig, setSidebarConfig } = useSidebarConfig();
   const [dialog, setDialog] = useState<
     | { mode: "create" }
     | { mode: "edit"; id: string; initial: CollectionFormState }
@@ -1607,8 +1931,22 @@ function PagesSection() {
 
   const collections = data?.items ?? [];
 
+  /** Assign a default template to a collection via raw fetch (the typed client
+   *  doesn't expose the POST /collections/{id}/templates body correctly). */
+  async function applyTemplate(collectionId: string, templateId: string) {
+    const token = getAccessToken();
+    await fetch(`${apiBaseUrl}/collections/${collectionId}/templates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ template_id: templateId, is_default: true }),
+    });
+  }
+
   async function handleCreate(form: CollectionFormState) {
-    await createCollection.mutateAsync({
+    const newCol = await createCollection.mutateAsync({
       body: {
         name: form.name,
         icon: form.icon || null,
@@ -1617,9 +1955,21 @@ function PagesSection() {
           ? { frequency: "daily", title_template: form.titleTemplate }
           : null,
         default_tags: [],
+        show_in_nav: true,
         sort_order: collections.length,
       },
     });
+    // Auto-add to sidebar order so it appears in nav immediately
+    const href = `/collections/${newCol.id}`;
+    setSidebarConfig({
+      ...sidebarConfig,
+      order: sidebarConfig.order.includes(href)
+        ? sidebarConfig.order
+        : [...sidebarConfig.order, href],
+    });
+    if (form.default_template_id) {
+      await applyTemplate(newCol.id, form.default_template_id);
+    }
     qc.invalidateQueries({ queryKey: ["get", "/collections"] });
   }
 
@@ -1634,6 +1984,9 @@ function PagesSection() {
           : null,
       },
     });
+    if (form.default_template_id) {
+      await applyTemplate(id, form.default_template_id);
+    }
     qc.invalidateQueries({ queryKey: ["get", "/collections"] });
   }
 
@@ -1666,13 +2019,16 @@ function PagesSection() {
             )}
             {collections.map((col) => {
               const DomainIcon = col.domain === "notes" ? BookOpen : FileText;
+              const ColIconComp = col.icon ? resolveFolderIcon(col.icon) : null;
               return (
                 <div
                   key={col.id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-card"
                 >
-                  <span className="text-xl leading-none w-7 text-center shrink-0">
-                    {col.icon ?? (col.domain === "notes" ? "📓" : "📄")}
+                  <span className="text-xl leading-none w-7 text-center shrink-0 flex items-center justify-center">
+                    {ColIconComp
+                      ? <ColIconComp className="h-5 w-5" />
+                      : (col.icon ?? (col.domain === "notes" ? "📓" : "📄"))}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{col.name}</p>
@@ -1703,6 +2059,7 @@ function PagesSection() {
                           domain: col.domain,
                           hasAutoCreate: !!col.auto_create_rule,
                           titleTemplate: col.auto_create_rule?.title_template ?? "%B %d, %Y",
+                          default_template_id: null,
                         },
                       })
                     }
@@ -1981,6 +2338,7 @@ function ProjectsSection() {
         due_date: form.due_date || null,
         parent_id: form.parent_id || null,
         show_in_nav: form.show_in_nav,
+        sort_order: 0,
       },
     });
     invalidate();
@@ -2178,15 +2536,270 @@ function ProjectsSection() {
   );
 }
 
+// ── Common IANA timezone list ─────────────────────────────────────────────────
+// We keep a concise subset covering all major regions; the user can type to filter.
+const COMMON_TIMEZONES = [
+  "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi",
+  "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Bogota",
+  "America/Chicago", "America/Denver", "America/Halifax", "America/Los_Angeles",
+  "America/Mexico_City", "America/New_York", "America/Phoenix", "America/Sao_Paulo",
+  "America/Toronto", "America/Vancouver",
+  "Asia/Dhaka", "Asia/Dubai", "Asia/Ho_Chi_Minh", "Asia/Hong_Kong",
+  "Asia/Jakarta", "Asia/Karachi", "Asia/Kolkata", "Asia/Seoul",
+  "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tehran",
+  "Asia/Tokyo", "Asia/Yangon",
+  "Atlantic/Reykjavik",
+  "Australia/Melbourne", "Australia/Perth", "Australia/Sydney",
+  "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin", "Europe/Brussels",
+  "Europe/Bucharest", "Europe/Dublin", "Europe/Helsinki", "Europe/Istanbul",
+  "Europe/Kiev", "Europe/Lisbon", "Europe/London", "Europe/Madrid",
+  "Europe/Moscow", "Europe/Oslo", "Europe/Paris", "Europe/Prague",
+  "Europe/Rome", "Europe/Stockholm", "Europe/Vienna", "Europe/Warsaw",
+  "Europe/Zurich",
+  "Pacific/Auckland", "Pacific/Fiji", "Pacific/Honolulu",
+  "UTC",
+];
+
+const DATE_FORMAT_OPTIONS = [
+  { value: "MM/DD/YY",    label: "MM/DD/YY  (e.g. 05/14/26)" },
+  { value: "DD/MM/YYYY",  label: "DD/MM/YYYY  (e.g. 14/05/2026)" },
+  { value: "YYYY-MM-DD",  label: "YYYY-MM-DD  (e.g. 2026-05-14)" },
+] as const;
+
+const WEEK_START_OPTIONS = [
+  { value: "sunday",  label: "Sunday" },
+  { value: "monday",  label: "Monday" },
+] as const;
+
+// ── Change password modal ─────────────────────────────────────────────────────
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [current,  setCurrent]  = useState("");
+  const [next,     setNext]     = useState("");
+  const [confirm,  setConfirm]  = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNext,    setShowNext]    = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+  const [done,     setDone]     = useState(false);
+
+  // Client-side validation
+  const mismatch = next.length > 0 && confirm.length > 0 && next !== confirm;
+  const tooShort = next.length > 0 && next.length < 8;
+  const canSubmit = current.length > 0 && next.length >= 8 && next === confirm && !saving;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${apiBaseUrl}/auth/me/password`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ current_password: current, new_password: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail ?? "Failed to change password");
+      }
+      setDone(true);
+      setTimeout(onClose, 1200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to change password");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function PasswordField({
+    id, label, value, onChange, show, onToggle, autoFocus,
+  }: {
+    id: string; label: string; value: string;
+    onChange: (v: string) => void;
+    show: boolean; onToggle: () => void;
+    autoFocus?: boolean;
+  }) {
+    return (
+      <div className="space-y-1.5">
+        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">{label}</label>
+        <div className="relative">
+          <input
+            id={id}
+            type={show ? "text" : "password"}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            autoFocus={autoFocus}
+            autoComplete={id === "cp-current" ? "current-password" : "new-password"}
+            className="w-full h-9 pl-3 pr-9 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            type="button"
+            onClick={onToggle}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            tabIndex={-1}
+            aria-label={show ? "Hide password" : "Show password"}
+          >
+            {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background border rounded-lg shadow-xl w-full max-w-sm mx-4">
+        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b">
+          <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
+          <h2 className="text-base font-semibold flex-1">Change password</h2>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {done ? (
+          <div className="px-5 py-8 flex flex-col items-center gap-2 text-center">
+            <Check className="h-8 w-8 text-primary" />
+            <p className="text-sm font-medium">Password updated</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <PasswordField
+              id="cp-current"
+              label="Current password"
+              value={current}
+              onChange={(v) => { setCurrent(v); setError(null); }}
+              show={showCurrent}
+              onToggle={() => setShowCurrent((s) => !s)}
+              autoFocus
+            />
+
+            <div className="border-t pt-4 space-y-4">
+              <PasswordField
+                id="cp-new"
+                label="New password"
+                value={next}
+                onChange={(v) => { setNext(v); setError(null); }}
+                show={showNext}
+                onToggle={() => setShowNext((s) => !s)}
+              />
+              {tooShort && (
+                <p className="text-xs text-destructive -mt-2">Must be at least 8 characters.</p>
+              )}
+
+              <PasswordField
+                id="cp-confirm"
+                label="Confirm new password"
+                value={confirm}
+                onChange={(v) => { setConfirm(v); setError(null); }}
+                show={showConfirm}
+                onToggle={() => setShowConfirm((s) => !s)}
+              />
+              {mismatch && (
+                <p className="text-xs text-destructive -mt-2">Passwords don't match.</p>
+              )}
+            </div>
+
+            {error && (
+              <p className="text-xs text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {error}
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="flex-1 h-9 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center justify-center gap-1.5 transition-opacity"
+              >
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Update password
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 px-4 text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AccountSection() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // ── Locale state ─────────────────────────────────────────────────────────────
+  const [timezone,   setTimezone]   = useState(user?.timezone   ?? "");
+  const [dateFormat, setDateFormat] = useState(user?.date_format ?? "MM/DD/YY");
+  const [weekStart,  setWeekStart]  = useState(user?.week_start  ?? "sunday");
+  const [tzSearch,   setTzSearch]   = useState("");
+  const [tzOpen,     setTzOpen]     = useState(false);
+  const [localeSaving,  setLocaleSaving]  = useState(false);
+  const [localeSaved,   setLocaleSaved]   = useState(false);
+  const [localeError,   setLocaleError]   = useState<string | null>(null);
+
+  const filteredTz = tzSearch.trim()
+    ? COMMON_TIMEZONES.filter((tz) =>
+        tz.toLowerCase().includes(tzSearch.trim().toLowerCase())
+      )
+    : COMMON_TIMEZONES;
+
+  async function saveLocale() {
+    setLocaleSaving(true);
+    setLocaleError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${apiBaseUrl}/auth/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ timezone, date_format: dateFormat, week_start: weekStart }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail ?? "Failed to save");
+      }
+      // Invalidate /auth/me so the auth context picks up the fresh user object
+      await qc.invalidateQueries({ queryKey: ["get", "/auth/me"] });
+      setLocaleSaved(true);
+      setTimeout(() => setLocaleSaved(false), 2000);
+    } catch (e) {
+      setLocaleError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setLocaleSaving(false);
+    }
+  }
+
+  const localeChanged =
+    timezone   !== (user?.timezone   ?? "") ||
+    dateFormat !== (user?.date_format ?? "MM/DD/YY") ||
+    weekStart  !== (user?.week_start  ?? "sunday");
+
   return (
     <div className="space-y-5">
       <SectionTitle>Account</SectionTitle>
+
+      {/* ── Profile ─────────────────────────────────────────────────────────── */}
       <SubSection title="Profile">
         <div className="flex items-center gap-5 mb-5">
-          {/* Avatar placeholder — upload will be wired up once the API supports it */}
           <div className="h-16 w-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xl font-semibold shrink-0">
-            ?
+            {(user?.display_name ?? user?.email ?? "?")[0].toUpperCase()}
           </div>
           <div>
             <p className="text-sm font-medium mb-1">Profile photo</p>
@@ -2195,22 +2808,437 @@ function AccountSection() {
             </p>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Display name, email, and password changes — coming soon.
-        </p>
+        <div className="flex items-center justify-between pt-1">
+          <div>
+            <p className="text-sm font-medium">Password</p>
+            <p className="text-xs text-muted-foreground">Change your account password.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setChangingPassword(true)}
+            className="h-8 px-3 text-sm font-medium rounded-md border hover:bg-muted transition-colors cursor-pointer shrink-0"
+          >
+            Change password
+          </button>
+        </div>
       </SubSection>
+
+      {changingPassword && (
+        <ChangePasswordModal onClose={() => setChangingPassword(false)} />
+      )}
+
+      {/* ── Locale ──────────────────────────────────────────────────────────── */}
+      <SubSection title="Locale & date preferences">
+        <div className="space-y-4">
+
+          {/* Timezone */}
+          <div>
+            <Label>Timezone</Label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTzOpen((v) => !v)}
+                className="w-full h-9 px-3 rounded-md border bg-background text-sm text-left flex items-center justify-between hover:bg-muted/40 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <span className={timezone ? "text-foreground" : "text-muted-foreground"}>
+                  {timezone || "Select timezone…"}
+                </span>
+                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", tzOpen && "rotate-180")} />
+              </button>
+              {tzOpen && (
+                <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
+                  <div className="p-2 border-b">
+                    <input
+                      type="text"
+                      value={tzSearch}
+                      onChange={(e) => setTzSearch(e.target.value)}
+                      placeholder="Search timezones…"
+                      autoFocus
+                      className="w-full h-7 px-2 text-xs rounded border bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {filteredTz.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-muted-foreground text-center">No matching timezone</p>
+                    ) : (
+                      filteredTz.map((tz) => (
+                        <button
+                          key={tz}
+                          type="button"
+                          onClick={() => { setTimezone(tz); setTzOpen(false); setTzSearch(""); }}
+                          className={cn(
+                            "w-full text-left px-3 py-1.5 text-sm hover:bg-muted/60 transition-colors",
+                            tz === timezone && "bg-primary/10 text-primary font-medium",
+                          )}
+                        >
+                          {tz}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Date format */}
+          <div>
+            <Label>Date format</Label>
+            <div className="flex gap-2 flex-wrap">
+              {DATE_FORMAT_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDateFormat(value)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md border text-sm transition-colors",
+                    dateFormat === value
+                      ? "bg-primary/10 border-primary/40 text-primary font-medium"
+                      : "bg-background hover:bg-muted/50 text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Week start */}
+          <div>
+            <Label>Week starts on</Label>
+            <div className="flex gap-2">
+              {WEEK_START_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setWeekStart(value)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md border text-sm transition-colors",
+                    weekStart === value
+                      ? "bg-primary/10 border-primary/40 text-primary font-medium"
+                      : "bg-background hover:bg-muted/50 text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Save row */}
+          {localeError && (
+            <p className="text-xs text-destructive flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              {localeError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={saveLocale}
+            disabled={localeSaving || !localeChanged}
+            className="h-9 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default transition-opacity flex items-center gap-1.5"
+          >
+            {localeSaving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : localeSaved ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : null}
+            {localeSaved ? "Saved" : "Save preferences"}
+          </button>
+        </div>
+      </SubSection>
+
+      {/* Sign out */}
+      <SignOutSection />
     </div>
   );
 }
 
+function SignOutSection() {
+  const { logout } = useAuth();
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleLogout() {
+    await logout();
+  }
+
+  return (
+    <SubSection title="Session">
+      <div className="px-4 pb-4">
+        {!confirming ? (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-destructive hover:text-destructive transition-colors cursor-pointer"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">Sign out of this account?</span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    </SubSection>
+  );
+}
+
+// ── Role display helpers ──────────────────────────────────────────────────────
+// ROLE_LABEL imported from @/lib/roles — see that file for the full mapping.
+
+const ROLE_OPTIONS = [
+  { value: "admin",  label: "Admin"   },
+  { value: "member", label: "Parent"  },
+  { value: "viewer", label: "Child"   },
+] as const;
+
+const ROLE_BADGE: Record<string, string> = {
+  owner:  "badge-primary",
+  admin:  "badge-warning",
+  member: "badge-neutral",
+  viewer: "badge-neutral badge-faded",
+  agent:  "badge-neutral badge-faded",
+};
+
 function HouseholdSection() {
+  const qc = useQueryClient();
+
+  // ── Household name ───────────────────────────────────────────────────────────
+  const { user } = useAuth();
+  const [householdName, setHouseholdName] = useState(user?.household_name ?? "");
+  const [nameSaving, setNameSaving]       = useState(false);
+  const [nameError, setNameError]         = useState<string | null>(null);
+  const [nameSaved, setNameSaved]         = useState(false);
+
+  async function saveHouseholdName() {
+    const trimmed = householdName.trim();
+    if (!trimmed || trimmed === user?.household_name) return;
+    setNameSaving(true);
+    setNameError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${apiBaseUrl}/households/name`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail ?? "Failed to save");
+      }
+      // Refresh member list (household name is on the user object too)
+      await qc.invalidateQueries({ queryKey: ["get", "/households/members"] });
+      setNameSaved(true);
+      setTimeout(() => setNameSaved(false), 2000);
+    } catch (e) {
+      setNameError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setNameSaving(false);
+    }
+  }
+
+  // ── Members list ─────────────────────────────────────────────────────────────
+  const { data: members, isLoading: membersLoading } = $api.useQuery(
+    "get",
+    "/households/members",
+  );
+
+  // ── Add member form ──────────────────────────────────────────────────────────
+  const [addingMember, setAddingMember] = useState(false);
+  const [newEmail, setNewEmail]         = useState("");
+  const [newRole, setNewRole]           = useState("member");
+  const [addSaving, setAddSaving]       = useState(false);
+  const [addError, setAddError]         = useState<string | null>(null);
+
+  async function submitAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    const email = newEmail.trim();
+    if (!email) return;
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${apiBaseUrl}/households/members`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ email, role: newRole }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail ?? "Failed to add member");
+      }
+      await qc.invalidateQueries({ queryKey: ["get", "/households/members"] });
+      setNewEmail("");
+      setNewRole("member");
+      setAddingMember(false);
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : "Failed to add member");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <SectionTitle>Household</SectionTitle>
+
+      {/* ── Name ── */}
+      <SubSection title="Household name">
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={householdName}
+            onChange={(e) => { setHouseholdName(e.target.value); setNameError(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") saveHouseholdName(); }}
+            placeholder="e.g. The Smith Household"
+            className="flex-1 h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            type="button"
+            disabled={nameSaving || !householdName.trim() || householdName.trim() === user?.household_name}
+            onClick={saveHouseholdName}
+            className="h-9 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default transition-opacity flex items-center gap-1.5"
+          >
+            {nameSaving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : nameSaved ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : null}
+            {nameSaved ? "Saved" : "Save"}
+          </button>
+        </div>
+        {nameError && (
+          <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            {nameError}
+          </p>
+        )}
+      </SubSection>
+
+      {/* ── Members ── */}
       <SubSection title="Members">
-        <p className="text-sm text-muted-foreground">
-          Household member management — invite, roles, and per-member views — coming soon.
-        </p>
+        {membersLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(members ?? []).map((m) => (
+              <div
+                key={m.user_id}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background"
+              >
+                {/* Avatar */}
+                <div className="h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center shrink-0">
+                  {(m.display_name ?? m.email)
+                    .trim()
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((w) => w[0]?.toUpperCase() ?? "")
+                    .join("")}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{m.display_name ?? m.email}</p>
+                  {m.display_name && (
+                    <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                  )}
+                </div>
+                <span className={cn("badge", ROLE_BADGE[m.role] ?? "badge-neutral")}>
+                  {ROLE_LABEL[m.role] ?? m.role}
+                </span>
+              </div>
+            ))}
+
+            {/* Add member button / form */}
+            {!addingMember ? (
+              <button
+                type="button"
+                onClick={() => setAddingMember(true)}
+                className="flex items-center gap-2 w-full px-3 py-2 rounded-md border border-dashed text-sm text-muted-foreground hover:text-foreground hover:border-border transition-colors cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                Add household member
+              </button>
+            ) : (
+              <form
+                onSubmit={submitAddMember}
+                className="border rounded-md p-4 space-y-3 bg-muted/30"
+              >
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  New member
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => { setNewEmail(e.target.value); setAddError(null); }}
+                    placeholder="Email address"
+                    className="flex-1 h-9 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    required
+                  />
+                  <select
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value)}
+                    className="h-9 px-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 cursor-pointer"
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Account will be created with the default password <code className="font-mono bg-muted px-1 rounded">password</code>. Change it after first login.
+                </p>
+                {addError && (
+                  <p className="text-xs text-destructive flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    {addError}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={addSaving || !newEmail.trim()}
+                    className="h-8 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5"
+                  >
+                    {addSaving && <Loader2 className="h-3 w-3 animate-spin" />}
+                    Add member
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingMember(false); setNewEmail(""); setNewRole("member"); setAddError(null); }}
+                    className="h-8 px-3 text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </SubSection>
     </div>
   );
@@ -2241,7 +3269,7 @@ const RETENTION_OPTIONS: { value: number | null; label: string }[] = [
 
 async function fetchAiSettings(): Promise<AiSettings> {
   const token = getAccessToken();
-  const res = await fetch("/api/ai/settings", {
+  const res = await fetch(`${apiBaseUrl}/ai/settings`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error("Failed to load AI settings");
@@ -2250,7 +3278,7 @@ async function fetchAiSettings(): Promise<AiSettings> {
 
 async function patchAiSettings(patch: Record<string, unknown>): Promise<AiSettings> {
   const token = getAccessToken();
-  const res = await fetch("/api/ai/settings", {
+  const res = await fetch(`${apiBaseUrl}/ai/settings`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -2525,27 +3553,366 @@ function AiSection() {
   );
 }
 
+// ── Templates section ─────────────────────────────────────────────────────────
+
+function TemplatesSection() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  const { data: templatesData, isLoading } = $api.useQuery("get", "/templates", {
+    params: { query: { limit: 200 } },
+  });
+  const templates = templatesData?.items ?? [];
+
+  // ── Create / edit form state ─────────────────────────────────────────────
+  const [editing, setEditing]   = useState<string | null>(null); // null = new
+  const [formOpen, setFormOpen] = useState(false);
+  const [formName,        setFormName]        = useState("");
+  const [formDomain,      setFormDomain]      = useState<"notes" | "documents">("notes");
+  const [formScope,       setFormScope]       = useState<"household" | "user">("household");
+  const [formDescription, setFormDescription] = useState("");
+  const [formTitleTpl,    setFormTitleTpl]    = useState("");
+  const [formContentMd,   setFormContentMd]   = useState("");
+  const [formSaving,      setFormSaving]      = useState(false);
+  const [formError,       setFormError]       = useState<string | null>(null);
+
+  function openNew() {
+    setEditing(null);
+    setFormName(""); setFormDomain("notes"); setFormScope("household");
+    setFormDescription(""); setFormTitleTpl(""); setFormContentMd("");
+    setFormError(null);
+    setFormOpen(true);
+  }
+
+  function openEdit(t: (typeof templates)[number]) {
+    setEditing(t.id);
+    setFormName(t.name);
+    setFormDomain(t.domain);
+    setFormScope(t.scope);
+    setFormDescription(t.description ?? "");
+    setFormTitleTpl(t.title_template ?? "");
+    setFormContentMd(t.content_md ?? "");
+    setFormError(null);
+    setFormOpen(true);
+  }
+
+  async function submitForm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formName.trim()) return;
+    setFormSaving(true);
+    setFormError(null);
+    try {
+      const token = getAccessToken();
+      const body = {
+        name: formName.trim(),
+        domain: formDomain,
+        scope: formScope,
+        description: formDescription.trim() || null,
+        title_template: formTitleTpl.trim() || null,
+        content_md: formContentMd.trim() || null,
+      };
+      const url = editing
+        ? `${apiBaseUrl}/templates/${editing}`
+        : `${apiBaseUrl}/templates`;
+      const res = await fetch(url, {
+        method: editing ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error((b as { detail?: string }).detail ?? "Failed to save");
+      }
+      await qc.invalidateQueries({ queryKey: ["get", "/templates"] });
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setFormSaving(false);
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    const token = getAccessToken();
+    await fetch(`${apiBaseUrl}/templates/${id}`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    await qc.invalidateQueries({ queryKey: ["get", "/templates"] });
+  }
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle>Templates</SectionTitle>
+
+      <SubSection title="Reusable templates">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Templates let you pre-fill new notes with content and a title pattern.
+            Assign a template to a collection to have it applied automatically.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Title template variables: <code className="font-mono bg-muted px-1 rounded">{"{{day_of_week}}"}</code>,{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{month}}"}</code>,{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{day}}"}</code>,{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{year}}"}</code>,{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{date}}"}</code>,{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{user_name}}"}</code>
+          </p>
+
+          {/* Template list */}
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+            </div>
+          ) : templates.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No templates yet.</p>
+          ) : (
+            <div className="divide-y rounded-md border overflow-hidden">
+              {templates.map((t) => (
+                <div key={t.id} className="flex items-start gap-3 px-4 py-3 bg-card">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{t.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono uppercase tracking-wide">
+                        {t.domain}
+                      </span>
+                      {t.scope === "user" && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground flex items-center gap-0.5">
+                          <Lock className="h-2.5 w-2.5" /> Private
+                        </span>
+                      )}
+                    </div>
+                    {t.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                    )}
+                    {t.title_template && (
+                      <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">
+                        Title: {t.title_template}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(t)}
+                      className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {confirmDeleteId === t.id ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">Delete?</span>
+                        <button
+                          type="button"
+                          onClick={() => { deleteTemplate(t.id); setConfirmDeleteId(null); }}
+                          className="text-[10px] px-2 py-1 rounded bg-destructive text-destructive-foreground"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-[10px] px-2 py-1 rounded bg-muted text-muted-foreground"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(t.id)}
+                        className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={openNew}
+            className="flex items-center gap-1.5 h-9 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New template
+          </button>
+
+          {/* Create/edit form */}
+          {formOpen && (
+            <form onSubmit={submitForm} className="border rounded-lg bg-muted/20 p-4 space-y-3 mt-2">
+              <p className="text-sm font-semibold">{editing ? "Edit template" : "New template"}</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Name *</label>
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="e.g. Daily Journal"
+                    autoFocus
+                    className="w-full h-8 px-3 rounded border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Domain</label>
+                  <div className="flex gap-2">
+                    {(["notes", "documents"] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setFormDomain(d)}
+                        className={cn(
+                          "flex-1 h-8 text-xs rounded border transition-colors",
+                          formDomain === d
+                            ? "bg-primary/10 border-primary/40 text-primary font-medium"
+                            : "bg-background hover:bg-muted/50",
+                        )}
+                      >
+                        {d === "notes" ? "📓 Notes" : "📄 Docs"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Description</label>
+                <input
+                  type="text"
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  placeholder="Optional description"
+                  className="w-full h-8 px-3 rounded border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Title template{" "}
+                  <span className="font-normal opacity-70">
+                    (used for auto-created entries, e.g. <code className="font-mono">{"{{day_of_week}}, {{month}} {{day}}, {{year}}"}</code>)
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={formTitleTpl}
+                  onChange={(e) => setFormTitleTpl(e.target.value)}
+                  placeholder={`{{day_of_week}}, {{month}} {{day}}, {{year}}`}
+                  className="w-full h-8 px-3 rounded border bg-background text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
+
+              {formDomain === "notes" && (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Default content (Markdown)</label>
+                  <textarea
+                    value={formContentMd}
+                    onChange={(e) => setFormContentMd(e.target.value)}
+                    placeholder="## {{day_of_week}} check-in&#10;&#10;**Mood:** &#10;**Focus today:** "
+                    rows={5}
+                    className="w-full px-3 py-2 rounded border bg-background text-sm font-mono resize-y focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Visibility</label>
+                <div className="flex gap-2">
+                  {([
+                    { value: "household", label: "🏠 Household (shared)" },
+                    { value: "user",      label: "🔒 Private to me" },
+                  ] as const).map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setFormScope(value)}
+                      className={cn(
+                        "flex-1 h-8 text-xs rounded border transition-colors",
+                        formScope === value
+                          ? "bg-primary/10 border-primary/40 text-primary font-medium"
+                          : "bg-background hover:bg-muted/50",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {formError && (
+                <p className="text-xs text-destructive flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {formError}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={formSaving || !formName.trim()}
+                  className="h-8 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  {formSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {editing ? "Save changes" : "Create template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormOpen(false)}
+                  className="h-8 px-4 text-sm rounded-md border hover:bg-muted/50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </SubSection>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const [active, setActive] = useState<Section>("appearance");
+  const { user } = useAuth();
+  const isAdmin = ADMIN_ROLES.has(user?.role ?? "");
+
+  // Non-admins skip the Household tab entirely; start them on Account instead.
+  const [active, setActive] = useState<Section>(isAdmin ? "household" : "account");
+
+  const ADMIN_ONLY_SECTIONS = new Set<Section>(["household", "visibility"]);
+  const visibleSections = new Set<Section>(
+    SECTIONS.map((s) => s.id).filter((id) => !ADMIN_ONLY_SECTIONS.has(id) || isAdmin),
+  );
 
   return (
     <div className="flex h-full">
       {/* Settings left-nav */}
       <div className="w-52 shrink-0 border-r bg-card p-4">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-3">
-          Settings
-        </p>
-        <SettingsNav active={active} onChange={setActive} />
+        <SettingsNav active={active} onChange={setActive} visibleSections={visibleSections} isAdmin={isAdmin} />
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-y-auto p-8 max-w-2xl">
+      <div className="flex-1 overflow-y-auto p-8">
         {active === "appearance"  && <AppearanceSection />}
         {active === "navigation"  && <NavigationSection />}
         {active === "account"     && <AccountSection />}
-        {active === "household"   && <HouseholdSection />}
+        {active === "household"   && isAdmin && <HouseholdSection />}
+        {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}
+        {active === "templates"   && <TemplatesSection />}
+        {active === "collections" && <PagesSection />}
         {active === "ai"          && <AiSection />}
       </div>
     </div>

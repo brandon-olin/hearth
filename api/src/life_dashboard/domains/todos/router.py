@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.todos.models import Todo
 from life_dashboard.domains.todos.schemas import (
     TodoCreate,
     TodoListResponse,
@@ -28,7 +34,7 @@ async def list_todos(
     current_user: User = Depends(get_current_user),
 ) -> TodoListResponse:
     return await service.list_todos(
-        db, current_user.household_id,
+        db, current_user.household_id, current_user.id,
         status=status, project_id=project_id,
         limit=limit, offset=offset,
     )
@@ -52,6 +58,12 @@ async def create_todo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TodoResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "todos", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create to-dos.",
+        )
     return await service.create_todo(db, current_user.household_id, current_user.id, data)
 
 
@@ -62,7 +74,17 @@ async def update_todo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TodoResponse:
-    todo = await service.update_todo(db, todo_id, current_user.household_id, data)
+    creator_id = await get_item_creator(db, Todo, todo_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Todo not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "todos", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' to-dos.",
+            )
+    todo = await service.update_todo(db, todo_id, current_user.household_id, data, actor_id=current_user.id)
     if todo is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Todo not found")
     return todo
@@ -74,6 +96,16 @@ async def delete_todo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
+    creator_id = await get_item_creator(db, Todo, todo_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Todo not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "todos", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete others' to-dos.",
+            )
     deleted = await service.delete_todo(db, todo_id, current_user.household_id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Todo not found")

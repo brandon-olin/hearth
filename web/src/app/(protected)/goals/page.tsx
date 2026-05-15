@@ -5,6 +5,7 @@ import { $api } from "@/lib/api/query";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { GoalSheet } from "@/components/goals/goal-sheet";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import {
   Plus,
@@ -169,6 +170,7 @@ function GoalRow({
 export default function GoalsPage() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("active");
+  const { can } = usePermissions();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
@@ -227,17 +229,19 @@ export default function GoalsPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="page-content">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Target className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Goals</h1>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-1" />
-          New
-        </Button>
+        {can("goals", "create") && (
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-1" />
+            New
+          </Button>
+        )}
       </div>
 
       {/* Filter tabs */}
@@ -291,7 +295,7 @@ export default function GoalsPage() {
               ? "No completed goals."
               : "No goals yet."}
           </p>
-          {filter !== "completed" && (
+          {filter !== "completed" && can("goals", "create") && (
             <Button
               variant="outline"
               size="sm"

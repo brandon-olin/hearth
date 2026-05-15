@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
+from life_dashboard.core.permissions import (
+    check_permission,
+    get_item_creator,
+    load_household_permissions,
+)
+from life_dashboard.domains.recipes.models import Recipe
 from life_dashboard.domains.recipes.schemas import (
     RecipeCreate,
     RecipeListResponse,
@@ -21,13 +27,15 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 @router.get("", response_model=RecipeListResponse)
 async def list_recipes(
     search: str | None = Query(default=None, max_length=100),
+    tag_ids: list[uuid.UUID] = Query(default=[]),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecipeListResponse:
     return await service.list_recipes(
-        db, current_user.household_id, search=search, limit=limit, offset=offset
+        db, current_user.household_id, current_user.id,
+        search=search, tag_ids=tag_ids, limit=limit, offset=offset,
     )
 
 
@@ -69,7 +77,7 @@ async def get_recipe(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecipeResponse:
-    recipe = await service.get_recipe(db, recipe_id, current_user.household_id)
+    recipe = await service.get_recipe(db, recipe_id, current_user.household_id, user_id=current_user.id)
     if recipe is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")
     return recipe
@@ -81,6 +89,12 @@ async def create_recipe(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecipeResponse:
+    perms = await load_household_permissions(db, current_user.household_id)
+    if not check_permission(perms, "recipes", "create", current_user.role):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to create recipes.",
+        )
     return await service.create_recipe(db, current_user.household_id, current_user.id, data)
 
 
@@ -91,6 +105,16 @@ async def update_recipe(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecipeResponse:
+    creator_id = await get_item_creator(db, Recipe, recipe_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "recipes", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit others' recipes.",
+            )
     recipe = await service.update_recipe(db, recipe_id, current_user.household_id, data)
     if recipe is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")
@@ -103,6 +127,16 @@ async def delete_recipe(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
+    creator_id = await get_item_creator(db, Recipe, recipe_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "recipes", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete others' recipes.",
+            )
     deleted = await service.delete_recipe(db, recipe_id, current_user.household_id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")

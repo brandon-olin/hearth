@@ -1,8 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -12,18 +11,18 @@ from life_dashboard.core.database import Base
 class CalendarEvent(Base):
     __tablename__ = "calendar_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
     todo_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("todos.id", ondelete="SET NULL"), nullable=True
+        Uuid(), ForeignKey("todos.id", ondelete="SET NULL"), nullable=True
     )
     goal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("goals.id", ondelete="SET NULL"), nullable=True
+        Uuid(), ForeignKey("goals.id", ondelete="SET NULL"), nullable=True
     )
     ical_uid: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(500))

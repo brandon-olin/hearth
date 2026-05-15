@@ -8,6 +8,7 @@ extra packages required.
 
 from __future__ import annotations
 
+import html as html_lib
 import json
 import re
 from decimal import Decimal, InvalidOperation
@@ -150,7 +151,7 @@ def _parse_quantity(raw: str | None) -> Decimal | None:
 
 
 def _parse_ingredient(raw_str: str, sort_order: int) -> IngredientData:
-    text = raw_str.strip()
+    text = _strip_html(raw_str)
     # Replace unicode fractions before matching
     normalized = text
     for uni, frac in _UNICODE_FRACTIONS.items():
@@ -184,10 +185,10 @@ def _parse_ingredients(raw: list) -> list[IngredientData]:
 
 def _instruction_text(item) -> str | None:
     if isinstance(item, str):
-        return item.strip() or None
+        return _strip_html(item) or None
     if isinstance(item, dict):
         text = item.get("text") or item.get("name") or ""
-        return str(text).strip() or None
+        return _strip_html(str(text)) or None
     return None
 
 
@@ -218,23 +219,10 @@ def _parse_steps(raw) -> list[StepData]:
 
 # ── HTML entity helpers ───────────────────────────────────────────────────────
 
-_HTML_ENTITIES = re.compile(r"&#(\d+);|&([a-zA-Z]+);")
-_SIMPLE_ENTITIES = {
-    "amp": "&", "lt": "<", "gt": ">", "quot": '"',
-    "apos": "'", "nbsp": " ", "ndash": "–", "mdash": "—",
-}
-
-
 def _strip_html(text: str) -> str:
-    """Remove inline HTML tags and decode common entities."""
+    """Remove inline HTML tags and decode HTML entities."""
     text = re.sub(r"<[^>]+>", "", text)
-
-    def replace_entity(m: re.Match) -> str:
-        if m.group(1):
-            return chr(int(m.group(1)))
-        return _SIMPLE_ENTITIES.get(m.group(2), m.group(0))
-
-    return _HTML_ENTITIES.sub(replace_entity, text).strip()
+    return html_lib.unescape(text).strip()
 
 
 # ── Image extraction ─────────────────────────────────────────────────────────

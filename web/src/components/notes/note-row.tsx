@@ -35,7 +35,9 @@ export function NoteRow({ note, selected, onSelect }: NoteRowProps) {
       )}
     >
       <div className="flex items-baseline justify-between gap-2 mb-0.5">
-        <span className="text-sm font-medium truncate flex-1">{note.title || "Untitled"}</span>
+        <span className={cn("text-sm font-medium truncate flex-1", !note.title && "italic text-muted-foreground")}>
+          {note.title || "Untitled"}
+        </span>
         <span className="text-[11px] text-muted-foreground shrink-0">
           {relativeTime(note.updated_at)}
         </span>

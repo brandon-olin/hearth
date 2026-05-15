@@ -2,7 +2,7 @@
 Seed script: rebuild M1 sub-projects with a revised roadmap.
 
 What this does:
-  1. Finds the M1 sub-project under the top-level "Life Dashboard App" project.
+  1. Finds the M1 sub-project under the top-level "Hearth App" project.
   2. Deletes all existing todos directly under M1.
   3. Creates sub-projects under M1 (idempotent — skips existing by name).
   4. Seeds todos under each sub-project (idempotent — skips existing by title).
@@ -135,18 +135,18 @@ async def main() -> None:
 
     async with async_session() as db:
 
-        # ── 1. Find top-level Life Dashboard App project ──────────────────────
+        # ── 1. Find top-level Hearth App project ──────────────────────
         result = await db.execute(
             sa.text(
                 "SELECT id, household_id, created_by_user_id "
                 "FROM projects "
-                "WHERE name ILIKE '%Life Dashboard%' AND parent_id IS NULL "
+                "WHERE name ILIKE '%Hearth%' AND parent_id IS NULL "
                 "ORDER BY created_at LIMIT 1"
             )
         )
         root = result.fetchone()
         if root is None:
-            print("ERROR: Could not find top-level 'Life Dashboard App' project.")
+            print("ERROR: Could not find top-level 'Hearth App' project.")
             return
         root_id, household_id, user_id = root
         print(f"Found root project: {root_id}")

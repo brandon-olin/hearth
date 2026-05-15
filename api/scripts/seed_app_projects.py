@@ -1,8 +1,8 @@
 """
-Seed script: build out the Life Dashboard App project hierarchy.
+Seed script: build out the Hearth App project hierarchy.
 
 Creates sub-projects M1–M5, AI, and UX Debt under the existing
-"Life Dashboard App" top-level project, then adds to-dos to each.
+"Hearth App" top-level project, then adds to-dos to each.
 
 Usage (from api/ directory with venv active):
     python scripts/seed_app_projects.py
@@ -129,20 +129,20 @@ async def main() -> None:
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as db:
-        # Find the "Life Dashboard App" project
+        # Find the "Hearth App" project
         result = await db.execute(
             sa.text(
                 "SELECT id, household_id, created_by_user_id "
                 "FROM projects "
-                "WHERE name ILIKE '%Life Dashboard%' AND parent_id IS NULL "
+                "WHERE name ILIKE '%Hearth%' AND parent_id IS NULL "
                 "ORDER BY created_at "
                 "LIMIT 1"
             )
         )
         row = result.fetchone()
         if row is None:
-            print("ERROR: Could not find a top-level project matching 'Life Dashboard'.")
-            print("Please create the 'Life Dashboard App' project in the UI first, then re-run.")
+            print("ERROR: Could not find a top-level project matching 'Hearth'.")
+            print("Please create the 'Hearth App' project in the UI first, then re-run.")
             return
 
         parent_id, household_id, user_id = row

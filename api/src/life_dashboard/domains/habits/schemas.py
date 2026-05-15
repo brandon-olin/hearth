@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from life_dashboard.core.pydantic_types import CoercedList
 
 HabitStatus = Literal["active", "paused", "archived"]
 HabitFrequency = Literal["daily", "weekly", "monthly", "custom"]
@@ -16,6 +17,8 @@ class HabitCreate(BaseModel):
     frequency: HabitFrequency = "daily"
     cadence: dict[str, Any] | None = None
     status: HabitStatus = "active"
+    visibility: str = "personal"
+    shared_with_user_ids: list[str] = []
 
 
 class HabitUpdate(BaseModel):
@@ -25,6 +28,8 @@ class HabitUpdate(BaseModel):
     frequency: HabitFrequency | None = None
     cadence: dict[str, Any] | None = None
     status: HabitStatus | None = None
+    visibility: str | None = None
+    shared_with_user_ids: list[str] | None = None
 
 
 class HabitResponse(BaseModel):
@@ -39,12 +44,23 @@ class HabitResponse(BaseModel):
     frequency: str
     cadence: dict[str, Any] | None
     status: str
+    visibility: str
+    shared_with_user_ids: CoercedList
     created_at: datetime
     updated_at: datetime
 
 
+class HabitWithStats(HabitResponse):
+    """HabitResponse extended with computed stats (streak, completion rates)."""
+    current_streak: int = 0
+    # Completion rate as 0–100 float; None when the habit hasn't been active
+    # for the full period (e.g. a new daily habit on its first week).
+    completion_rate_7d: float | None = None
+    completion_rate_30d: float | None = None
+
+
 class HabitListResponse(BaseModel):
-    items: list[HabitResponse]
+    items: list[HabitWithStats]
     total: int
     limit: int
     offset: int

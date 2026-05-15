@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" role="img" aria-label="Hearth app icon">
+  <title>Hearth</title>
+  <!-- Background -->
+  <rect width="80" height="80" fill="#1c1412"/>
+  <!-- Arch silhouette, centered in 80x80 with padding -->
+  <path d="M14 76L14 40C14 8 66 8 66 40L66 76Z" fill="#7c2d12"/>
+  <!-- Flame — outer -->
+  <path d="M40 68C30 60 24 48 29 36C32 28 37 21 40 13C43 21 48 28 51 36C56 48 50 60 40 68Z" fill="#C2410C"/>
+  <!-- Flame — mid -->
+  <path d="M40 58C33 52 29 42 33 34C35 27 38 22 40 17C42 22 45 27 47 34C51 42 47 52 40 58Z" fill="#EF9F27"/>
+  <!-- Flame — inner core -->
+  <path d="M40 48C35 44 33 37 35 32C37 27 39 23 40 19C41 23 43 27 45 32C47 37 45 44 40 48Z" fill="#FAC775"/>
+</svg>

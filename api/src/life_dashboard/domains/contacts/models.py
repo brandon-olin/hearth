@@ -1,8 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -12,12 +11,12 @@ from life_dashboard.core.database import Base
 class Contact(Base):
     __tablename__ = "contacts"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
 
     vcard_uid: Mapped[str | None] = mapped_column(Text)
@@ -53,9 +52,9 @@ class Contact(Base):
 class ContactAddress(Base):
     __tablename__ = "contact_addresses"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     contact_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("contacts.id", ondelete="CASCADE")
     )
     label: Mapped[str | None] = mapped_column(String(100))
     street: Mapped[str | None] = mapped_column(String(500))
@@ -68,9 +67,9 @@ class ContactAddress(Base):
 class ContactEmail(Base):
     __tablename__ = "contact_emails"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     contact_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("contacts.id", ondelete="CASCADE")
     )
     email: Mapped[str] = mapped_column(String(500))
     label: Mapped[str | None] = mapped_column(String(100))
@@ -80,9 +79,9 @@ class ContactEmail(Base):
 class ContactPhone(Base):
     __tablename__ = "contact_phones"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     contact_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("contacts.id", ondelete="CASCADE")
     )
     phone_number: Mapped[str] = mapped_column(String(50))
     label: Mapped[str | None] = mapped_column(String(100))

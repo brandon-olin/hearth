@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { $api } from "@/lib/api/query";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth/context";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +26,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
+import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
 
 type GroceryList = components["schemas"]["GroceryListResponse"];
@@ -235,8 +238,14 @@ function ListSheet({
 }) {
   const qc = useQueryClient();
   const isEdit = list !== null;
+  const { user } = useAuth();
+  const { can } = usePermissions();
+  const isOwnItem = !list || list.created_by_user_id === (user as { id?: string } | null)?.id;
+  const canManageThis = isOwnItem || can("grocery", "manage_others");
   const [name, setName] = useState("");
   const [store, setStore] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("household");
+  const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -246,6 +255,8 @@ function ListSheet({
     if (open) {
       setName(list?.name ?? "");
       setStore(list?.store ?? "");
+      setVisibility((list?.visibility as Visibility) ?? "household");
+      setSharedWith(list?.shared_with_user_ids ?? []);
       setError(null);
     }
   }
@@ -259,9 +270,9 @@ function ListSheet({
     setSaving(true); setError(null);
     try {
       if (isEdit) {
-        await updateList({ params: { path: { list_id: list.id } }, body: { name: name.trim(), store: store.trim() || null } });
+        await updateList({ params: { path: { list_id: list.id } }, body: { name: name.trim(), store: store.trim() || null, visibility, shared_with_user_ids: sharedWith } });
       } else {
-        await createList({ body: { name: name.trim(), store: store.trim() || null, status: "active", items: [] } });
+        await createList({ body: { name: name.trim(), store: store.trim() || null, status: "active", items: [], visibility, shared_with_user_ids: sharedWith } });
       }
       qc.invalidateQueries({ queryKey: ["get", "/grocery-lists"] });
       onClose();
@@ -282,7 +293,7 @@ function ListSheet({
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-sm flex flex-col gap-0 p-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b">
+        <SheetHeader className="px-6 py-4 border-b">
           <SheetTitle>{isEdit ? "Edit list" : "New grocery list"}</SheetTitle>
           <SheetDescription className="sr-only">
             {isEdit ? "Update this grocery list" : "Create a new grocery list"}
@@ -297,19 +308,31 @@ function ListSheet({
             <Label htmlFor="gl-store">Store (optional)</Label>
             <Input id="gl-store" value={store} onChange={(e) => setStore(e.target.value)} placeholder="Trader Joe's" />
           </div>
+          <div className="space-y-1.5">
+            <Label>Visibility</Label>
+            <VisibilityPicker
+              value={visibility}
+              sharedWith={sharedWith}
+              onChange={(v, sw) => { setVisibility(v); setSharedWith(sw); }}
+            />
+          </div>
         </div>
         <div className="px-6 py-4 border-t flex items-center gap-2">
           {error ? <p className="flex-1 text-sm text-destructive">{error}</p> : <span className="flex-1" />}
-          {isEdit && (
+          {isEdit && canManageThis && (
             <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={handleArchive} disabled={saving}>
               Archive
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-            {isEdit ? "Save" : "Create"}
-          </Button>
+          {isEdit && !canManageThis ? (
+            <span className="text-xs text-muted-foreground">View only</span>
+          ) : (
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+              {isEdit ? "Save" : "Create"}
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>
@@ -322,6 +345,7 @@ export default function GroceryListsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<GroceryList | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const { can } = usePermissions();
 
   const { data, isLoading, isError } = $api.useQuery("get", "/grocery-lists", {
     params: { query: { limit: 100 } },
@@ -337,15 +361,17 @@ export default function GroceryListsPage() {
   function handleClose() { setSheetOpen(false); setTimeout(() => setEditing(null), 300); }
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="page-content">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Grocery Lists</h1>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-1" />New
-        </Button>
+        {can("grocery", "create") && (
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-1" />New
+          </Button>
+        )}
       </div>
 
       {isLoading && (
@@ -359,9 +385,11 @@ export default function GroceryListsPage() {
         <div className="py-12 text-center">
           <ShoppingCart className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No grocery lists yet.</p>
-          <Button variant="outline" size="sm" className="mt-4" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1" />Create one
-          </Button>
+          {can("grocery", "create") && (
+            <Button variant="outline" size="sm" className="mt-4" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1" />Create one
+            </Button>
+          )}
         </div>
       )}
 

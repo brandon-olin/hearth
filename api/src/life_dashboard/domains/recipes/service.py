@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient, RecipeStep
 from life_dashboard.domains.recipes.schemas import (
     IngredientData,
@@ -136,6 +137,8 @@ async def create_recipe(
         servings=data.servings,
         notes=data.notes,
         body=data.body,
+        visibility=data.visibility,
+        shared_with_user_ids=data.shared_with_user_ids or [],
     )
     db.add(recipe)
     await db.flush()
@@ -158,10 +161,12 @@ async def get_recipe(
     db: AsyncSession,
     recipe_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> RecipeResponse | None:
-    result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
-    )
+    query = select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Recipe, user_id)
+    result = await db.execute(query)
     recipe = result.scalar_one_or_none()
     if recipe is None:
         return None
@@ -176,14 +181,30 @@ async def get_recipe(
 async def list_recipes(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     search: str | None = None,
+    tag_ids: list[uuid.UUID] | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> RecipeListResponse:
     query = select(Recipe).where(Recipe.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Recipe, user_id)
     if search:
         query = query.where(Recipe.name.ilike(f"%{search}%"))
+    if tag_ids:
+        # OR logic: any recipe that has at least one of the selected tags.
+        # distinct() prevents duplicate rows when a recipe matches multiple tags.
+        query = (
+            query
+            .join(
+                Tagging,
+                (Tagging.entity_id == Recipe.id) & (Tagging.entity_type == _ENTITY_TYPE),
+            )
+            .where(Tagging.tag_id.in_(tag_ids))
+            .distinct()
+        )
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
     recipes = list(
@@ -210,9 +231,10 @@ async def update_recipe(
     household_id: uuid.UUID,
     data: RecipeUpdate,
 ) -> RecipeResponse | None:
-    result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
-    )
+    query = select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Recipe, user_id)
+    result = await db.execute(query)
     recipe = result.scalar_one_or_none()
     if recipe is None:
         return None
@@ -226,7 +248,8 @@ async def update_recipe(
             data = data.model_copy(update={"cover_image_url": local_url})
 
     for field in ("goal_id", "name", "description", "cover_image_url", "source_url",
-                  "prep_time_minutes", "cook_time_minutes", "servings", "notes", "body"):
+                  "prep_time_minutes", "cook_time_minutes", "servings", "notes", "body",
+                  "visibility", "shared_with_user_ids"):
         if field in sent:
             setattr(recipe, field, getattr(data, field))
 
@@ -251,9 +274,10 @@ async def delete_recipe(
     recipe_id: uuid.UUID,
     household_id: uuid.UUID,
 ) -> bool:
-    result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
-    )
+    query = select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
+    if user_id is not None:
+        query = apply_visibility_filter(query, Recipe, user_id)
+    result = await db.execute(query)
     recipe = result.scalar_one_or_none()
     if recipe is None:
         return False

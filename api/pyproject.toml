@@ -15,7 +15,8 @@ dependencies = [
     # Database
     "sqlalchemy[asyncio]>=2.0.36",
     "alembic>=1.14.0",
-    "asyncpg>=0.30.0",
+    "asyncpg>=0.30.0",     # Postgres async driver
+    "aiosqlite>=0.20.0",   # SQLite async driver (local/desktop tier)
 
     # Validation / settings
     "pydantic>=2.10.0",
@@ -35,6 +36,9 @@ dependencies = [
     # Utilities
     "python-dotenv>=1.0.1",
     "httpx>=0.28.0",
+
+    # Background scheduling (AI coach digests)
+    "apscheduler>=3.10.4",
 
     # Graph indexer
     "watchdog>=4.0.0",

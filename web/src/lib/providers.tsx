@@ -26,6 +26,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 return false;
               return failureCount < 2;
             },
+            // 30-second stale time: all data from a localhost API is fast to
+            // fetch, so there's no need to treat every cached result as
+            // immediately stale. This prevents redundant refetches when
+            // navigating back to a page you visited in the last half-minute.
+            staleTime: 30_000,
+            // In a desktop app, regaining window focus is a constant event
+            // (e.g. clicking back from another app). Disable the default
+            // behavior of refetching all active queries on focus — it causes
+            // a wave of requests every time the user alt-tabs back.
+            refetchOnWindowFocus: false,
           },
         },
       }),

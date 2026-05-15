@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.dependencies import get_current_user
@@ -75,14 +75,31 @@ async def update_collection(
 @router.delete("/{collection_id}", status_code=204)
 async def delete_collection(
     collection_id: uuid.UUID,
+    migrate_to: uuid.UUID | None = Query(
+        None,
+        description=(
+            "If provided, all entries in this collection are moved to the target "
+            "collection before deletion. If omitted, entries are deleted with the collection."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     deleted = await service.delete_collection(
-        db, collection_id=collection_id, household_id=current_user.household_id
+        db,
+        collection_id=collection_id,
+        household_id=current_user.household_id,
+        migrate_to_collection_id=migrate_to,
     )
     if not deleted:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Collection not found"
+                if migrate_to is None
+                else "Collection not found, or migration target collection not found"
+            ),
+        )
 
 
 @router.post("/{collection_id}/ensure-today", response_model=EnsureTodayResponse)
@@ -100,7 +117,7 @@ async def ensure_today(
         db,
         collection_id=collection_id,
         household_id=current_user.household_id,
-        user_id=current_user.id,
+        user=current_user,
     )
     if not result:
         raise HTTPException(

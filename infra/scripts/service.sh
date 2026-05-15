@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# Life Dashboard — process management script
+# Hearth — process management script
 #
 # Usage:
 #   ./infra/scripts/service.sh <command>
@@ -273,7 +273,7 @@ setup_postgres_data() {
   # ── pg_hba.conf: trust all local connections ───────────────────────────────
   # Safe for a single-user local install — the DB is never exposed to the network.
   cat > "${PG_DATA_DIR}/pg_hba.conf" << 'EOF'
-# Life Dashboard — local install pg_hba.conf
+# Hearth — local install pg_hba.conf
 # Trust auth on Unix socket and loopback — no passwords needed for local access.
 local   all   all                trust
 host    all   all   127.0.0.1/32 trust
@@ -283,7 +283,7 @@ EOF
   # ── postgresql.conf: minimal overrides ────────────────────────────────────
   cat >> "${PG_DATA_DIR}/postgresql.conf" << EOF
 
-# ── Life Dashboard settings ──────────────────────────────────────────────────
+# ── Hearth settings ──────────────────────────────────────────────────
 port = 5432
 # Write logs to stderr; launchd/systemd captures them into our log files.
 log_destination = 'stderr'
@@ -401,7 +401,7 @@ linux_status() {
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 cmd_install() {
-  echo "Installing Life Dashboard…"
+  echo "Installing Hearth…"
   echo
 
   # ── Preflight checks ───────────────────────────────────────────────────────
@@ -522,16 +522,16 @@ cmd_install() {
   fi
 
   echo
-  echo "✓ Life Dashboard installed and running."
-  echo "  App  →  http://localhost:3000"
-  echo "  API  →  http://127.0.0.1:8000"
+  echo "✓ Hearth installed and running."
+  echo "  App  →  http://localhost:1337"
+  echo "  API  →  http://127.0.0.1:1338"
   echo
   echo "  Logs:    ./infra/scripts/service.sh logs"
   echo "  Status:  ./infra/scripts/service.sh status"
 }
 
 cmd_uninstall() {
-  echo "Uninstalling Life Dashboard services…"
+  echo "Uninstalling Hearth services…"
   echo
 
   if [[ "$PLATFORM" == "macos" ]]; then
@@ -555,7 +555,7 @@ cmd_uninstall() {
 }
 
 cmd_start() {
-  echo "Starting Life Dashboard…"
+  echo "Starting Hearth…"
   if [[ "$PLATFORM" == "macos" ]]; then
     # Postgres first — API waits for it in run-api.sh
     [[ -f "$PG_PLIST" ]] && macos_start "$PG_LABEL" || true
@@ -569,7 +569,7 @@ cmd_start() {
 }
 
 cmd_stop() {
-  echo "Stopping Life Dashboard…"
+  echo "Stopping Hearth…"
   if [[ "$PLATFORM" == "macos" ]]; then
     macos_stop "$WEB_LABEL"
     macos_stop "$API_LABEL"
@@ -588,7 +588,7 @@ cmd_restart() {
 }
 
 cmd_status() {
-  echo "Life Dashboard service status:"
+  echo "Hearth service status:"
   echo
   if [[ "$PLATFORM" == "macos" ]]; then
     [[ -f "$PG_PLIST"  ]] && macos_status "$PG_LABEL"

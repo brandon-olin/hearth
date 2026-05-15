@@ -11,8 +11,8 @@ from life_dashboard.core.database import get_db
 from life_dashboard.domains.habits.schemas import (
     HabitCreate,
     HabitListResponse,
-    HabitResponse,
     HabitUpdate,
+    HabitWithStats,
     OccurrenceCreate,
     OccurrenceListResponse,
     OccurrenceResponse,
@@ -32,42 +32,45 @@ async def list_habits(
     current_user: User = Depends(get_current_user),
 ) -> HabitListResponse:
     return await service.list_habits(
-        db, current_user.household_id, status=status, limit=limit, offset=offset
+        db, current_user.household_id, current_user.id,
+        status=status, limit=limit, offset=offset,
     )
 
 
-@router.get("/{habit_id}", response_model=HabitResponse)
+@router.get("/{habit_id}", response_model=HabitWithStats)
 async def get_habit(
     habit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> HabitResponse:
-    habit = await service.get_habit(db, habit_id, current_user.household_id)
+) -> HabitWithStats:
+    habit = await service.get_habit(db, habit_id, current_user.household_id, user_id=current_user.id)
     if habit is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Habit not found")
     return habit
 
 
-@router.post("", response_model=HabitResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=HabitWithStats, status_code=http_status.HTTP_201_CREATED)
 async def create_habit(
     data: HabitCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> HabitResponse:
-    return await service.create_habit(db, current_user.household_id, current_user.id, data)
+) -> HabitWithStats:
+    habit = await service.create_habit(db, current_user.household_id, current_user.id, data)
+    return HabitWithStats(**habit.model_dump(), current_streak=0)
 
 
-@router.patch("/{habit_id}", response_model=HabitResponse)
+@router.patch("/{habit_id}", response_model=HabitWithStats)
 async def update_habit(
     habit_id: uuid.UUID,
     data: HabitUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> HabitResponse:
+) -> HabitWithStats:
     habit = await service.update_habit(db, habit_id, current_user.household_id, data)
     if habit is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Habit not found")
-    return habit
+    # Re-fetch with stats so the response includes an up-to-date streak
+    return await service.get_habit(db, habit.id, current_user.household_id, user_id=current_user.id) or habit
 
 
 @router.delete("/{habit_id}", status_code=http_status.HTTP_204_NO_CONTENT)

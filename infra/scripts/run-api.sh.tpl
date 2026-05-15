@@ -22,5 +22,5 @@ done
 
 exec "{{APP_DIR}}/api/.venv/bin/uvicorn" life_dashboard.main:app \
     --host 127.0.0.1 \
-    --port 8000 \
+    --port 1338 \
     --workers 2

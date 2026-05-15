@@ -27,6 +27,7 @@ import JSZip from "jszip";
 import { BlockNoteEditor, type Block } from "@blocknote/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAccessToken } from "@/lib/auth/token";
+import { apiBaseUrl } from "@/lib/api/client";
 import { Upload, Loader2, CheckCircle2, AlertCircle, X, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -908,7 +909,7 @@ export function NotionImportDialog({ onClose }: Props) {
       };
       if (token) authHeaders["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch("/api/documents/bulk-import", {
+      const res = await fetch(`${apiBaseUrl}/documents/bulk-import`, {
         method: "POST",
         headers: authHeaders,
         credentials: "same-origin",
@@ -962,7 +963,7 @@ export function NotionImportDialog({ onClose }: Props) {
             const realId = clientIdToRealId.get(p.clientId);
             if (!realId) return;
             const resolved = resolveDocRefs(p.markdown);
-            await fetch(`/api/documents/${realId}`, {
+            await fetch(`${apiBaseUrl}/documents/${realId}`, {
               method: "PATCH",
               headers: authHeaders,
               credentials: "same-origin",
@@ -974,7 +975,7 @@ export function NotionImportDialog({ onClose }: Props) {
             if (!realId) return;
             // Resolve DOCREFs embedded inside the editor_json block tree.
             const resolvedJson = JSON.parse(resolveDocRefs(JSON.stringify(p.editorJson)));
-            await fetch(`/api/documents/${realId}`, {
+            await fetch(`${apiBaseUrl}/documents/${realId}`, {
               method: "PATCH",
               headers: authHeaders,
               credentials: "same-origin",

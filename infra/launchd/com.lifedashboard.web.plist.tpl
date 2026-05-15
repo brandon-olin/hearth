@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Life Dashboard — Next.js frontend LaunchAgent
+  Hearth — Next.js frontend LaunchAgent
   Auto-generated from this template by `service.sh install`.
   Installed to: ~/Library/LaunchAgents/com.lifedashboard.web.plist
 -->

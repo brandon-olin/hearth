@@ -130,6 +130,43 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["workout_id"],
         },
     },
+    {
+        "name": "get_workout",
+        "description": (
+            "Fetch the full details of a single workout session, including all exercise entries "
+            "with sets, reps, weight, and metrics. Use when asked what was lifted or done in a "
+            "specific session. Requires a workout_id from list_workouts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workout_id": {
+                    "type": "string",
+                    "description": "UUID of the workout to fetch.",
+                },
+            },
+            "required": ["workout_id"],
+        },
+    },
+    {
+        "name": "update_workout",
+        "description": (
+            "Update an existing workout session's metadata (name, date, or notes). "
+            "Use when the user wants to rename a workout, correct the date, or add notes. "
+            "To add or modify exercises use add_grocery_items — or create_workout for a fresh session. "
+            "Only send fields that need to change. Requires workout_id from list_workouts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workout_id": {"type": "string", "description": "UUID of the workout to update."},
+                "name": {"type": "string", "description": "New workout name."},
+                "workout_date": {"type": "string", "description": "Corrected date (YYYY-MM-DD)."},
+                "notes": {"type": "string", "description": "Notes about the session."},
+            },
+            "required": ["workout_id"],
+        },
+    },
     # ── Read tools ────────────────────────────────────────────────────────────
     {
         "name": "list_workouts",
@@ -160,7 +197,8 @@ TOOL_DEFINITIONS: list[dict] = [
         "name": "list_todos",
         "description": (
             "List the user's tasks and to-dos. Use when asked about tasks, chores, "
-            "what needs to be done, or pending work."
+            "what needs to be done, or pending work. Filter by project_id to scope "
+            "results to a specific project."
         ),
         "input_schema": {
             "type": "object",
@@ -169,6 +207,10 @@ TOOL_DEFINITIONS: list[dict] = [
                     "type": "string",
                     "enum": ["pending", "in_progress", "done", "cancelled"],
                     "description": "Filter by status. Omit to return all statuses.",
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "UUID of a project to filter by. Omit for all projects.",
                 },
                 "limit": {
                     "type": "integer",
@@ -266,6 +308,36 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "get_note",
+        "description": (
+            "Fetch the full content of a single note by its ID. "
+            "Use after list_notes has returned matching note IDs and you need to read the body. "
+            "Returns title and full markdown content."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "string", "description": "UUID of the note to fetch."},
+            },
+            "required": ["note_id"],
+        },
+    },
+    {
+        "name": "delete_note",
+        "description": (
+            "Archive (soft-delete) a note. Use only when the user explicitly asks to delete or "
+            "remove a note. The note is archived, not permanently destroyed. "
+            "Get the note_id from list_notes first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "string", "description": "UUID of the note to archive."},
+            },
+            "required": ["note_id"],
+        },
+    },
+    {
         "name": "list_calendar_events",
         "description": (
             "List the user's calendar events. Use when asked about upcoming events, "
@@ -304,6 +376,133 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "get_recipe",
+        "description": (
+            "Fetch the full details of a single recipe, including all ingredients and steps. "
+            "Use when asked to display a recipe, read its instructions, or generate a grocery list from it. "
+            "Requires a recipe_id from list_recipes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recipe_id": {"type": "string", "description": "UUID of the recipe."},
+            },
+            "required": ["recipe_id"],
+        },
+    },
+    {
+        "name": "create_recipe",
+        "description": (
+            "Create a new recipe with optional ingredients and steps. "
+            "Confirm the name before calling. "
+            "Ingredients and steps are optional — omit them to create a recipe shell first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Recipe name (required)."},
+                "description": {"type": "string"},
+                "source_url": {"type": "string", "description": "URL this recipe came from."},
+                "prep_time_minutes": {"type": "integer", "minimum": 0},
+                "cook_time_minutes": {"type": "integer", "minimum": 0},
+                "servings": {"type": "integer", "minimum": 1},
+                "notes": {"type": "string"},
+                "ingredients": {
+                    "type": "array",
+                    "description": "List of ingredients in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit": {"type": "string", "description": "e.g. 'g', 'cup', 'tbsp'"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "steps": {
+                    "type": "array",
+                    "description": "Ordered cooking steps.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step_number": {"type": "integer", "minimum": 1},
+                            "instruction": {"type": "string"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["step_number", "instruction"],
+                    },
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "update_recipe",
+        "description": (
+            "Update an existing recipe. Only send fields that need to change. "
+            "If ingredients or steps are provided they completely replace the existing list — "
+            "always include the full list, not just the changes. "
+            "Get recipe_id from list_recipes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recipe_id": {"type": "string", "description": "UUID of the recipe to update."},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "source_url": {"type": "string"},
+                "prep_time_minutes": {"type": "integer", "minimum": 0},
+                "cook_time_minutes": {"type": "integer", "minimum": 0},
+                "servings": {"type": "integer", "minimum": 1},
+                "notes": {"type": "string"},
+                "ingredients": {
+                    "type": "array",
+                    "description": "Replaces all existing ingredients. Include the full list.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit": {"type": "string"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "steps": {
+                    "type": "array",
+                    "description": "Replaces all existing steps. Include the full list.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step_number": {"type": "integer", "minimum": 1},
+                            "instruction": {"type": "string"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["step_number", "instruction"],
+                    },
+                },
+            },
+            "required": ["recipe_id"],
+        },
+    },
+    {
+        "name": "delete_recipe",
+        "description": (
+            "Permanently delete a recipe. "
+            "Only use when the user explicitly asks to remove it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recipe_id": {"type": "string", "description": "UUID of the recipe to delete."},
+            },
+            "required": ["recipe_id"],
+        },
+    },
+    {
         "name": "list_contacts",
         "description": (
             "Search or list the household's contacts. Use when asked about people, "
@@ -318,6 +517,161 @@ TOOL_DEFINITIONS: list[dict] = [
                 },
                 "limit": {"type": "integer", "default": 20},
             },
+        },
+    },
+    {
+        "name": "create_contact",
+        "description": (
+            "Create a new contact in the household address book. "
+            "At least one of given_name, family_name, or display_name is recommended. "
+            "Emails, phones, and addresses are optional arrays."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "given_name": {"type": "string"},
+                "family_name": {"type": "string"},
+                "display_name": {"type": "string", "description": "Full name override if different from given+family."},
+                "organization": {"type": "string"},
+                "job_title": {"type": "string"},
+                "birthday": {"type": "string", "description": "YYYY-MM-DD."},
+                "anniversary": {"type": "string", "description": "YYYY-MM-DD."},
+                "notes": {"type": "string"},
+                "website": {"type": "string"},
+                "emails": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "email": {"type": "string", "description": "Email address."},
+                            "label": {"type": "string", "description": "e.g. 'home', 'work'"},
+                            "is_primary": {"type": "boolean", "default": False},
+                        },
+                        "required": ["email"],
+                    },
+                },
+                "phones": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": {"type": "string"},
+                            "label": {"type": "string", "description": "e.g. 'mobile', 'home'"},
+                            "is_primary": {"type": "boolean", "default": False},
+                        },
+                        "required": ["phone_number"],
+                    },
+                },
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "street": {"type": "string"},
+                            "city": {"type": "string"},
+                            "region": {"type": "string", "description": "State / province."},
+                            "postal_code": {"type": "string"},
+                            "country": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "update_contact",
+        "description": (
+            "Update an existing contact. Only send fields that need to change. "
+            "If emails, phones, or addresses are provided they completely replace the existing list — "
+            "always include the full list, not just the changes. "
+            "Get contact_id from list_contacts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_id": {"type": "string", "description": "UUID of the contact to update."},
+                "given_name": {"type": "string"},
+                "family_name": {"type": "string"},
+                "display_name": {"type": "string"},
+                "organization": {"type": "string"},
+                "job_title": {"type": "string"},
+                "birthday": {"type": "string", "description": "YYYY-MM-DD."},
+                "anniversary": {"type": "string", "description": "YYYY-MM-DD."},
+                "notes": {"type": "string"},
+                "website": {"type": "string"},
+                "emails": {
+                    "type": "array",
+                    "description": "Replaces all existing emails. Include the full list.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "email": {"type": "string"},
+                            "label": {"type": "string"},
+                            "is_primary": {"type": "boolean"},
+                        },
+                        "required": ["email"],
+                    },
+                },
+                "phones": {
+                    "type": "array",
+                    "description": "Replaces all existing phone numbers. Include the full list.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": {"type": "string"},
+                            "label": {"type": "string"},
+                            "is_primary": {"type": "boolean"},
+                        },
+                        "required": ["phone_number"],
+                    },
+                },
+                "addresses": {
+                    "type": "array",
+                    "description": "Replaces all existing addresses. Include the full list.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "street": {"type": "string"},
+                            "city": {"type": "string"},
+                            "region": {"type": "string"},
+                            "postal_code": {"type": "string"},
+                            "country": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "required": ["contact_id"],
+        },
+    },
+    {
+        "name": "delete_contact",
+        "description": (
+            "Permanently delete a contact from the address book. "
+            "Only use when the user explicitly asks to remove them."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_id": {"type": "string", "description": "UUID of the contact to delete."},
+            },
+            "required": ["contact_id"],
+        },
+    },
+    {
+        "name": "get_contact",
+        "description": (
+            "Fetch the full details of a single contact by ID, including all emails, "
+            "phones, and addresses. Use when list_contacts has already returned the contact "
+            "and you need complete details. Requires contact_id from list_contacts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_id": {"type": "string", "description": "UUID of the contact to fetch."},
+            },
+            "required": ["contact_id"],
         },
     },
     {
@@ -336,6 +690,143 @@ TOOL_DEFINITIONS: list[dict] = [
                 },
                 "limit": {"type": "integer", "default": 10},
             },
+        },
+    },
+    {
+        "name": "create_grocery_list",
+        "description": (
+            "Create a new grocery list, optionally pre-populated with items. "
+            "Use when the user wants a shopping list, wants to pull ingredients from a recipe, "
+            "or asks to make a grocery list. Each item can have a name, quantity, unit, and category."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "List name, e.g. 'Weekly Shop' or 'Pad Thai ingredients'."},
+                "store": {"type": "string", "description": "Optional store name."},
+                "items": {
+                    "type": "array",
+                    "description": "Items to add immediately. Each item must have a name.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit": {"type": "string", "description": "e.g. 'g', 'cup', 'tbsp'"},
+                            "category": {"type": "string", "description": "e.g. 'Produce', 'Dairy', 'Meat'"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "add_grocery_items",
+        "description": (
+            "Add one or more items to an existing grocery list. "
+            "Use to append ingredients or items to a list that already exists. "
+            "Requires the list_id from list_grocery_lists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_id": {"type": "string", "description": "UUID of the grocery list."},
+                "items": {
+                    "type": "array",
+                    "description": "Items to add. Each must have a name.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit": {"type": "string"},
+                            "category": {"type": "string"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            "required": ["list_id", "items"],
+        },
+    },
+    {
+        "name": "check_grocery_item",
+        "description": (
+            "Mark a grocery list item as checked (bought) or unchecked. "
+            "Requires list_id and item_id from list_grocery_lists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_id": {"type": "string", "description": "UUID of the grocery list."},
+                "item_id": {"type": "string", "description": "UUID of the item."},
+                "is_checked": {"type": "boolean", "description": "True to mark bought, false to uncheck."},
+            },
+            "required": ["list_id", "item_id", "is_checked"],
+        },
+    },
+    {
+        "name": "delete_grocery_list",
+        "description": (
+            "Delete a grocery list and all its items. "
+            "Confirm with the user before deleting. Requires list_id from list_grocery_lists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_id": {"type": "string", "description": "UUID of the list to delete."},
+            },
+            "required": ["list_id"],
+        },
+    },
+    {
+        "name": "update_grocery_list",
+        "description": (
+            "Rename a grocery list, change its store, or update its status (active → completed). "
+            "Only send fields that need to change. To add items use add_grocery_items; "
+            "to check off individual items use check_grocery_item or update_grocery_item. "
+            "Requires list_id from list_grocery_lists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_id": {"type": "string", "description": "UUID of the grocery list."},
+                "name": {"type": "string", "description": "New list name."},
+                "store": {"type": "string", "description": "Store name."},
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "archived"],
+                    "description": "Set to 'completed' when shopping is done.",
+                },
+            },
+            "required": ["list_id"],
+        },
+    },
+    {
+        "name": "update_grocery_item",
+        "description": (
+            "Update an individual grocery item — rename it, change the quantity, "
+            "unit, category, or notes. Also use to uncheck an item. "
+            "To simply check/uncheck use check_grocery_item. "
+            "Requires list_id and item_id from list_grocery_lists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_id": {"type": "string", "description": "UUID of the grocery list."},
+                "item_id": {"type": "string", "description": "UUID of the item to update."},
+                "name": {"type": "string"},
+                "quantity": {"type": "number"},
+                "unit": {"type": "string", "description": "e.g. 'g', 'cup', 'tbsp'"},
+                "category": {"type": "string", "description": "e.g. 'Produce', 'Dairy'"},
+                "notes": {"type": "string"},
+                "is_checked": {"type": "boolean"},
+            },
+            "required": ["list_id", "item_id"],
         },
     },
     {
@@ -393,6 +884,179 @@ TOOL_DEFINITIONS: list[dict] = [
                 "limit": {"type": "integer", "default": 10},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "create_document",
+        "description": (
+            "Create a new document (page) in the document library. "
+            "Use when the user wants to save written content as a permanent document. "
+            "Content is plain markdown passed in source_markdown. "
+            "Optionally nest under a parent document via parent_id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Document title (required)."},
+                "source_markdown": {
+                    "type": "string",
+                    "description": "Document body in plain markdown.",
+                },
+                "description": {"type": "string", "description": "Short subtitle or summary."},
+                "parent_id": {
+                    "type": "string",
+                    "description": "UUID of a parent document to nest this under.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "update_document",
+        "description": (
+            "Update an existing document's title or content. "
+            "Only send fields that need to change. "
+            "source_markdown replaces the entire document body. "
+            "Get document_id from list_documents or search_documents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "UUID of the document to update."},
+                "title": {"type": "string"},
+                "source_markdown": {
+                    "type": "string",
+                    "description": "New full body in plain markdown. Replaces existing content.",
+                },
+                "description": {"type": "string"},
+                "parent_id": {
+                    "type": "string",
+                    "description": "UUID of a new parent document (moves the document).",
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "archive_document",
+        "description": (
+            "Archive (soft-delete) a document. Archived documents are hidden from normal views "
+            "but not permanently destroyed. Use when the user wants to remove or retire a document."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "UUID of the document to archive."},
+            },
+            "required": ["document_id"],
+        },
+    },
+    # ── Collections ───────────────────────────────────────────────────────────
+    {
+        "name": "list_collections",
+        "description": (
+            "List the household's collections. Collections are named, user-defined views over "
+            "notes or documents — for example a daily journal collection, a meeting notes collection, "
+            "or a recipes collection. Use when the user asks about their collections, wants to know "
+            "which collection to place a note in, or needs a collection_id for another operation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "ensure_today_collection",
+        "description": (
+            "For a collection with a daily auto-create rule, get or create today's entry. "
+            "Use when the user says 'open my journal', 'start today's entry', or asks to write "
+            "in a collection that creates entries automatically (e.g. daily journal). "
+            "Returns the ID of today's note or document — existing if already created, new if not. "
+            "Requires collection_id from list_collections."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "collection_id": {"type": "string", "description": "UUID of the collection."},
+            },
+            "required": ["collection_id"],
+        },
+    },
+    {
+        "name": "create_collection",
+        "description": (
+            "Create a new collection to organise notes or documents. "
+            "Collections can have an auto_create_rule so that a new entry is created each day "
+            "(useful for daily journals or log books). "
+            "Confirm the name and domain ('notes' or 'documents') before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Collection name, e.g. 'Daily Journal'."},
+                "icon": {"type": "string", "description": "Emoji or icon string."},
+                "domain": {
+                    "type": "string",
+                    "enum": ["notes", "documents"],
+                    "description": "Whether this collection holds notes or documents.",
+                },
+                "auto_create_daily": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, a new entry is automatically created each day using a "
+                        "date-based title (e.g. 'May 14, 2026'). Ideal for journals and logs."
+                    ),
+                    "default": False,
+                },
+                "title_template": {
+                    "type": "string",
+                    "description": (
+                        "strftime format string for the daily entry title. "
+                        "Default is '%B %d, %Y' → 'May 14, 2026'. "
+                        "Only relevant when auto_create_daily is true."
+                    ),
+                },
+            },
+            "required": ["name", "domain"],
+        },
+    },
+    {
+        "name": "update_collection",
+        "description": (
+            "Rename a collection, change its icon, or toggle the auto-create rule. "
+            "Only send fields that need to change. Requires collection_id from list_collections."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "collection_id": {"type": "string", "description": "UUID of the collection to update."},
+                "name": {"type": "string"},
+                "icon": {"type": "string"},
+                "auto_create_daily": {
+                    "type": "boolean",
+                    "description": "Enable or disable the daily auto-create rule.",
+                },
+                "title_template": {
+                    "type": "string",
+                    "description": "strftime title template for daily entries.",
+                },
+            },
+            "required": ["collection_id"],
+        },
+    },
+    {
+        "name": "delete_collection",
+        "description": (
+            "Permanently delete a collection. This removes the collection itself but does NOT "
+            "delete the notes or documents inside it — they remain accessible without a collection. "
+            "Confirm with the user before calling. Requires collection_id from list_collections."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "collection_id": {"type": "string", "description": "UUID of the collection to delete."},
+            },
+            "required": ["collection_id"],
         },
     },
     # ── Projects ──────────────────────────────────────────────────────────────
@@ -461,6 +1125,37 @@ TOOL_DEFINITIONS: list[dict] = [
                     "enum": ["backlog", "active", "on_deck", "in_progress", "complete", "archived"],
                 },
                 "due_date": {"type": "string", "description": "YYYY-MM-DD."},
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "archive_project",
+        "description": (
+            "Archive a project (soft-delete). The project and its todos are hidden from active "
+            "views but not permanently removed. Prefer this over delete_project. "
+            "System projects cannot be archived. Requires project_id from list_projects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "UUID of the project to archive."},
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "delete_project",
+        "description": (
+            "PERMANENTLY delete a project and all of its todos. This action is irreversible. "
+            "Only use when the user explicitly asks to delete (not archive) a project and "
+            "understands that all associated todos will be lost. System projects cannot be deleted. "
+            "Always confirm with the user before calling. Prefer archive_project instead."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "UUID of the project to delete."},
             },
             "required": ["project_id"],
         },
@@ -699,6 +1394,97 @@ TOOL_DEFINITIONS: list[dict] = [
                     "description": "Default 'completed'.",
                 },
                 "notes": {"type": "string", "description": "Optional notes about this occurrence."},
+            },
+            "required": ["habit_id"],
+        },
+    },
+    # ── Habit management ──────────────────────────────────────────────────────
+    {
+        "name": "create_habit",
+        "description": (
+            "Create a new habit to track. Use when the user wants to start tracking a recurring "
+            "behaviour. Confirm the name and frequency before calling. "
+            "For specific days of the week (e.g. Mon/Wed/Fri), pass days_of_week as a list of "
+            "integers where Mon=0 and Sun=6."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Habit name (required)."},
+                "description": {"type": "string"},
+                "frequency": {
+                    "type": "string",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "description": "Default 'daily'.",
+                },
+                "days_of_week": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 0, "maximum": 6},
+                    "description": (
+                        "For habits on specific days only. Integers 0–6 where Mon=0, Sun=6. "
+                        "E.g. [0, 2, 4] for Mon/Wed/Fri."
+                    ),
+                },
+                "times_per_period": {
+                    "type": "integer",
+                    "description": "For weekly/monthly habits without specific days: target completions per period.",
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD date from which the habit is active. Defaults to today.",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "paused", "archived"],
+                    "description": "Default 'active'.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "update_habit",
+        "description": (
+            "Update an existing habit — rename it, change frequency, adjust which days it runs, "
+            "or pause/archive it. Only send fields that need to change. "
+            "Get the habit_id from list_habits."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "habit_id": {"type": "string", "description": "UUID of the habit to update."},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "frequency": {
+                    "type": "string",
+                    "enum": ["daily", "weekly", "monthly"],
+                },
+                "days_of_week": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 0, "maximum": 6},
+                    "description": "Replaces existing days_of_week. Pass [] to clear.",
+                },
+                "times_per_period": {"type": "integer"},
+                "start_date": {"type": "string", "description": "YYYY-MM-DD."},
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "paused", "archived"],
+                },
+            },
+            "required": ["habit_id"],
+        },
+    },
+    {
+        "name": "delete_habit",
+        "description": (
+            "Permanently delete a habit and all its history. "
+            "Prefer update_habit with status='archived' when the user just wants to stop tracking. "
+            "Only use delete when they explicitly ask to remove all record of the habit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "habit_id": {"type": "string", "description": "UUID of the habit to delete."},
             },
             "required": ["habit_id"],
         },
@@ -1095,6 +1881,90 @@ class _UpdateNoteInput(BaseModel):
         return _parse_uuid_field(v)
 
 
+# ── Habit management input models ────────────────────────────────────────────
+
+_HabitFrequency = Literal["daily", "weekly", "monthly"]
+_HabitStatus = Literal["active", "paused", "archived"]
+
+
+def _validate_days_of_week(v: Any) -> list[int] | None:
+    """Coerce and validate a days_of_week list; returns sorted deduplicated ints."""
+    if v is None:
+        return None
+    if not isinstance(v, list):
+        raise ValueError("days_of_week must be a list of integers 0–6")
+    result = []
+    for d in v:
+        try:
+            d_int = int(d)
+        except (TypeError, ValueError):
+            raise ValueError(f"{d!r} is not a valid weekday integer")
+        if not (0 <= d_int <= 6):
+            raise ValueError(f"Day {d_int} out of range; must be 0 (Mon) to 6 (Sun)")
+        result.append(d_int)
+    return sorted(set(result))
+
+
+class _CreateHabitInput(BaseModel):
+    name: str = Field(min_length=1, max_length=500)
+    description: str | None = None
+    frequency: _HabitFrequency = "daily"
+    days_of_week: list[int] | None = None
+    times_per_period: int | None = None
+    start_date: date | None = None
+    status: _HabitStatus = "active"
+
+    @field_validator("days_of_week", mode="before")
+    @classmethod
+    def parse_days(cls, v: Any) -> list[int] | None:
+        return _validate_days_of_week(v)
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def parse_start_date(cls, v: Any) -> date | None:
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            raise ValueError(f"Expected YYYY-MM-DD, got {v!r}")
+
+
+class _UpdateHabitInput(BaseModel):
+    habit_id: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
+    frequency: _HabitFrequency | None = None
+    days_of_week: list[int] | None = None
+    times_per_period: int | None = None
+    start_date: date | None = None
+    status: _HabitStatus | None = None
+
+    @field_validator("habit_id", mode="before")
+    @classmethod
+    def parse_habit_id(cls, v: Any) -> uuid.UUID:
+        return _parse_uuid_field(v)
+
+    @field_validator("days_of_week", mode="before")
+    @classmethod
+    def parse_days(cls, v: Any) -> list[int] | None:
+        return _validate_days_of_week(v)
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def parse_start_date(cls, v: Any) -> date | None:
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            raise ValueError(f"Expected YYYY-MM-DD, got {v!r}")
+
+
 # ── Tool execution ────────────────────────────────────────────────────────────
 
 async def execute_tool(
@@ -1116,8 +1986,12 @@ async def execute_tool(
         # ── Write tools ───────────────────────────────────────────────────────
         if tool_name == "create_workout":
             return await _create_workout(db, tool_input, household_id, user_id)
+        if tool_name == "update_workout":
+            return await _update_workout(db, tool_input, household_id)
         if tool_name == "delete_workout":
             return await _delete_workout(db, tool_input, household_id)
+        if tool_name == "get_workout":
+            return await _get_workout(db, tool_input, household_id)
         # ── Read tools ────────────────────────────────────────────────────────
         if tool_name == "list_workouts":
             return await _list_workouts(db, tool_input, household_id)
@@ -1134,20 +2008,69 @@ async def execute_tool(
             return await _create_note(db, tool_input, household_id, user_id)
         if tool_name == "update_note":
             return await _update_note(db, tool_input, household_id)
+        if tool_name == "get_note":
+            return await _get_note(db, tool_input, household_id)
+        if tool_name == "delete_note":
+            return await _delete_note(db, tool_input, household_id)
         if tool_name == "list_calendar_events":
             return await _list_calendar_events(db, tool_input, household_id)
         if tool_name == "list_recipes":
             return await _list_recipes(db, tool_input, household_id)
+        if tool_name == "get_recipe":
+            return await _get_recipe(db, tool_input, household_id)
+        if tool_name == "create_recipe":
+            return await _create_recipe(db, tool_input, household_id, user_id)
+        if tool_name == "update_recipe":
+            return await _update_recipe(db, tool_input, household_id)
+        if tool_name == "delete_recipe":
+            return await _delete_recipe(db, tool_input, household_id)
         if tool_name == "list_contacts":
             return await _list_contacts(db, tool_input, household_id)
+        if tool_name == "get_contact":
+            return await _get_contact(db, tool_input, household_id)
+        if tool_name == "create_contact":
+            return await _create_contact(db, tool_input, household_id, user_id)
+        if tool_name == "update_contact":
+            return await _update_contact(db, tool_input, household_id)
+        if tool_name == "delete_contact":
+            return await _delete_contact(db, tool_input, household_id)
         if tool_name == "list_grocery_lists":
             return await _list_grocery_lists(db, tool_input, household_id)
+        if tool_name == "create_grocery_list":
+            return await _create_grocery_list(db, tool_input, household_id, user_id)
+        if tool_name == "add_grocery_items":
+            return await _add_grocery_items(db, tool_input, household_id)
+        if tool_name == "check_grocery_item":
+            return await _check_grocery_item(db, tool_input, household_id)
+        if tool_name == "delete_grocery_list":
+            return await _delete_grocery_list(db, tool_input, household_id)
+        if tool_name == "update_grocery_list":
+            return await _update_grocery_list(db, tool_input, household_id)
+        if tool_name == "update_grocery_item":
+            return await _update_grocery_item(db, tool_input, household_id)
         if tool_name == "get_documents":
             return await _get_documents(db, tool_input, household_id)
         if tool_name == "list_documents":
             return await _list_documents(db, tool_input, household_id)
         if tool_name == "search_documents":
             return await _search_documents(db, tool_input, household_id)
+        if tool_name == "create_document":
+            return await _create_document(db, tool_input, household_id, user_id)
+        if tool_name == "update_document":
+            return await _update_document(db, tool_input, household_id)
+        if tool_name == "archive_document":
+            return await _archive_document(db, tool_input, household_id)
+        # ── Collections ───────────────────────────────────────────────────────
+        if tool_name == "list_collections":
+            return await _list_collections(db, tool_input, household_id)
+        if tool_name == "ensure_today_collection":
+            return await _ensure_today_collection(db, tool_input, household_id, user_id)
+        if tool_name == "create_collection":
+            return await _create_collection(db, tool_input, household_id, user_id)
+        if tool_name == "update_collection":
+            return await _update_collection(db, tool_input, household_id)
+        if tool_name == "delete_collection":
+            return await _delete_collection(db, tool_input, household_id)
         # ── Projects ──────────────────────────────────────────────────────────
         if tool_name == "list_projects":
             return await _list_projects(db, tool_input, household_id)
@@ -1155,6 +2078,10 @@ async def execute_tool(
             return await _create_project(db, tool_input, household_id, user_id)
         if tool_name == "update_project":
             return await _update_project(db, tool_input, household_id)
+        if tool_name == "archive_project":
+            return await _archive_project(db, tool_input, household_id)
+        if tool_name == "delete_project":
+            return await _delete_project(db, tool_input, household_id)
         # ── Todos ─────────────────────────────────────────────────────────────
         if tool_name == "create_todo":
             return await _create_todo(db, tool_input, household_id, user_id)
@@ -1179,6 +2106,12 @@ async def execute_tool(
         # ── Habits ────────────────────────────────────────────────────────────
         if tool_name == "log_habit_occurrence":
             return await _log_habit_occurrence(db, tool_input, household_id)
+        if tool_name == "create_habit":
+            return await _create_habit(db, tool_input, household_id, user_id)
+        if tool_name == "update_habit":
+            return await _update_habit(db, tool_input, household_id)
+        if tool_name == "delete_habit":
+            return await _delete_habit(db, tool_input, household_id)
         return {
             "error": f"Unknown tool: {tool_name!r}",
             "hint": "Only call tools that are listed in the tools array.",
@@ -1295,8 +2228,15 @@ async def _list_todos(
 
     status = inp.get("status")
     limit = min(int(inp.get("limit", 20)), 50)
+    project_id: uuid.UUID | None = None
+    raw_project_id = inp.get("project_id")
+    if raw_project_id:
+        try:
+            project_id = uuid.UUID(str(raw_project_id))
+        except (ValueError, AttributeError):
+            return {"error": f"project_id {raw_project_id!r} is not a valid UUID."}
 
-    result = await svc.list_todos(db, household_id, status=status, limit=limit)
+    result = await svc.list_todos(db, household_id, status=status, project_id=project_id, limit=limit)
     return {
         "total": result.total,
         "todos": [
@@ -1306,7 +2246,8 @@ async def _list_todos(
                 "status": t.status,
                 "due_date": str(t.due_date) if t.due_date else None,
                 "priority": t.priority,
-                "notes": _truncate(t.notes, 200),
+                "project_id": str(t.project_id) if t.project_id else None,
+                "description": _truncate(t.description, 200),
             }
             for t in result.items
         ],
@@ -1319,11 +2260,29 @@ async def _list_habits(
     household_id: uuid.UUID,
 ) -> dict:
     from life_dashboard.domains.habits import service as svc
+    from life_dashboard.domains.habits.models import HabitOccurrence
+    from sqlalchemy import select as sa_select
 
     status = inp.get("status", "active")
     limit = min(int(inp.get("limit", 20)), 50)
 
     result = await svc.list_habits(db, household_id, status=status, limit=limit)
+
+    # Batch-load today's occurrence status for all returned habits in one query.
+    today = date.today()
+    today_statuses: dict[uuid.UUID, str] = {}
+    if result.items:
+        habit_ids = [h.id for h in result.items]
+        occ_result = await db.execute(
+            sa_select(HabitOccurrence.habit_id, HabitOccurrence.status)
+            .where(
+                HabitOccurrence.habit_id.in_(habit_ids),
+                HabitOccurrence.scheduled_date == today,
+            )
+        )
+        for habit_id, occ_status in occ_result.all():
+            today_statuses[habit_id] = occ_status
+
     return {
         "total": result.total,
         "habits": [
@@ -1332,8 +2291,11 @@ async def _list_habits(
                 "name": h.name,
                 "description": _truncate(h.description, 150),
                 "frequency": h.frequency,
+                "cadence": h.cadence,
                 "status": h.status,
-                "streak": getattr(h, "streak", None),
+                "streak": h.current_streak,
+                "completion_rate_7d": h.completion_rate_7d,
+                "today_status": today_statuses.get(h.id),  # None = no occurrence logged yet
             }
             for h in result.items
         ],
@@ -1358,7 +2320,11 @@ async def _list_goals(
                 "title": g.title,
                 "description": _truncate(g.description, 200),
                 "status": g.status,
-                "target_date": str(g.target_date) if g.target_date else None,
+                "priority": g.priority,
+                "target_value": float(g.target_value) if g.target_value is not None else None,
+                "current_value": float(g.current_value) if g.current_value is not None else None,
+                "unit": g.unit,
+                "due_date": str(g.due_date) if g.due_date else None,
             }
             for g in result.items
         ],
@@ -1476,14 +2442,14 @@ async def _list_contacts(
                 "anniversary": str(c.anniversary) if c.anniversary else None,
                 "notes": _truncate(c.notes, 200),
                 "website": c.website,
-                "emails": [{"label": e.label, "address": e.address} for e in c.emails],
-                "phones": [{"label": p.label, "number": p.number} for p in c.phones],
+                "emails": [{"label": e.label, "email": e.email} for e in c.emails],
+                "phones": [{"label": p.label, "phone_number": p.phone_number} for p in c.phones],
                 "addresses": [
                     {
                         "label": a.label,
                         "street": a.street,
                         "city": a.city,
-                        "state": a.state,
+                        "region": a.region,
                         "postal_code": a.postal_code,
                         "country": a.country,
                     }
@@ -1516,6 +2482,7 @@ async def _list_grocery_lists(
                 "status": gl.status,
                 "items": [
                     {
+                        "id": str(item.id),
                         "name": item.name,
                         "quantity": str(item.quantity) if item.quantity is not None else None,
                         "unit": item.unit,
@@ -2034,7 +3001,9 @@ async def _log_habit_occurrence(
 
     if occurrence_row is not None:
         data = OccurrenceUpdate(status=validated.status, notes=validated.notes)
-        occurrence = await svc.update_occurrence(db, occurrence_row.id, validated.habit_id, data)
+        occurrence = await svc.update_occurrence(
+            db, validated.habit_id, occurrence_row.id, household_id, data
+        )
         action = "updated"
     else:
         data = OccurrenceCreate(
@@ -2042,7 +3011,7 @@ async def _log_habit_occurrence(
             status=validated.status,
             notes=validated.notes,
         )
-        occurrence = await svc.create_occurrence(db, validated.habit_id, data)
+        occurrence = await svc.create_occurrence(db, validated.habit_id, household_id, data)
         action = "created"
 
     return {
@@ -2110,6 +3079,632 @@ async def _update_note(
         "title": note.title,
         "updated_at": note.updated_at.isoformat(),
     }
+
+
+# ── Recipe handlers ───────────────────────────────────────────────────────────
+
+def _parse_ingredient(raw: dict, index: int) -> "IngredientData":
+    """Coerce a raw dict into an IngredientData; converts float quantity to Decimal."""
+    from decimal import Decimal, InvalidOperation
+    from life_dashboard.domains.recipes.schemas import IngredientData
+
+    qty = raw.get("quantity")
+    try:
+        qty = Decimal(str(qty)) if qty is not None else None
+    except (InvalidOperation, TypeError):
+        qty = None
+
+    return IngredientData(
+        name=raw["name"],
+        quantity=qty,
+        unit=raw.get("unit"),
+        notes=raw.get("notes"),
+        sort_order=index,
+    )
+
+
+def _parse_step(raw: dict) -> "StepData":
+    from life_dashboard.domains.recipes.schemas import StepData
+    return StepData(
+        step_number=int(raw["step_number"]),
+        instruction=raw["instruction"],
+        notes=raw.get("notes"),
+    )
+
+
+async def _get_recipe(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.recipes import service as svc
+
+    try:
+        recipe_id = uuid.UUID(str(inp.get("recipe_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "recipe_id is not a valid UUID.", "hint": "Use list_recipes to find the correct ID."}
+
+    result = await svc.get_recipe(db, recipe_id, household_id)
+    if result is None:
+        return {"error": "Recipe not found.", "hint": "Confirm the recipe_id via list_recipes."}
+
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "description": result.description,
+        "source_url": result.source_url,
+        "prep_time_minutes": result.prep_time_minutes,
+        "cook_time_minutes": result.cook_time_minutes,
+        "servings": result.servings,
+        "notes": result.notes,
+        "ingredients": [
+            {
+                "name": i.name,
+                "quantity": float(i.quantity) if i.quantity is not None else None,
+                "unit": i.unit,
+                "notes": i.notes,
+            }
+            for i in result.ingredients
+        ],
+        "steps": [
+            {
+                "step_number": s.step_number,
+                "instruction": s.instruction,
+                "notes": s.notes,
+            }
+            for s in result.steps
+        ],
+    }
+
+
+async def _create_recipe(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.recipes import service as svc
+    from life_dashboard.domains.recipes.schemas import RecipeCreate
+
+    raw_ings = inp.get("ingredients") or []
+    raw_steps = inp.get("steps") or []
+
+    try:
+        ingredients = [_parse_ingredient(i, idx) for idx, i in enumerate(raw_ings)]
+        steps = [_parse_step(s) for s in raw_steps]
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"error": f"Invalid ingredient or step data: {exc}", "hint": "Check ingredient names and step numbers."}
+
+    data = RecipeCreate(
+        name=inp["name"],
+        description=inp.get("description"),
+        source_url=inp.get("source_url"),
+        prep_time_minutes=inp.get("prep_time_minutes"),
+        cook_time_minutes=inp.get("cook_time_minutes"),
+        servings=inp.get("servings"),
+        notes=inp.get("notes"),
+        ingredients=ingredients,
+        steps=steps,
+    )
+    result = await svc.create_recipe(db, household_id, user_id, data)
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "name": result.name,
+        "ingredients_created": len(result.ingredients),
+        "steps_created": len(result.steps),
+    }
+
+
+async def _update_recipe(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.recipes import service as svc
+    from life_dashboard.domains.recipes.schemas import RecipeUpdate
+
+    try:
+        recipe_id = uuid.UUID(str(inp.get("recipe_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "recipe_id is not a valid UUID.", "hint": "Use list_recipes to find the correct ID."}
+
+    update_kwargs: dict[str, Any] = {}
+    for field in ("name", "description", "source_url", "prep_time_minutes",
+                  "cook_time_minutes", "servings", "notes"):
+        if field in inp:
+            update_kwargs[field] = inp[field]
+
+    if "ingredients" in inp:
+        try:
+            update_kwargs["ingredients"] = [
+                _parse_ingredient(i, idx) for idx, i in enumerate(inp["ingredients"] or [])
+            ]
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"error": f"Invalid ingredient data: {exc}"}
+
+    if "steps" in inp:
+        try:
+            update_kwargs["steps"] = [_parse_step(s) for s in (inp["steps"] or [])]
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"error": f"Invalid step data: {exc}"}
+
+    data = RecipeUpdate(**update_kwargs)
+    result = await svc.update_recipe(db, recipe_id, household_id, data)
+    if result is None:
+        return {"error": "Recipe not found.", "hint": "Confirm the recipe_id via list_recipes."}
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "name": result.name,
+        "ingredients_count": len(result.ingredients),
+        "steps_count": len(result.steps),
+    }
+
+
+async def _delete_recipe(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.recipes import service as svc
+
+    try:
+        recipe_id = uuid.UUID(str(inp.get("recipe_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "recipe_id is not a valid UUID.", "hint": "Use list_recipes to find the correct ID."}
+
+    deleted = await svc.delete_recipe(db, recipe_id, household_id)
+    if not deleted:
+        return {"error": "Recipe not found.", "hint": "Confirm the recipe_id via list_recipes."}
+    return {"ok": True, "deleted_id": str(recipe_id)}
+
+
+# ── Contact write handlers ────────────────────────────────────────────────────
+
+def _parse_contact_date(value: Any) -> "date | None":
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _build_contact_sub_lists(inp: dict) -> dict:
+    """Parse emails, phones, and addresses from raw tool input into schema objects."""
+    from life_dashboard.domains.contacts.schemas import AddressData, EmailData, PhoneData
+
+    result: dict = {}
+    if "emails" in inp:
+        result["emails"] = [
+            EmailData(
+                email=e["email"],
+                label=e.get("label"),
+                is_primary=bool(e.get("is_primary", False)),
+            )
+            for e in (inp["emails"] or [])
+        ]
+    if "phones" in inp:
+        result["phones"] = [
+            PhoneData(
+                phone_number=p["phone_number"],
+                label=p.get("label"),
+                is_primary=bool(p.get("is_primary", False)),
+            )
+            for p in (inp["phones"] or [])
+        ]
+    if "addresses" in inp:
+        result["addresses"] = [
+            AddressData(
+                label=a.get("label"),
+                street=a.get("street"),
+                city=a.get("city"),
+                region=a.get("region"),
+                postal_code=a.get("postal_code"),
+                country=a.get("country"),
+            )
+            for a in (inp["addresses"] or [])
+        ]
+    return result
+
+
+def _contact_response_dict(c: "ContactResponse") -> dict:
+    name = c.display_name or " ".join(filter(None, [c.given_name, c.family_name]))
+    return {
+        "ok": True,
+        "id": str(c.id),
+        "name": name,
+        "organization": c.organization,
+        "emails_count": len(c.emails),
+        "phones_count": len(c.phones),
+    }
+
+
+async def _create_contact(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.contacts import service as svc
+    from life_dashboard.domains.contacts.schemas import ContactCreate
+
+    try:
+        sub = _build_contact_sub_lists(inp)
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"error": f"Invalid contact data: {exc}"}
+
+    data = ContactCreate(
+        given_name=inp.get("given_name"),
+        family_name=inp.get("family_name"),
+        display_name=inp.get("display_name"),
+        organization=inp.get("organization"),
+        job_title=inp.get("job_title"),
+        birthday=_parse_contact_date(inp.get("birthday")),
+        anniversary=_parse_contact_date(inp.get("anniversary")),
+        notes=inp.get("notes"),
+        website=inp.get("website"),
+        emails=sub.get("emails", []),
+        phones=sub.get("phones", []),
+        addresses=sub.get("addresses", []),
+    )
+    result = await svc.create_contact(db, household_id, user_id, data)
+    return _contact_response_dict(result)
+
+
+async def _update_contact(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.contacts import service as svc
+    from life_dashboard.domains.contacts.schemas import ContactUpdate
+
+    try:
+        contact_id = uuid.UUID(str(inp.get("contact_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "contact_id is not a valid UUID.", "hint": "Use list_contacts to find the correct ID."}
+
+    try:
+        sub = _build_contact_sub_lists(inp)
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"error": f"Invalid contact data: {exc}"}
+
+    scalar_fields = ("given_name", "family_name", "display_name", "organization",
+                     "job_title", "notes", "website")
+    update_kwargs: dict[str, Any] = {f: inp[f] for f in scalar_fields if f in inp}
+
+    for date_field in ("birthday", "anniversary"):
+        if date_field in inp:
+            update_kwargs[date_field] = _parse_contact_date(inp[date_field])
+
+    update_kwargs.update(sub)
+
+    data = ContactUpdate(**update_kwargs)
+    result = await svc.update_contact(db, contact_id, household_id, data)
+    if result is None:
+        return {"error": "Contact not found.", "hint": "Confirm the contact_id via list_contacts."}
+    return _contact_response_dict(result)
+
+
+async def _delete_contact(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.contacts import service as svc
+
+    try:
+        contact_id = uuid.UUID(str(inp.get("contact_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "contact_id is not a valid UUID.", "hint": "Use list_contacts to find the correct ID."}
+
+    deleted = await svc.delete_contact(db, contact_id, household_id)
+    if not deleted:
+        return {"error": "Contact not found.", "hint": "Confirm the contact_id via list_contacts."}
+    return {"ok": True, "deleted_id": str(contact_id)}
+
+
+# ── Document write handlers ───────────────────────────────────────────────────
+
+async def _create_document(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.documents import service as svc
+    from life_dashboard.domains.documents.schemas import DocumentCreate
+
+    parent_id: uuid.UUID | None = None
+    if inp.get("parent_id"):
+        try:
+            parent_id = uuid.UUID(str(inp["parent_id"]))
+        except (ValueError, AttributeError):
+            return {"error": "parent_id is not a valid UUID."}
+
+    data = DocumentCreate(
+        title=inp["title"],
+        description=inp.get("description"),
+        parent_id=parent_id,
+        source_markdown=inp.get("source_markdown"),
+    )
+    result = await svc.create_document(db, household_id, user_id, data)
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "title": result.title,
+        "slug": result.slug,
+    }
+
+
+async def _update_document(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.documents import service as svc
+    from life_dashboard.domains.documents.schemas import DocumentUpdate
+
+    try:
+        doc_id = uuid.UUID(str(inp.get("document_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "document_id is not a valid UUID.", "hint": "Use list_documents or search_documents to find the correct ID."}
+
+    update_kwargs: dict[str, Any] = {}
+    for field in ("title", "description", "source_markdown"):
+        if field in inp:
+            update_kwargs[field] = inp[field]
+
+    if "parent_id" in inp:
+        try:
+            update_kwargs["parent_id"] = uuid.UUID(str(inp["parent_id"])) if inp["parent_id"] else None
+        except (ValueError, AttributeError):
+            return {"error": "parent_id is not a valid UUID."}
+
+    data = DocumentUpdate(**update_kwargs)
+    result = await svc.update_document(db, doc_id, household_id, data)
+    if result is None:
+        return {"error": "Document not found.", "hint": "Confirm the document_id via list_documents."}
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "title": result.title,
+        "slug": result.slug,
+    }
+
+
+async def _archive_document(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.documents import service as svc
+
+    try:
+        doc_id = uuid.UUID(str(inp.get("document_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "document_id is not a valid UUID.", "hint": "Use list_documents or search_documents to find the correct ID."}
+
+    result = await svc.archive_document(db, doc_id, household_id)
+    if result is None:
+        return {"error": "Document not found.", "hint": "Confirm the document_id via list_documents."}
+    return {"ok": True, "archived_id": str(doc_id), "title": result.title}
+
+
+# ── Workout detail handler ────────────────────────────────────────────────────
+
+async def _get_workout(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.workouts import service as svc
+
+    try:
+        workout_id = uuid.UUID(str(inp.get("workout_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "workout_id is not a valid UUID.", "hint": "Use list_workouts to find the correct ID."}
+
+    result = await svc.get_workout_with_entries(db, workout_id, household_id)
+    if result is None:
+        return {
+            "error": "Workout not found.",
+            "hint": "Confirm the workout_id via list_workouts.",
+        }
+    return {
+        "id": str(result.id),
+        "date": str(result.workout_date),
+        "name": result.name,
+        "notes": result.notes,
+        "entries": [
+            {
+                "id": str(e.id),
+                "name": e.name,
+                "type": e.type,
+                "metrics": e.metrics,
+                "notes": e.notes,
+            }
+            for e in result.entries
+        ],
+    }
+
+
+# ── Note detail + delete handlers ─────────────────────────────────────────────
+
+async def _get_note(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.notes import service as svc
+
+    try:
+        note_id = uuid.UUID(str(inp.get("note_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "note_id is not a valid UUID.", "hint": "Use list_notes to find the correct ID."}
+
+    result = await svc.get_note(db, note_id, household_id)
+    if result is None:
+        return {
+            "error": "Note not found.",
+            "hint": "Confirm the note_id via list_notes.",
+        }
+    return {
+        "id": str(result.id),
+        "title": result.title,
+        "content_md": result.content_md,
+        "updated_at": result.updated_at.isoformat() if result.updated_at else None,
+    }
+
+
+async def _delete_note(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.notes import service as svc
+
+    try:
+        note_id = uuid.UUID(str(inp.get("note_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "note_id is not a valid UUID.", "hint": "Use list_notes to find the correct ID."}
+
+    archived = await svc.archive_note(db, note_id, household_id)
+    if not archived:
+        return {
+            "error": "Note not found.",
+            "hint": "Confirm the note_id via list_notes.",
+        }
+    return {"ok": True, "archived_id": str(note_id)}
+
+
+# ── Habit management handlers ─────────────────────────────────────────────────
+
+async def _create_habit(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.habits import service as svc
+    from life_dashboard.domains.habits.schemas import HabitCreate
+
+    validated = _CreateHabitInput.model_validate(inp)
+
+    # Build the cadence JSONB from the discrete tool fields.
+    cadence: dict | None = None
+    cadence_parts: dict = {}
+    if validated.days_of_week is not None:
+        cadence_parts["days_of_week"] = validated.days_of_week
+    if validated.times_per_period is not None:
+        cadence_parts["times_per_period"] = validated.times_per_period
+    if validated.start_date is not None:
+        cadence_parts["start_date"] = validated.start_date.isoformat()
+    if cadence_parts:
+        cadence = cadence_parts
+
+    data = HabitCreate(
+        name=validated.name,
+        description=validated.description,
+        frequency=validated.frequency,
+        cadence=cadence,
+        status=validated.status,
+    )
+    result = await svc.create_habit(db, household_id, user_id, data)
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "name": result.name,
+        "frequency": result.frequency,
+        "status": result.status,
+    }
+
+
+async def _update_habit(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.habits import service as svc
+    from life_dashboard.domains.habits.models import Habit
+    from life_dashboard.domains.habits.schemas import HabitUpdate
+    from sqlalchemy import select as sa_select
+
+    validated = _UpdateHabitInput.model_validate(inp)
+
+    update_kwargs: dict = {}
+    for field in ("name", "description", "frequency", "status"):
+        if field in inp:
+            update_kwargs[field] = getattr(validated, field)
+
+    # Merge cadence sub-fields if any were supplied.
+    cadence_fields = {"days_of_week", "times_per_period", "start_date"}
+    if cadence_fields & inp.keys():
+        # Fetch current cadence to preserve untouched sub-fields.
+        row = (await db.execute(
+            sa_select(Habit.cadence).where(
+                Habit.id == validated.habit_id,
+                Habit.household_id == household_id,
+            )
+        )).scalar_one_or_none()
+        current_cadence: dict = dict(row) if row else {}
+
+        if "days_of_week" in inp:
+            # Empty list clears the days_of_week sub-field.
+            if validated.days_of_week:
+                current_cadence["days_of_week"] = validated.days_of_week
+            else:
+                current_cadence.pop("days_of_week", None)
+        if "times_per_period" in inp:
+            if validated.times_per_period is not None:
+                current_cadence["times_per_period"] = validated.times_per_period
+            else:
+                current_cadence.pop("times_per_period", None)
+        if "start_date" in inp:
+            if validated.start_date is not None:
+                current_cadence["start_date"] = validated.start_date.isoformat()
+            else:
+                current_cadence.pop("start_date", None)
+
+        update_kwargs["cadence"] = current_cadence or None
+
+    data = HabitUpdate(**update_kwargs)
+    result = await svc.update_habit(db, validated.habit_id, household_id, data)
+    if result is None:
+        return {
+            "error": "Habit not found.",
+            "hint": "Confirm the habit_id via list_habits.",
+        }
+    return {
+        "ok": True,
+        "id": str(result.id),
+        "name": result.name,
+        "frequency": result.frequency,
+        "status": result.status,
+    }
+
+
+async def _delete_habit(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.habits import service as svc
+
+    try:
+        habit_id = uuid.UUID(str(inp.get("habit_id", "")))
+    except (ValueError, AttributeError):
+        return {"error": "habit_id is not a valid UUID.", "hint": "Use list_habits to find the correct ID."}
+
+    deleted = await svc.delete_habit(db, habit_id, household_id)
+    if not deleted:
+        return {
+            "error": "Habit not found.",
+            "hint": "Confirm the habit_id via list_habits.",
+        }
+    return {"ok": True, "deleted_id": str(habit_id)}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2221,3 +3816,470 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if d is None:
         return None
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+
+
+# ── Grocery list write handlers ────────────────────────────────────────────────
+
+def _parse_grocery_item(raw: dict) -> "GroceryItemData":
+    from decimal import Decimal, InvalidOperation
+    from life_dashboard.domains.grocery_lists.schemas import GroceryItemData
+
+    qty = raw.get("quantity")
+    try:
+        qty = Decimal(str(qty)) if qty is not None else None
+    except (InvalidOperation, TypeError):
+        qty = None
+
+    return GroceryItemData(
+        name=raw["name"],
+        quantity=qty,
+        unit=raw.get("unit"),
+        category=raw.get("category"),
+        notes=raw.get("notes"),
+    )
+
+
+async def _create_grocery_list(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+    from life_dashboard.domains.grocery_lists.schemas import GroceryListCreate
+
+    raw_items = inp.get("items") or []
+    items = [_parse_grocery_item(i) for i in raw_items]
+
+    data = GroceryListCreate(
+        name=inp["name"],
+        store=inp.get("store"),
+        items=items,
+    )
+    result = await svc.create_grocery_list(db, household_id, user_id, data)
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "store": result.store,
+        "status": result.status,
+        "item_count": len(result.items),
+        "items": [
+            {
+                "id": str(item.id),
+                "name": item.name,
+                "quantity": str(item.quantity) if item.quantity is not None else None,
+                "unit": item.unit,
+                "category": item.category,
+            }
+            for item in result.items
+        ],
+    }
+
+
+async def _add_grocery_items(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+    from life_dashboard.domains.grocery_lists.schemas import GroceryListUpdate
+
+    list_id = uuid.UUID(inp["list_id"])
+
+    # Fetch current list so we can append without destroying existing items.
+    existing = await svc.get_grocery_list(db, list_id, household_id)
+    if existing is None:
+        return {"error": f"Grocery list {list_id} not found."}
+
+    from life_dashboard.domains.grocery_lists.schemas import GroceryItemData
+
+    kept = [
+        GroceryItemData(
+            name=i.name,
+            quantity=i.quantity,
+            unit=i.unit,
+            category=i.category,
+            is_checked=i.is_checked,
+            notes=i.notes,
+        )
+        for i in existing.items
+    ]
+    new_items = [_parse_grocery_item(i) for i in (inp.get("items") or [])]
+    all_items = kept + new_items
+
+    data = GroceryListUpdate(items=all_items)
+    result = await svc.update_grocery_list(db, list_id, household_id, data)
+    if result is None:
+        return {"error": "Failed to update grocery list."}
+
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "item_count": len(result.items),
+        "added": len(new_items),
+    }
+
+
+async def _check_grocery_item(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+    from life_dashboard.domains.grocery_lists.schemas import GroceryItemUpdate
+
+    list_id = uuid.UUID(inp["list_id"])
+    item_id = uuid.UUID(inp["item_id"])
+    is_checked = bool(inp["is_checked"])
+
+    result = await svc.update_grocery_item(
+        db, list_id, item_id, household_id, GroceryItemUpdate(is_checked=is_checked)
+    )
+    if result is None:
+        return {"error": f"Item {item_id} not found in list {list_id}."}
+
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "is_checked": result.is_checked,
+    }
+
+
+async def _delete_grocery_list(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+
+    list_id = uuid.UUID(inp["list_id"])
+    deleted = await svc.delete_grocery_list(db, list_id, household_id)
+    if not deleted:
+        return {"error": f"Grocery list {list_id} not found."}
+    return {"deleted": True, "list_id": str(list_id)}
+
+
+async def _update_grocery_list(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+    from life_dashboard.domains.grocery_lists.schemas import GroceryListUpdate
+
+    list_id = uuid.UUID(inp["list_id"])
+    data = GroceryListUpdate(
+        **{k: v for k, v in inp.items() if k != "list_id" and k in {"name", "store", "status"}}
+    )
+    result = await svc.update_grocery_list(db, list_id, household_id, data)
+    if result is None:
+        return {"error": f"Grocery list {list_id} not found."}
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "store": result.store,
+        "status": result.status,
+        "item_count": len(result.items),
+    }
+
+
+async def _update_grocery_item(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.grocery_lists import service as svc
+    from life_dashboard.domains.grocery_lists.schemas import GroceryItemUpdate
+
+    list_id = uuid.UUID(inp["list_id"])
+    item_id = uuid.UUID(inp["item_id"])
+    data = GroceryItemUpdate(
+        **{k: v for k, v in inp.items() if k not in {"list_id", "item_id"}}
+    )
+    result = await svc.update_grocery_item(db, list_id, item_id, household_id, data)
+    if result is None:
+        return {"error": f"Item {item_id} not found in list {list_id}."}
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "quantity": str(result.quantity) if result.quantity is not None else None,
+        "unit": result.unit,
+        "category": result.category,
+        "is_checked": result.is_checked,
+        "notes": result.notes,
+    }
+
+
+async def _update_workout(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.workouts import service as svc
+    from life_dashboard.domains.workouts.schemas import WorkoutUpdate
+
+    try:
+        workout_id = uuid.UUID(inp["workout_id"])
+    except (KeyError, ValueError):
+        return {"error": "workout_id is required and must be a valid UUID."}
+
+    update_kwargs: dict = {}
+    if "name" in inp:
+        update_kwargs["name"] = inp["name"]
+    if "workout_date" in inp:
+        try:
+            update_kwargs["workout_date"] = date.fromisoformat(inp["workout_date"])
+        except ValueError:
+            return {"error": "workout_date must be YYYY-MM-DD."}
+    if "notes" in inp:
+        update_kwargs["notes"] = inp["notes"]
+
+    if not update_kwargs:
+        return {"error": "No fields provided to update.", "hint": "Send at least one of: name, workout_date, notes."}
+
+    data = WorkoutUpdate(**update_kwargs)
+    result = await svc.update_workout(db, workout_id, household_id, data)
+    if result is None:
+        return {"error": f"Workout {workout_id} not found."}
+    return {
+        "id": str(result.id),
+        "name": result.name,
+        "workout_date": str(result.workout_date),
+        "notes": result.notes,
+    }
+
+
+async def _get_contact(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.contacts import service as svc
+
+    try:
+        contact_id = uuid.UUID(inp["contact_id"])
+    except (KeyError, ValueError):
+        return {"error": "contact_id is required and must be a valid UUID."}
+
+    result = await svc.get_contact(db, contact_id, household_id)
+    if result is None:
+        return {"error": f"Contact {contact_id} not found.", "hint": "Use list_contacts to find the correct ID."}
+
+    return {
+        "id": str(result.id),
+        "name": result.display_name or " ".join(filter(None, [result.given_name, result.family_name])),
+        "given_name": result.given_name,
+        "family_name": result.family_name,
+        "middle_name": result.middle_name,
+        "prefix": result.prefix,
+        "suffix": result.suffix,
+        "organization": result.organization,
+        "job_title": result.job_title,
+        "birthday": str(result.birthday) if result.birthday else None,
+        "anniversary": str(result.anniversary) if result.anniversary else None,
+        "notes": result.notes,
+        "website": result.website,
+        "emails": [{"label": e.label, "email": e.email, "is_primary": e.is_primary} for e in result.emails],
+        "phones": [{"label": p.label, "phone_number": p.phone_number, "is_primary": p.is_primary} for p in result.phones],
+        "addresses": [
+            {
+                "label": a.label,
+                "street": a.street,
+                "city": a.city,
+                "region": a.region,
+                "postal_code": a.postal_code,
+                "country": a.country,
+            }
+            for a in result.addresses
+        ],
+    }
+
+
+# ── Collection handlers ───────────────────────────────────────────────────────
+
+def _collection_to_dict(col) -> dict:
+    return {
+        "id": str(col.id),
+        "name": col.name,
+        "icon": col.icon,
+        "domain": col.domain,
+        "sort_order": col.sort_order,
+        "auto_create_rule": col.auto_create_rule.model_dump() if col.auto_create_rule else None,
+        "default_tags": [str(t) for t in col.default_tags],
+    }
+
+
+async def _list_collections(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.collections import service as svc
+
+    result = await svc.list_collections(db, household_id)
+    return {
+        "total": result.total,
+        "collections": [_collection_to_dict(c) for c in result.items],
+    }
+
+
+async def _ensure_today_collection(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.collections import service as svc
+
+    try:
+        collection_id = uuid.UUID(inp["collection_id"])
+    except (KeyError, ValueError):
+        return {"error": "collection_id is required and must be a valid UUID."}
+
+    result = await svc.ensure_today_entry(db, collection_id, household_id, user_id)
+    if result is None:
+        return {
+            "error": "Collection not found or has no auto_create_rule.",
+            "hint": "Use list_collections to find a collection with auto_create_rule set.",
+        }
+    return {
+        "created": result.created,
+        "item_id": str(result.item_id),
+        "item_domain": result.item_domain,
+    }
+
+
+async def _create_collection(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.collections import service as svc
+    from life_dashboard.domains.collections.schemas import AutoCreateRule, CollectionCreate
+
+    auto_create_rule = None
+    if inp.get("auto_create_daily"):
+        title_template = inp.get("title_template", "%B %d, %Y")
+        auto_create_rule = AutoCreateRule(frequency="daily", title_template=title_template)
+
+    data = CollectionCreate(
+        name=inp["name"],
+        icon=inp.get("icon"),
+        domain=inp["domain"],
+        auto_create_rule=auto_create_rule,
+    )
+    result = await svc.create_collection(db, household_id, user_id, data)
+    return _collection_to_dict(result)
+
+
+async def _update_collection(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.collections import service as svc
+    from life_dashboard.domains.collections.schemas import AutoCreateRule, CollectionUpdate
+
+    try:
+        collection_id = uuid.UUID(inp["collection_id"])
+    except (KeyError, ValueError):
+        return {"error": "collection_id is required and must be a valid UUID."}
+
+    update_kwargs: dict = {}
+    if "name" in inp:
+        update_kwargs["name"] = inp["name"]
+    if "icon" in inp:
+        update_kwargs["icon"] = inp["icon"]
+
+    # Handle auto_create_daily toggle
+    if "auto_create_daily" in inp:
+        if inp["auto_create_daily"]:
+            title_template = inp.get("title_template", "%B %d, %Y")
+            update_kwargs["auto_create_rule"] = AutoCreateRule(
+                frequency="daily", title_template=title_template
+            )
+        else:
+            update_kwargs["auto_create_rule"] = None
+    elif "title_template" in inp:
+        # template change only — need to fetch existing rule to preserve frequency
+        existing = await svc.get_collection(db, collection_id, household_id)
+        if existing and existing.auto_create_rule:
+            update_kwargs["auto_create_rule"] = AutoCreateRule(
+                frequency=existing.auto_create_rule.frequency,
+                title_template=inp["title_template"],
+            )
+
+    if not update_kwargs:
+        return {"error": "No fields provided to update.", "hint": "Send at least one of: name, icon, auto_create_daily, title_template."}
+
+    data = CollectionUpdate(**update_kwargs)
+    result = await svc.update_collection(db, collection_id, household_id, data)
+    if result is None:
+        return {"error": f"Collection {collection_id} not found."}
+    return _collection_to_dict(result)
+
+
+async def _delete_collection(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.collections import service as svc
+
+    try:
+        collection_id = uuid.UUID(inp["collection_id"])
+    except (KeyError, ValueError):
+        return {"error": "collection_id is required and must be a valid UUID."}
+
+    deleted = await svc.delete_collection(db, collection_id, household_id)
+    if not deleted:
+        return {"error": f"Collection {collection_id} not found."}
+    return {"deleted": True, "collection_id": str(collection_id)}
+
+
+# ── Project lifecycle handlers ────────────────────────────────────────────────
+
+async def _archive_project(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.projects import service as svc
+
+    try:
+        project_id = uuid.UUID(inp["project_id"])
+    except (KeyError, ValueError):
+        return {"error": "project_id is required and must be a valid UUID."}
+
+    result, err = await svc.archive_project(db, project_id, household_id)
+    if err == "not_found":
+        return {"error": f"Project {project_id} not found.", "hint": "Use list_projects to find the correct ID."}
+    if err == "system_protected":
+        return {"error": "System projects cannot be archived."}
+    return {
+        "archived": True,
+        "id": str(result.id),
+        "name": result.name,
+        "status": result.status,
+    }
+
+
+async def _delete_project(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from life_dashboard.domains.projects import service as svc
+
+    try:
+        project_id = uuid.UUID(inp["project_id"])
+    except (KeyError, ValueError):
+        return {"error": "project_id is required and must be a valid UUID."}
+
+    deleted, err = await svc.delete_project(db, project_id, household_id)
+    if err == "not_found":
+        return {"error": f"Project {project_id} not found.", "hint": "Use list_projects to find the correct ID."}
+    if err == "system_protected":
+        return {"error": "System projects cannot be deleted."}
+    return {"deleted": True, "project_id": str(project_id)}

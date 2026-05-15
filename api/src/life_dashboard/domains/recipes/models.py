@@ -2,26 +2,26 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from life_dashboard.core.database import Base
+from life_dashboard.core.visibility import VisibilityMixin
 
 
-class Recipe(Base):
+class Recipe(VisibilityMixin, Base):
     __tablename__ = "recipes"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
     goal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("goals.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("goals.id", ondelete="SET NULL")
     )
 
     name: Mapped[str] = mapped_column(String(500))
@@ -32,7 +32,7 @@ class Recipe(Base):
     cook_time_minutes: Mapped[int | None] = mapped_column(Integer)
     servings: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
-    body: Mapped[dict | None] = mapped_column(JSONB)
+    body: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -50,9 +50,9 @@ class Recipe(Base):
 class RecipeIngredient(Base):
     __tablename__ = "recipe_ingredients"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     recipe_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("recipes.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("recipes.id", ondelete="CASCADE")
     )
 
     name: Mapped[str] = mapped_column(Text)
@@ -65,9 +65,9 @@ class RecipeIngredient(Base):
 class RecipeStep(Base):
     __tablename__ = "recipe_steps"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     recipe_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("recipes.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("recipes.id", ondelete="CASCADE")
     )
 
     step_number: Mapped[int] = mapped_column(Integer)

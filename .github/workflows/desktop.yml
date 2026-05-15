@@ -1,0 +1,410 @@
+# ── Desktop release build ─────────────────────────────────────────────────────
+#
+# Builds the Tauri desktop app for macOS (Intel + Apple Silicon), Windows, and
+# Linux.  Each job:
+#   1. Builds the PyInstaller FastAPI binary for that platform
+#   2. Copies the binary into desktop/src-tauri/binaries/ with Tauri's naming
+#   3. Runs `npm run build:web` (Next.js static export)
+#   4. Runs `tauri build` to produce the installable bundle
+#
+# Artifacts are uploaded per-platform so you can grab them from the Actions UI.
+# On a version tag (v*.*.*) they are also attached to a GitHub release.
+#
+# Required repository secrets:
+#   (none for unsigned builds — add APPLE_CERTIFICATE + WINDOWS_CERTIFICATE
+#    when you're ready to code-sign)
+
+name: Desktop build
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:        # manual trigger for testing
+
+permissions:
+  contents: write           # needed for creating GitHub releases
+
+jobs:
+
+  # ── 1. Build the FastAPI binary ──────────────────────────────────────────────
+  #
+  # Runs once per target platform.  The binary is uploaded as a job artifact and
+  # pulled down by the Tauri build job on the same runner.  We keep them in
+  # separate jobs so the matrix is clear, but a single job per platform is fine
+  # too — this layout makes the Tauri step easy to swap for a matrix later.
+
+  build-api-macos-intel:
+    name: API binary — macOS Intel
+    runs-on: macos-13          # Intel runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies + PyInstaller
+        working-directory: api
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build binary
+        working-directory: api
+        run: |
+          source .venv/bin/activate
+          pyinstaller life_dashboard.spec --distpath dist
+
+      - name: Rename to Tauri target triple
+        run: |
+          mv api/dist/life_dashboard_api \
+             api/dist/life_dashboard_api-x86_64-apple-darwin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-macos-intel
+          path: api/dist/life_dashboard_api-x86_64-apple-darwin
+          retention-days: 1
+
+  build-api-macos-arm:
+    name: API binary — macOS Apple Silicon
+    runs-on: macos-latest      # arm64 runner (M-series)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies + PyInstaller
+        working-directory: api
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build binary
+        working-directory: api
+        run: |
+          source .venv/bin/activate
+          pyinstaller life_dashboard.spec --distpath dist
+
+      - name: Rename to Tauri target triple
+        run: |
+          mv api/dist/life_dashboard_api \
+             api/dist/life_dashboard_api-aarch64-apple-darwin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-macos-arm
+          path: api/dist/life_dashboard_api-aarch64-apple-darwin
+          retention-days: 1
+
+  build-api-windows:
+    name: API binary — Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies + PyInstaller
+        working-directory: api
+        run: |
+          python -m venv .venv
+          .venv\Scripts\activate
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build binary
+        working-directory: api
+        run: |
+          .venv\Scripts\activate
+          pyinstaller life_dashboard.spec --distpath dist
+
+      - name: Rename to Tauri target triple
+        run: |
+          Rename-Item api\dist\life_dashboard_api.exe `
+            life_dashboard_api-x86_64-pc-windows-msvc.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-windows
+          path: api/dist/life_dashboard_api-x86_64-pc-windows-msvc.exe
+          retention-days: 1
+
+  build-api-linux:
+    name: API binary — Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps (needed by some Python packages)
+        run: sudo apt-get install -y libpq-dev build-essential
+
+      - name: Install dependencies + PyInstaller
+        working-directory: api
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build binary
+        working-directory: api
+        run: |
+          source .venv/bin/activate
+          pyinstaller life_dashboard.spec --distpath dist
+
+      - name: Rename to Tauri target triple
+        run: |
+          mv api/dist/life_dashboard_api \
+             api/dist/life_dashboard_api-x86_64-unknown-linux-gnu
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-linux
+          path: api/dist/life_dashboard_api-x86_64-unknown-linux-gnu
+          retention-days: 1
+
+  # ── 2. Tauri build (per platform) ────────────────────────────────────────────
+
+  tauri-macos-intel:
+    name: Tauri — macOS Intel
+    needs: build-api-macos-intel
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Download API binary
+        uses: actions/download-artifact@v4
+        with:
+          name: api-macos-intel
+          path: desktop/src-tauri/binaries/
+
+      - name: Make binary executable
+        run: chmod +x desktop/src-tauri/binaries/life_dashboard_api-x86_64-apple-darwin
+
+      - name: Tauri build
+        working-directory: desktop
+        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-intel
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          retention-days: 30
+
+  tauri-macos-arm:
+    name: Tauri — macOS Apple Silicon
+    needs: build-api-macos-arm
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Download API binary
+        uses: actions/download-artifact@v4
+        with:
+          name: api-macos-arm
+          path: desktop/src-tauri/binaries/
+
+      - name: Make binary executable
+        run: chmod +x desktop/src-tauri/binaries/life_dashboard_api-aarch64-apple-darwin
+
+      - name: Tauri build
+        working-directory: desktop
+        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-arm
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          retention-days: 30
+
+  tauri-windows:
+    name: Tauri — Windows x64
+    needs: build-api-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Download API binary
+        uses: actions/download-artifact@v4
+        with:
+          name: api-windows
+          path: desktop/src-tauri/binaries/
+
+      - name: Tauri build
+        working-directory: desktop
+        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 30
+
+  tauri-linux:
+    name: Tauri — Linux x64
+    needs: build-api-linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system deps for Tauri + WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libpq-dev \
+            build-essential
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Download API binary
+        uses: actions/download-artifact@v4
+        with:
+          name: api-linux
+          path: desktop/src-tauri/binaries/
+
+      - name: Make binary executable
+        run: chmod +x desktop/src-tauri/binaries/life_dashboard_api-x86_64-unknown-linux-gnu
+
+      - name: Tauri build
+        working-directory: desktop
+        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+          retention-days: 30
+
+  # ── 3. GitHub release (tag builds only) ──────────────────────────────────────
+
+  release:
+    name: Create GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - tauri-macos-intel
+      - tauri-macos-arm
+      - tauri-windows
+      - tauri-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/**
+          generate_release_notes: true
+          draft: true          # review before publishing

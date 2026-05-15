@@ -1,11 +1,9 @@
 import enum
 import uuid
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
 
-from sqlalchemy import Computed, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy import Enum as SaEnum
-from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 from sqlalchemy.schema import Index
@@ -25,23 +23,23 @@ class AiProvider(str, enum.Enum):
     ollama = "ollama"
 
 
-# Reference PG enum types by name; create_type=False prevents SQLAlchemy from
-# emitting CREATE TYPE — both were created by migration 0003.
-_ai_message_role_pg = SaEnum(AiMessageRole, name="ai_message_role", create_type=False)
-_ai_provider_pg = SaEnum(AiProvider, name="ai_provider", create_type=False)
+# native_enum=False stores as VARCHAR — works on both Postgres and SQLite.
+# (Existing Postgres DBs keep their native enum columns; runtime behaviour is identical.)
+_ai_message_role_enum = SaEnum(AiMessageRole, native_enum=False)
+_ai_provider_enum = SaEnum(AiProvider, native_enum=False)
 
 
 class AiConversation(Base):
     __tablename__ = "ai_conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE")
     )
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     # Populated from the first user message; NULL until that message is saved.
     title: Mapped[str | None] = mapped_column(Text)
@@ -57,21 +55,17 @@ class AiMessage(Base):
     __tablename__ = "ai_messages"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(), primary_key=True, default=uuid.uuid4
     )
     conversation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ai_conversations.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("ai_conversations.id", ondelete="CASCADE")
     )
-    role: Mapped[AiMessageRole] = mapped_column(_ai_message_role_pg)
+    role: Mapped[AiMessageRole] = mapped_column(_ai_message_role_enum)
     content: Mapped[str] = mapped_column(Text)
-    # Server-generated column maintained by Postgres on every INSERT/UPDATE.
-    # Deferred so it is not loaded on routine SELECT queries; only used in
-    # WHERE clauses for full-text search via the GIN index.
-    search_vector: Mapped[Any] = mapped_column(
-        TSVECTOR,
-        Computed("to_tsvector('english', content)", persisted=True),
-        deferred=True,
-    )
+    # NOTE: search_vector (TSVECTOR + GIN index) exists in Postgres DBs but is
+    # not mapped here — it is Postgres-specific and incompatible with SQLite.
+    # The ai/service.py search function uses a dialect-aware fallback (LIKE on
+    # SQLite, tsvector @@ plainto_tsquery on Postgres via raw text()).
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -81,7 +75,7 @@ class MemberAiMemory(Base):
     __tablename__ = "member_ai_memory"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     # Curated natural-language user profile (~500-800 tokens).
     # Blank until the lazy refresh threshold is first reached.
@@ -97,10 +91,10 @@ class AiSettings(Base):
     __tablename__ = "ai_settings"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     provider: Mapped[AiProvider] = mapped_column(
-        _ai_provider_pg, default=AiProvider.anthropic
+        _ai_provider_enum, default=AiProvider.anthropic
     )
     # NULL → use the system-level ANTHROPIC_API_KEY env var.
     # Non-null → BYOK key stored by the service layer.
@@ -124,13 +118,13 @@ class AiUsage(Base):
     __tablename__ = "ai_usage"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE")
     )
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("ai_conversations.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -147,4 +141,38 @@ class AiUsage(Base):
     __table_args__ = (
         # Index used by monthly rollup queries and the /ai/usage endpoint.
         Index("ix_ai_usage_user_created", "user_id", "created_at"),
+    )
+
+
+class CoachDigestKind(str, enum.Enum):
+    morning = "morning"
+    evening = "evening"
+
+
+class AiCoachDigest(Base):
+    """One AI coach digest per user per day per session (morning or evening).
+
+    Content is generated by the background scheduler or on-demand via the
+    /ai/coach/digest/generate endpoint. Stored so users can re-read their
+    digest without triggering another AI call.
+    """
+    __tablename__ = "ai_coach_digests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    date: Mapped[date] = mapped_column(Date(), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # "morning" | "evening"
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tone: Mapped[str] = mapped_column(String(50), nullable=False, default="supportive")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_ai_coach_digests_user_date_kind", "user_id", "date", "kind", unique=True),
+        Index("ix_ai_coach_digests_user_date", "user_id", "date"),
     )

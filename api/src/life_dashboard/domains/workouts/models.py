@@ -2,24 +2,24 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, Text, Uuid
 from sqlalchemy import Enum as SaEnum
-from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from life_dashboard.core.database import Base
+from life_dashboard.core.visibility import VisibilityMixin
 
 
-class Workout(Base):
+class Workout(VisibilityMixin, Base):
     __tablename__ = "workouts"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
     )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
 
     name: Mapped[str | None] = mapped_column(Text)
@@ -38,9 +38,9 @@ class Workout(Base):
 class ExerciseEntry(Base):
     __tablename__ = "exercise_entries"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     workout_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE")
+        Uuid(), ForeignKey("workouts.id", ondelete="CASCADE")
     )
 
     name: Mapped[str] = mapped_column(Text)
@@ -49,8 +49,7 @@ class ExerciseEntry(Base):
     type: Mapped[str] = mapped_column(
         SaEnum(
             "strength", "cardio", "hiit", "flexibility", "other",
-            name="exercise_type",
-            create_type=False,
+            native_enum=False,
         )
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -59,7 +58,7 @@ class ExerciseEntry(Base):
     #   cardio     → {duration_seconds, distance_meters, avg_heart_rate}
     #   hiit       → {rounds, work_seconds, rest_seconds}
     #   flexibility / other → freeform keys
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

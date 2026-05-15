@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.projects.models import Project, ProjectGoal
 from life_dashboard.domains.projects.schemas import (
     ProjectCreate,
@@ -42,6 +43,8 @@ def _to_response(p: Project) -> ProjectResponse:
         show_in_nav=p.show_in_nav,
         sort_order=p.sort_order,
         archived_at=p.archived_at,
+        visibility=p.visibility,
+        shared_with_user_ids=p.shared_with_user_ids or [],
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -76,12 +79,15 @@ async def _count_depth(
 async def list_projects(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     parent_id: uuid.UUID | None = None,
     root_only: bool = False,
     show_in_nav: bool | None = None,
     include_archived: bool = False,
 ) -> ProjectListResponse:
     stmt = select(Project).where(Project.household_id == household_id)
+    if user_id is not None:
+        stmt = apply_visibility_filter(stmt, Project, user_id)
     if root_only:
         stmt = stmt.where(Project.parent_id.is_(None))
     elif parent_id is not None:
@@ -99,14 +105,15 @@ async def get_project(
     db: AsyncSession,
     project_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> ProjectResponse | None:
-    result = await db.execute(
-        select(Project).where(
-            Project.id == project_id,
-            Project.household_id == household_id,
-        )
+    query = select(Project).where(
+        Project.id == project_id,
+        Project.household_id == household_id,
     )
-    p = result.scalar_one_or_none()
+    if user_id is not None:
+        query = apply_visibility_filter(query, Project, user_id)
+    p = (await db.execute(query)).scalar_one_or_none()
     return _to_response(p) if p else None
 
 
@@ -132,6 +139,8 @@ async def create_project(
         due_date=data.due_date,
         show_in_nav=data.show_in_nav,
         sort_order=data.sort_order,
+        visibility=data.visibility,
+        shared_with_user_ids=data.shared_with_user_ids or [],
     )
     db.add(p)
     await db.commit()
@@ -182,6 +191,10 @@ async def update_project(
         p.show_in_nav = data.show_in_nav
     if "sort_order" in updated and data.sort_order is not None:
         p.sort_order = data.sort_order
+    if "visibility" in updated and data.visibility is not None:
+        p.visibility = data.visibility
+    if "shared_with_user_ids" in updated:
+        p.shared_with_user_ids = data.shared_with_user_ids
 
     p.updated_at = datetime.now(tz=timezone.utc)
     await db.commit()

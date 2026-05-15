@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from life_dashboard.auth.models import HouseholdMembership, User
+from life_dashboard.auth.models import Household, HouseholdMembership, User
 from life_dashboard.auth.service import get_user_by_id
 from life_dashboard.auth.tokens import JWTError, decode_access_token
 from life_dashboard.core.database import get_db
@@ -63,6 +63,14 @@ async def get_current_user(
             detail="User has no household membership",
         )
 
-    # Attach as a plain Python attribute — not an ORM column, never written to DB.
+    # Attach as plain Python attributes — not ORM columns, never written to DB.
     user.household_id = membership.household_id  # type: ignore[attr-defined]
+    user.role = membership.role.value  # type: ignore[attr-defined]
+
+    household_result = await db.execute(
+        select(Household).where(Household.id == membership.household_id)
+    )
+    household = household_result.scalar_one_or_none()
+    user.household_name = household.name if household else None  # type: ignore[attr-defined]
+
     return user
