@@ -29,6 +29,7 @@ from life_dashboard.domains.tags.router import router as tags_router
 from life_dashboard.domains.todos.router import router as todos_router
 from life_dashboard.domains.notifications.router import router as notifications_router
 from life_dashboard.domains.workouts.router import router as workouts_router
+from life_dashboard.domains.budget.router import router as budget_router
 from life_dashboard.auth.service import run_bootstrap_if_needed
 from life_dashboard.setup.router import router as setup_router
 from life_dashboard.core.database import AsyncSessionLocal, create_all_tables, engine, _is_sqlite
@@ -230,6 +231,7 @@ app.include_router(tags_router)
 app.include_router(notifications_router)
 app.include_router(todos_router)
 app.include_router(workouts_router)
+app.include_router(budget_router)
 
 
 @app.get("/health", tags=["ops"])

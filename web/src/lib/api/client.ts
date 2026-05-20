@@ -31,7 +31,7 @@ export const apiClient = createClient<paths>({
 // several queries fail with 401 at the same time (e.g. on window focus).
 let pendingRefresh: Promise<string | null> | null = null;
 
-async function tryRefreshToken(): Promise<string | null> {
+export async function tryRefreshToken(): Promise<string | null> {
   if (pendingRefresh) return pendingRefresh;
 
   pendingRefresh = (async () => {

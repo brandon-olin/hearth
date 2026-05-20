@@ -11,6 +11,7 @@ import {
   Dumbbell,
   FolderKanban,
   Settings,
+  Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -50,6 +51,7 @@ export const BUILTIN_NAV_ITEMS: NavItem[] = [
   { href: "/grocery-lists", label: "Groceries", icon: ShoppingCart },
   { href: "/workouts", label: "Workouts", icon: Dumbbell },
   { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/budget", label: "Budget", icon: Wallet },
 ];
 
 /**

@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "notes": "Tracks planned and in-progress features for the Hearth agent harness. Mark passes=true only after manual end-to-end verification. Do not remove or rename entries — add new ones at the bottom of the relevant category. Priorities: 1=highest, 3=lowest.",
+  "features": [
+
+    {
+      "id": "budget-001",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget analytics — monthly spending by category",
+      "description": "A /budget/analytics page showing a breakdown of spending per category for the current month, with a month-picker to view historical months. Bar or pie chart. Uses existing transaction + category data.",
+      "steps": [
+        "Navigate to /budget",
+        "Click 'Analytics' or a month-picker control",
+        "See a chart of spending by category for the selected month",
+        "Verify totals match the transaction list for that month",
+        "Switch months and confirm data updates correctly"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "budget-002",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget export — download transactions as CSV",
+      "description": "A button on the main budget page that exports all transactions (or filtered transactions) as a downloadable CSV file. Include columns: date, merchant, amount, category, notes.",
+      "steps": [
+        "Navigate to /budget",
+        "Click 'Export CSV'",
+        "A file downloads named hearth-budget-YYYY-MM.csv",
+        "Open the file and verify columns: date, merchant, amount, category, notes",
+        "Verify all visible transactions are present"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "budget-003",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Budget dashboard widget",
+      "description": "A new dashboard widget showing this month's total spending vs a budget target, with a simple progress bar. Widget is addable via the Add Widget sheet. Config: optional monthly budget target amount.",
+      "steps": [
+        "Navigate to the dashboard",
+        "Click 'Add widget' and find 'Budget' in the list",
+        "Add the widget",
+        "See current month's spending and an optional budget target bar",
+        "Widget reloads with fresh data on each visit"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "budget-004",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Recurring budget transactions",
+      "description": "Mark a transaction as recurring (weekly/monthly) so it auto-appears in future periods. The recurring field follows the same shape as the todos recurring JSONB. A recurring indicator shows on the transaction row.",
+      "steps": [
+        "Open a transaction in the budget import or transactions list",
+        "Mark it as recurring with a monthly frequency",
+        "Navigate to the next month's transaction list",
+        "Verify the transaction appears automatically",
+        "Delete the recurrence and verify it stops"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "grocery-001",
+      "category": "Grocery Lists",
+      "priority": 1,
+      "title": "Generate grocery list from recipe ingredients",
+      "description": "On a recipe detail page, a button 'Add to grocery list' opens a picker showing the user's active grocery lists. Selecting one appends the recipe's ingredients as unchecked items.",
+      "steps": [
+        "Navigate to a recipe with ingredients",
+        "Click 'Add to grocery list'",
+        "Select or create a grocery list from the picker",
+        "Navigate to that grocery list",
+        "Verify the recipe's ingredients appear as unchecked items",
+        "Verify ingredients already on the list are not duplicated"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "calendar-001",
+      "category": "Calendar",
+      "priority": 1,
+      "title": "Show todo due dates on calendar",
+      "description": "Todos with a due_date appear as chips on the corresponding day in the calendar view. Clicking a chip opens the todo sheet. Completed todos appear with a strikethrough.",
+      "steps": [
+        "Create a todo with a due date of tomorrow",
+        "Navigate to /calendar",
+        "Verify the todo appears as a chip on tomorrow's date",
+        "Click the chip and verify the todo sheet opens",
+        "Mark the todo complete and verify it shows strikethrough on the calendar"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "calendar-002",
+      "category": "Calendar",
+      "priority": 2,
+      "title": "Show scheduled habits on calendar",
+      "description": "Habits appear on their scheduled days in the calendar view with a distinct visual style (e.g. small dot or chip). Clicking a habit chip opens the habit sheet.",
+      "steps": [
+        "Create a habit scheduled for Monday and Wednesday",
+        "Navigate to /calendar and find a Monday",
+        "Verify the habit appears on that day",
+        "Verify it does not appear on Tuesday",
+        "Click the habit indicator and verify the habit sheet opens"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "notifications-001",
+      "category": "Notifications",
+      "priority": 2,
+      "title": "Notification center UI",
+      "description": "A notification bell icon in the shell header showing unread count. Clicking it opens a dropdown/panel listing recent notifications. Notifications can be marked as read. The API domain already exists.",
+      "steps": [
+        "Trigger a notification (e.g. household member completes an assigned todo)",
+        "See the bell icon show an unread count badge",
+        "Click the bell to open the notification panel",
+        "Verify the notification appears with correct message and timestamp",
+        "Click 'Mark all read' and verify the badge clears"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "search-001",
+      "category": "Search",
+      "priority": 2,
+      "title": "Global full-text search across all domains",
+      "description": "The existing command palette (shell) gains a search mode that queries across documents, todos, recipes, contacts, habits, notes, and projects. Results show domain icon, title, and snippet. Selecting a result navigates to that item.",
+      "steps": [
+        "Press Cmd+K to open the command palette",
+        "Type a word that appears in a document title",
+        "Verify the document appears in results with a document icon",
+        "Type a word that appears in a recipe",
+        "Verify the recipe appears",
+        "Click a result and verify navigation to the correct item"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "household-001",
+      "category": "Household",
+      "priority": 2,
+      "title": "Email-based household invitations",
+      "description": "Household admins can invite new members by email. The invitee receives an email with a signup link pre-scoped to the household. Currently, new members are added directly (no email flow).",
+      "steps": [
+        "Navigate to Settings → Household",
+        "Click 'Invite member' and enter an email address",
+        "The invitee receives an email with a join link",
+        "Following the link creates an account and joins the household",
+        "The new member appears in the member list"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "goals-001",
+      "category": "Goals",
+      "priority": 2,
+      "title": "Link goals to projects",
+      "description": "Goals can optionally reference a project. When linked, the goal's progress bar derives from the project's completion percentage. A 'Linked project' field appears in the goal sheet.",
+      "steps": [
+        "Create a goal and open its sheet",
+        "Select a linked project from a dropdown",
+        "Verify the goal's progress reflects the project's completion",
+        "Complete a todo under that project",
+        "Verify the goal's progress updates accordingly"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "settings-001",
+      "category": "Settings",
+      "priority": 3,
+      "title": "Full data export (household backup)",
+      "description": "A 'Export my data' button in Settings → Account downloads a ZIP file containing all household data as JSON (documents, todos, habits, recipes, etc.) plus any uploaded files.",
+      "steps": [
+        "Navigate to Settings → Account",
+        "Click 'Export my data'",
+        "A ZIP file downloads",
+        "Open the ZIP and verify it contains JSON files for each domain",
+        "Verify the document content is present in the exported JSON"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "settings-002",
+      "category": "Settings",
+      "priority": 3,
+      "title": "Notification preferences in settings",
+      "description": "Settings → Notifications page where users can toggle which notification types they receive (e.g. todo assignments, habit reminders). Preferences are stored per-member.",
+      "steps": [
+        "Navigate to Settings → Notifications",
+        "Toggle off 'Todo assignment notifications'",
+        "Have another member assign a todo to you",
+        "Verify no notification appears for that event",
+        "Toggle it back on and verify notifications resume"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "workouts-001",
+      "category": "Workouts",
+      "priority": 3,
+      "title": "Workout templates",
+      "description": "Save a workout as a template. When logging a new workout, pick from saved templates to pre-fill the exercise list. The templates domain API already exists.",
+      "steps": [
+        "Log a workout with several exercises",
+        "Click 'Save as template' and give it a name",
+        "Click 'New workout' and select 'From template'",
+        "Select the saved template",
+        "Verify the exercises are pre-filled in the new workout form"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "dashboard-001",
+      "category": "Dashboard",
+      "priority": 2,
+      "title": "Notes widget on dashboard",
+      "description": "A new dashboard widget that shows a quick-editable sticky note. Content persists per-widget instance. Useful for household reminders or scratch notes visible at a glance.",
+      "steps": [
+        "Navigate to dashboard",
+        "Add a 'Notes' widget via 'Add widget'",
+        "Type a note in the widget",
+        "Reload the page",
+        "Verify the note content persists"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "dashboard-002",
+      "category": "Dashboard",
+      "priority": 3,
+      "title": "Recent recipes widget on dashboard",
+      "description": "A dashboard widget showing the 5 most recently created or viewed recipes, each linking to the recipe detail page. Config: optional tag filter.",
+      "steps": [
+        "Add a 'Recent recipes' widget via 'Add widget'",
+        "Verify 5 recent recipes appear with their cover image (or fallback)",
+        "Click a recipe and verify navigation to the correct recipe",
+        "Create a new recipe and verify it appears at the top of the widget"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "ux-001",
+      "category": "UX Polish",
+      "priority": 2,
+      "title": "Empty state illustrations for all domain pages",
+      "description": "Every domain list page (todos, habits, recipes, etc.) shows a friendly empty state with a short message and a call-to-action when the list is empty. Currently some pages show a blank area.",
+      "steps": [
+        "Create a new test household with no data",
+        "Navigate to /todos — verify a friendly empty state with a 'Create your first todo' button",
+        "Navigate to /habits — verify empty state with 'Track your first habit'",
+        "Navigate to /recipes — verify empty state with 'Add your first recipe'",
+        "Verify each domain page has its own empty state message"
+      ],
+      "passes": false
+    },
+
+    {
+      "id": "ux-002",
+      "category": "UX Polish",
+      "priority": 3,
+      "title": "Keyboard shortcuts for common actions",
+      "description": "Add keyboard shortcuts: N = new item on the current domain page, Cmd+K = command palette (already exists), Escape = close any open sheet. Shortcuts are documented in a help modal (? key).",
+      "steps": [
+        "Navigate to /todos and press N",
+        "Verify the new-todo sheet opens",
+        "Navigate to /habits and press N",
+        "Verify the new-habit sheet opens",
+        "Press ? and verify a shortcuts reference modal appears",
+        "Press Escape to close any open sheet"
+      ],
+      "passes": false
+    }
+
+  ]
+}

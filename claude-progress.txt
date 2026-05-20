@@ -1,0 +1,31 @@
+=== 2026-05-20 — Harness setup ===
+Status: initialized
+What was done:
+  Set up the agent harness for autonomous feature development. The harness follows
+  the Anthropic long-running agent pattern: init.sh for dev server startup,
+  feature_list.json for structured feature tracking, and agent/coding.md +
+  agent/initializer.md as the agent prompts.
+
+  The feature_list.json has been pre-populated with 17 planned features across:
+  Budget (analytics, CSV export, dashboard widget, recurring transactions),
+  Grocery (recipe → shopping list generation), Calendar (todos/habits overlay),
+  Notifications (notification center UI), Search (global full-text search),
+  Household (email invitations), Goals (link to projects), Settings (data export,
+  notification prefs), Workouts (templates), Dashboard (notes widget, recent
+  recipes widget), UX (empty states, keyboard shortcuts).
+
+  API runs on :1339 (dev, --reload). Web runs on :1337 (launchd production or
+  next dev if started manually). The launchd services (make service-start/stop)
+  manage the always-on production instance.
+
+Current codebase state:
+  Migrations through 0007_budget_category_keywords are applied. All core domains
+  are implemented: documents, todos, habits, recipes, grocery-lists, workouts,
+  contacts, calendar, goals, projects, collections, notes, budget, AI, tags.
+  Dashboard has DnD-based customizable widget layout. Budget has import +
+  category management (Phase 1 complete).
+
+Recommended first feature for coding agent: budget-001 (monthly spending analytics)
+  Starting point: api/src/life_dashboard/domains/budget/service.py +
+  web/src/app/(protected)/budget/
+
