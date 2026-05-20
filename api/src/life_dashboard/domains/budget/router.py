@@ -1,9 +1,11 @@
+import io
 import json
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import status as http_status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.dependencies import get_current_user
@@ -213,6 +215,37 @@ async def create_transaction(
         return await service.create_transaction(db, current_user.household_id, current_user.id, data)
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/transactions/export")
+async def export_transactions_csv(
+    account_id: uuid.UUID | None = Query(default=None),
+    category_id: uuid.UUID | None = Query(default=None),
+    scope: str | None = Query(default=None, pattern="^(personal|household)$"),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    Download all visible transactions as a CSV file.
+    Filename: hearth-budget-YYYY-MM.csv based on date_from or the current month.
+    """
+    csv_content = await service.export_transactions_csv(
+        db, current_user.household_id, current_user.id,
+        account_id=account_id,
+        category_id=category_id,
+        scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    ref_date = date_from or date.today()
+    filename = f"hearth-budget-{ref_date.strftime('%Y-%m')}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_content.encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/transactions/{transaction_id}", response_model=BudgetTransactionResponse)

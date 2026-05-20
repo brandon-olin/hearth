@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Upload,
+  Download,
   Loader2,
   ChevronLeft,
   ChevronRight,
@@ -374,6 +375,7 @@ export default function BudgetPage() {
   const [deleting, setDeleting] = useState(false);
   const [autoCategorizing, setAutoCategorizing] = useState(false);
   const [autoCategorizeMsg, setAutoCategorizeMsg] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Date range for summary bar
   const [datePreset, setDatePreset] = useState<DateRangePreset>("mtd");
@@ -449,6 +451,29 @@ export default function BudgetPage() {
     setCategoryOverrides((prev) => ({ ...prev, [txnId]: catId }));
   }, []);
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedAccount) params.set("account_id", selectedAccount);
+      const res = await fetchWithAuth(`${apiBaseUrl}/budget/transactions/export?${params.toString()}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = res.headers.get("Content-Disposition");
+      const match = disposition?.match(/filename="([^"]+)"/);
+      a.download = match?.[1] ?? "hearth-budget.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // ── Empty state ─────────────────────────────────────────────────────────────
 
   if (!accountsLoading && !hasAccounts) {
@@ -514,6 +539,19 @@ export default function BudgetPage() {
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />Delete all
             </Button>
           )}
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            className="text-muted-foreground"
+          >
+            {exporting
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+              : <Download className="w-3.5 h-3.5 mr-1.5" />}
+            Export CSV
+          </Button>
 
           <Button size="sm" onClick={() => router.push("/budget/import")}>
             <Upload className="w-3.5 h-3.5 mr-1.5" />Import

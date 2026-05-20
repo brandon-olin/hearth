@@ -9,7 +9,9 @@ for transactions is enforced via the scope + owner_user_id columns:
   - household scope  → all household members can see the transaction
   - personal scope   → only the owner_user_id can see the transaction
 """
+import csv
 import hashlib
+import io
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -480,6 +482,59 @@ async def delete_all_transactions(
     result = await db.execute(stmt)
     await db.commit()
     return result.rowcount  # type: ignore[return-value]
+
+
+async def export_transactions_csv(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    account_id: uuid.UUID | None = None,
+    category_id: uuid.UUID | None = None,
+    scope: str | None = None,
+    date_from: Any | None = None,
+    date_to: Any | None = None,
+) -> str:
+    """
+    Return all matching transactions as a UTF-8 CSV string.
+    Columns: date, merchant, amount, category, notes.
+    """
+    stmt = (
+        select(BudgetTransaction, BudgetCategory.name.label("category_name"))
+        .outerjoin(BudgetCategory, BudgetTransaction.category_id == BudgetCategory.id)
+        .where(
+            BudgetTransaction.household_id == household_id,
+            _transaction_visible_to(BudgetTransaction, user_id),
+            BudgetTransaction.archived_at.is_(None),
+        )
+    )
+    if account_id is not None:
+        stmt = stmt.where(BudgetTransaction.account_id == account_id)
+    if category_id is not None:
+        stmt = stmt.where(BudgetTransaction.category_id == category_id)
+    if scope is not None:
+        stmt = stmt.where(BudgetTransaction.scope == scope)
+    if date_from is not None:
+        stmt = stmt.where(BudgetTransaction.date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(BudgetTransaction.date <= date_to)
+    stmt = stmt.order_by(BudgetTransaction.date.desc(), BudgetTransaction.created_at.desc())
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["date", "merchant", "amount", "category", "notes"])
+    for txn, category_name in rows:
+        writer.writerow([
+            str(txn.date),
+            txn.merchant_name or txn.description,
+            f"{float(txn.amount):.2f}",
+            category_name or "",
+            txn.notes or "",
+        ])
+    return output.getvalue()
 
 
 async def bulk_import_transactions(
