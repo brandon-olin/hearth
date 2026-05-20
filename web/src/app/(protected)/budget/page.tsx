@@ -20,6 +20,7 @@ import {
   X,
   Tag,
   Sparkles,
+  BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -502,6 +503,14 @@ export default function BudgetPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-semibold">Budget</h1>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push("/budget/analytics")}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            Analytics
+          </button>
+
           <button
             onClick={() => router.push("/budget/categories")}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
