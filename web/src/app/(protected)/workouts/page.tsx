@@ -424,7 +424,7 @@ function WorkoutEditor({
     try {
       await patchWorkout({
         params: { path: { workout_id: workoutId } },
-        body: { visibility: v, shared_with_user_ids: sw },
+        body: { visibility: v, shared_with_user_ids: sw } as Parameters<typeof patchWorkout>[0]["body"],
       });
     } catch { /* ignore */ }
   }

@@ -229,7 +229,7 @@ export function PageTree() {
     setIsCreating(true);
     try {
       const doc = await createDocument({
-        body: { title: "Untitled", kind: "page", parent_id: parentId ?? null },
+        body: { title: "Untitled", kind: "page", parent_id: parentId ?? null, visibility: "personal", shared_with_user_ids: [] },
       });
       qc.invalidateQueries({ queryKey: ["get", "/documents"] });
       if (doc?.id) router.push(`/documents/${doc.id}`);

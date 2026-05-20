@@ -2339,6 +2339,8 @@ function ProjectsSection() {
         parent_id: form.parent_id || null,
         show_in_nav: form.show_in_nav,
         sort_order: 0,
+        visibility: "household",
+        shared_with_user_ids: [],
       },
     });
     invalidate();
@@ -3559,9 +3561,7 @@ function TemplatesSection() {
   const qc = useQueryClient();
   const { user } = useAuth();
 
-  const { data: templatesData, isLoading } = $api.useQuery("get", "/templates", {
-    params: { query: { limit: 200 } },
-  });
+  const { data: templatesData, isLoading } = $api.useQuery("get", "/templates", {});
   const templates = templatesData?.items ?? [];
 
   // ── Create / edit form state ─────────────────────────────────────────────

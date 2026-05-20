@@ -33,6 +33,7 @@ export function QuickAdd({ projectId, onCreated, className }: QuickAddProps) {
         body: {
           title,
           status: "pending",
+          visibility: "household",
           ...(projectId ? { project_id: projectId } : {}),
         },
       });

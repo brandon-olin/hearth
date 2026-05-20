@@ -234,7 +234,7 @@ function EditorInner({ documentId }: { documentId: string }) {
     setIsCreatingSubpage(true);
     try {
       const doc = await createDocument({
-        body: { title: "Untitled", kind: "page", parent_id: documentId as any },
+        body: { title: "Untitled", kind: "page", parent_id: documentId as any, visibility: "personal", shared_with_user_ids: [] },
       });
       qc.invalidateQueries({ queryKey: ["get", "/documents"] });
       if (doc?.id) router.push(`/documents/${doc.id}`);
@@ -247,7 +247,7 @@ function EditorInner({ documentId }: { documentId: string }) {
   function insertPageLinkBlock() {
     const cursorBlock = editor.getTextCursorPosition().block;
     createDocument({
-      body: { title: "Untitled", kind: "page", parent_id: documentId as any },
+      body: { title: "Untitled", kind: "page", parent_id: documentId as any, visibility: "personal", shared_with_user_ids: [] },
     })
       .then((newDoc) => {
         if (!newDoc?.id) return;
