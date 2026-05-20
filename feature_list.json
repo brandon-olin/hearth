@@ -1,13 +1,12 @@
 {
   "version": 1,
-  "notes": "Tracks planned and in-progress features for the Hearth agent harness. Mark passes=true only after manual end-to-end verification. Do not remove or rename entries — add new ones at the bottom of the relevant category. Priorities: 1=highest, 3=lowest.",
+  "notes": "Tracks planned and in-progress features for the Hearth agent harness. Mark passes=true only after manual end-to-end verification. Do not remove or rename entries \u2014 add new ones at the bottom of the relevant category. Priorities: 1=highest, 3=lowest.",
   "features": [
-
     {
       "id": "budget-001",
       "category": "Budget",
       "priority": 1,
-      "title": "Budget analytics — monthly spending by category",
+      "title": "Budget analytics \u2014 monthly spending by category",
       "description": "A /budget/analytics page showing a breakdown of spending per category for the current month, with a month-picker to view historical months. Bar or pie chart. Uses existing transaction + category data.",
       "steps": [
         "Navigate to /budget",
@@ -16,14 +15,13 @@
         "Verify totals match the transaction list for that month",
         "Switch months and confirm data updates correctly"
       ],
-      "passes": false
+      "passes": true
     },
-
     {
       "id": "budget-002",
       "category": "Budget",
       "priority": 1,
-      "title": "Budget export — download transactions as CSV",
+      "title": "Budget export \u2014 download transactions as CSV",
       "description": "A button on the main budget page that exports all transactions (or filtered transactions) as a downloadable CSV file. Include columns: date, merchant, amount, category, notes.",
       "steps": [
         "Navigate to /budget",
@@ -34,7 +32,6 @@
       ],
       "passes": true
     },
-
     {
       "id": "budget-003",
       "category": "Budget",
@@ -50,7 +47,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "budget-004",
       "category": "Budget",
@@ -66,7 +62,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "grocery-001",
       "category": "Grocery Lists",
@@ -83,7 +78,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "calendar-001",
       "category": "Calendar",
@@ -99,7 +93,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "calendar-002",
       "category": "Calendar",
@@ -115,7 +108,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "notifications-001",
       "category": "Notifications",
@@ -131,7 +123,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "search-001",
       "category": "Search",
@@ -148,7 +139,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "household-001",
       "category": "Household",
@@ -156,7 +146,7 @@
       "title": "Email-based household invitations",
       "description": "Household admins can invite new members by email. The invitee receives an email with a signup link pre-scoped to the household. Currently, new members are added directly (no email flow).",
       "steps": [
-        "Navigate to Settings → Household",
+        "Navigate to Settings \u2192 Household",
         "Click 'Invite member' and enter an email address",
         "The invitee receives an email with a join link",
         "Following the link creates an account and joins the household",
@@ -164,7 +154,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "goals-001",
       "category": "Goals",
@@ -180,15 +169,14 @@
       ],
       "passes": false
     },
-
     {
       "id": "settings-001",
       "category": "Settings",
       "priority": 3,
       "title": "Full data export (household backup)",
-      "description": "A 'Export my data' button in Settings → Account downloads a ZIP file containing all household data as JSON (documents, todos, habits, recipes, etc.) plus any uploaded files.",
+      "description": "A 'Export my data' button in Settings \u2192 Account downloads a ZIP file containing all household data as JSON (documents, todos, habits, recipes, etc.) plus any uploaded files.",
       "steps": [
-        "Navigate to Settings → Account",
+        "Navigate to Settings \u2192 Account",
         "Click 'Export my data'",
         "A ZIP file downloads",
         "Open the ZIP and verify it contains JSON files for each domain",
@@ -196,15 +184,14 @@
       ],
       "passes": false
     },
-
     {
       "id": "settings-002",
       "category": "Settings",
       "priority": 3,
       "title": "Notification preferences in settings",
-      "description": "Settings → Notifications page where users can toggle which notification types they receive (e.g. todo assignments, habit reminders). Preferences are stored per-member.",
+      "description": "Settings \u2192 Notifications page where users can toggle which notification types they receive (e.g. todo assignments, habit reminders). Preferences are stored per-member.",
       "steps": [
-        "Navigate to Settings → Notifications",
+        "Navigate to Settings \u2192 Notifications",
         "Toggle off 'Todo assignment notifications'",
         "Have another member assign a todo to you",
         "Verify no notification appears for that event",
@@ -212,7 +199,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "workouts-001",
       "category": "Workouts",
@@ -228,7 +214,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "dashboard-001",
       "category": "Dashboard",
@@ -244,7 +229,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "dashboard-002",
       "category": "Dashboard",
@@ -259,7 +243,6 @@
       ],
       "passes": false
     },
-
     {
       "id": "ux-001",
       "category": "UX Polish",
@@ -268,14 +251,13 @@
       "description": "Every domain list page (todos, habits, recipes, etc.) shows a friendly empty state with a short message and a call-to-action when the list is empty. Currently some pages show a blank area.",
       "steps": [
         "Create a new test household with no data",
-        "Navigate to /todos — verify a friendly empty state with a 'Create your first todo' button",
-        "Navigate to /habits — verify empty state with 'Track your first habit'",
-        "Navigate to /recipes — verify empty state with 'Add your first recipe'",
+        "Navigate to /todos \u2014 verify a friendly empty state with a 'Create your first todo' button",
+        "Navigate to /habits \u2014 verify empty state with 'Track your first habit'",
+        "Navigate to /recipes \u2014 verify empty state with 'Add your first recipe'",
         "Verify each domain page has its own empty state message"
       ],
       "passes": false
     },
-
     {
       "id": "ux-002",
       "category": "UX Polish",
@@ -292,6 +274,5 @@
       ],
       "passes": false
     }
-
   ]
 }

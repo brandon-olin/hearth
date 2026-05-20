@@ -50,3 +50,30 @@ Recommended next feature: budget-001 (monthly spending analytics)
   Starting point: api/src/life_dashboard/domains/budget/service.py (add per-category aggregation)
   + new page at web/src/app/(protected)/budget/analytics/page.tsx
 
+=== 2026-05-20 — Coding session ===
+Feature worked on: budget-001 — Budget analytics — monthly spending by category
+Status: complete
+Commits this session:
+  - 54a19b3 feat(budget): add GET /budget/analytics endpoint for monthly spending by category
+  - aafb7cb feat(budget): add budget analytics page with monthly spending by category
+  - c89cfb4 fix(types): fix pre-existing TypeScript errors exposed by schema regeneration
+What was done:
+  Added GET /budget/analytics?year=&month=&account_id= endpoint to the budget domain.
+  A single GROUP BY SQL query aggregates spending per category using OUTER JOIN to
+  include category name/color/icon. NULL category_id rows are returned as "Uncategorized".
+  New schemas: BudgetAnalyticsResponse and BudgetCategoryAnalyticsEntry.
+  Created /budget/analytics frontend page with month-picker (prev/next navigation),
+  optional account filter, income/expenses summary cards, and a horizontal CSS bar chart
+  showing spending proportional to the largest category. Added an Analytics button to
+  the /budget page header. Regenerated schema.d.ts from the dev API which exposed
+  several pre-existing TypeScript errors (missing visibility/shared_with_user_ids on
+  ProjectCreate, DocumentCreate, TodoCreate) — all fixed.
+  Verified: totals match the /budget/summary endpoint exactly ($7874.51 expenses for May 2026),
+  month navigation returns different data, /budget/analytics returns HTTP 200.
+What was NOT done / left for next session:
+  nothing — feature fully verified
+Recommended next feature: budget-003 (Budget dashboard widget)
+  Starting point: web/src/app/(protected)/dashboard/ — add a BudgetWidget component
+  that shows current month income/expenses/net balance, similar to the summary bar on
+  the budget page but condensed for the dashboard grid.
+
