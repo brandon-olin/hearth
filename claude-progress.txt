@@ -29,3 +29,24 @@ Recommended first feature for coding agent: budget-001 (monthly spending analyti
   Starting point: api/src/life_dashboard/domains/budget/service.py +
   web/src/app/(protected)/budget/
 
+=== 2026-05-20 — Coding session ===
+Feature worked on: budget-002 — Budget export — download transactions as CSV
+Status: complete
+Commits this session:
+  - 82d1e32 feat(budget): add CSV export endpoint and Export CSV button
+What was done:
+  Added GET /budget/transactions/export to the FastAPI router, registered before
+  GET /transactions/{transaction_id} to avoid path-variable shadowing. The endpoint
+  accepts account_id, category_id, scope, date_from, date_to filters and returns a
+  StreamingResponse with Content-Disposition: attachment; filename="hearth-budget-YYYY-MM.csv".
+  The service function export_transactions_csv does a LEFT OUTER JOIN with budget_categories
+  to include the category name in each row. Columns: date, merchant, amount, category, notes.
+  The budget page frontend gained an "Export CSV" button (ghost variant, with spinner) that
+  uses fetchWithAuth to download the file with auth headers, then triggers a browser download
+  via a temporary object URL. Verified: 495 rows exported, all columns present, filename correct.
+What was NOT done / left for next session:
+  nothing — feature fully verified
+Recommended next feature: budget-001 (monthly spending analytics)
+  Starting point: api/src/life_dashboard/domains/budget/service.py (add per-category aggregation)
+  + new page at web/src/app/(protected)/budget/analytics/page.tsx
+
