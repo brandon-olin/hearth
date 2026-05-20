@@ -102,6 +102,28 @@ class BudgetSummaryResponse(BaseModel):
     date_to: Date | None
 
 
+class BudgetCategoryAnalyticsEntry(BaseModel):
+    category_id: uuid.UUID | None
+    category_name: str
+    category_color: str | None
+    category_icon: str | None
+    total_expenses: float       # abs(sum of negative amounts)
+    total_income: float         # sum of positive amounts
+    transaction_count: int
+
+
+class BudgetAnalyticsResponse(BaseModel):
+    """Per-category spending breakdown for a calendar month."""
+    year: int
+    month: int
+    date_from: Date
+    date_to: Date
+    total_expenses: float
+    total_income: float
+    transaction_count: int
+    by_category: list[BudgetCategoryAnalyticsEntry]
+
+
 # ── BudgetTransaction ─────────────────────────────────────────────────────────
 
 class BudgetTransactionCreate(BaseModel):

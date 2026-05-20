@@ -22,6 +22,7 @@ from life_dashboard.domains.budget.schemas import (
     BudgetAccountCreate,
     BudgetAccountUpdate,
     BudgetAccountResponse,
+    BudgetAnalyticsResponse,
     BudgetCategoryCreate,
     BudgetCategoryUpdate,
     BudgetCategoryResponse,
@@ -174,6 +175,31 @@ async def get_summary(
         account_id=account_id,
         date_from=date_from,
         date_to=date_to,
+    )
+
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+
+@router.get("/analytics", response_model=BudgetAnalyticsResponse)
+async def get_analytics(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    account_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetAnalyticsResponse:
+    """
+    Per-category spending breakdown for a calendar month.
+    Defaults to the current month when year/month are omitted.
+    """
+    today = date.today()
+    resolved_year = year if year is not None else today.year
+    resolved_month = month if month is not None else today.month
+    return await service.get_analytics(
+        db, current_user.household_id, current_user.id,
+        year=resolved_year,
+        month=resolved_month,
+        account_id=account_id,
     )
 
 

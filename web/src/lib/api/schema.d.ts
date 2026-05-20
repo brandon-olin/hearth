@@ -147,6 +147,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/coach/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Coach Digest
+         * @description Return the stored coach digest for the given day and kind.
+         *
+         *     Returns null (HTTP 200 with null body) when no digest has been generated yet
+         *     for that slot. The frontend uses this to show an empty state with a
+         *     'Generate now' button.
+         */
+        get: operations["get_coach_digest_ai_coach_digest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/coach/digest/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Coach Digest
+         * @description Generate (or regenerate) a coach digest on demand.
+         *
+         *     Replaces any existing digest for the same (user, date, kind) slot.
+         *     Called by the widget's 'Generate now' / 'Regenerate' button.
+         */
+        post: operations["generate_coach_digest_ai_coach_digest_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/coach/tones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Coach Tones
+         * @description Return the available coach tones with labels and descriptions.
+         */
+        get: operations["get_coach_tones_ai_coach_tones_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/chat": {
         parameters: {
             query?: never;
@@ -187,6 +254,12 @@ export interface paths {
         /**
          * Register
          * @description Public. Creates a new household + account and logs the user in immediately.
+         *
+         *     display_name defaults to the local part of the email address.
+         *     household_name defaults to "{display_name}'s Home".
+         *     Password must be at least 8 characters.
+         *
+         *     Returns 409 Conflict if the email is already registered.
          */
         post: operations["register_auth_register_post"];
         delete?: never;
@@ -285,7 +358,14 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Change Password */
+        /**
+         * Change Password
+         * @description Change the authenticated user's password.
+         *
+         *     Requires the current password for verification. The new password must be
+         *     at least 8 characters. All existing refresh tokens remain valid — the user
+         *     stays logged in on all devices (intentional; add token revocation later if needed).
+         */
         patch: operations["change_password_auth_me_password_patch"];
         trace?: never;
     };
@@ -302,7 +382,15 @@ export interface paths {
          */
         get: operations["list_members_households_members_get"];
         put?: never;
-        /** Add Member */
+        /**
+         * Add Member
+         * @description Add a new member to the current household.
+         *
+         *     Creates a new user account (password = "password") if the email is not
+         *     already registered, then adds them to the household with the given role.
+         *
+         *     Admin/owner only. Allowed roles: admin, member, viewer.
+         */
         post: operations["add_member_households_members_post"];
         delete?: never;
         options?: never;
@@ -323,7 +411,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update Household Name */
+        /**
+         * Update Household Name
+         * @description Update the household name. Admin and owner only.
+         */
         patch: operations["update_household_name_households_name_patch"];
         trace?: never;
     };
@@ -331,15 +422,19 @@ export interface paths {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                target_user_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Impersonate (dev only) */
-        post: operations["impersonate_households_dev_impersonate_post"];
+        /**
+         * Impersonate
+         * @description DEV ONLY. Returns an access token for another member of the same household.
+         *
+         *     Lets an admin test the app through a different user's perspective without
+         *     needing to log in/out. Disabled in production environments.
+         */
+        post: operations["impersonate_households_dev_impersonate__target_user_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -353,30 +448,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get household permission config */
-        get: {
-            parameters: { query?: never; header?: never; path?: never; cookie?: never };
-            requestBody?: never;
-            responses: {
-                200: {
-                    headers: Record<string, unknown>;
-                    content: { "application/json": components["schemas"]["HouseholdPermissionsResponse"] };
-                };
-            };
-        };
-        /** Update household permission config (admin only) */
-        put: {
-            parameters: { query?: never; header?: never; path?: never; cookie?: never };
-            requestBody: {
-                content: { "application/json": components["schemas"]["UpdatePermissionsRequest"] };
-            };
-            responses: {
-                200: {
-                    headers: Record<string, unknown>;
-                    content: { "application/json": components["schemas"]["HouseholdPermissionsResponse"] };
-                };
-            };
-        };
+        /**
+         * Get Permissions
+         * @description Return the household's permission config (defaults filled in).
+         */
+        get: operations["get_permissions_households_permissions_get"];
+        /**
+         * Update Permissions
+         * @description Update the household's permission config. Admin/owner only.
+         */
+        put: operations["update_permissions_households_permissions_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -526,58 +607,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/collections/{collection_id}/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string };
-            cookie?: never;
-        };
-        /** List Collection Templates */
-        get: operations["list_collection_templates_collections__collection_id__templates_get"];
-        put?: never;
-        /** Assign Template To Collection */
-        post: operations["assign_template_to_collection_collections__collection_id__templates_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{collection_id}/templates/{template_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string; template_id: string };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Remove Template From Collection */
-        delete: operations["remove_template_from_collection_collections__collection_id__templates__template_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{collection_id}/templates/{template_id}/default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string; template_id: string };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Set Default Template */
-        patch: operations["set_default_template_collections__collection_id__templates__template_id__default_patch"];
-        trace?: never;
-    };
     "/templates": {
         parameters: {
             query?: never;
@@ -585,7 +614,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Templates */
+        /**
+         * List Templates
+         * @description List all templates visible to the current user:
+         *     household-scoped templates for their household, plus their own user-scoped templates.
+         */
         get: operations["list_templates_templates_get"];
         put?: never;
         /** Create Template */
@@ -600,7 +633,7 @@ export interface paths {
         parameters: {
             query?: never;
             header?: never;
-            path: { template_id: string };
+            path?: never;
             cookie?: never;
         };
         /** Get Template */
@@ -613,6 +646,71 @@ export interface paths {
         head?: never;
         /** Update Template */
         patch: operations["update_template_templates__template_id__patch"];
+        trace?: never;
+    };
+    "/collections/{collection_id}/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collection Templates
+         * @description List all templates assigned to a collection.
+         */
+        get: operations["list_collection_templates_collections__collection_id__templates_get"];
+        put?: never;
+        /**
+         * Assign Template
+         * @description Assign a template to a collection.
+         *     If is_default=True, any existing default is cleared first.
+         */
+        post: operations["assign_template_collections__collection_id__templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{collection_id}/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Template
+         * @description Remove a template assignment from a collection.
+         */
+        delete: operations["remove_template_collections__collection_id__templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{collection_id}/templates/{template_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Default Template
+         * @description Mark a template as the default for this collection (clears any existing default).
+         */
+        patch: operations["set_default_template_collections__collection_id__templates__template_id__default_patch"];
         trace?: never;
     };
     "/contacts": {
@@ -1194,71 +1292,75 @@ export interface paths {
         trace?: never;
     };
     "/notifications/unread-count": {
-        parameters: { query?: never; header?: never; path?: never; cookie?: never; };
-        /** Unread Count */
-        get: {
-            parameters: { query?: never; header?: never; path?: never; cookie?: never; };
-            requestBody?: never;
-            responses: {
-                200: {
-                    headers: { [name: string]: unknown; };
-                    content: { "application/json": components["schemas"]["UnreadCountResponse"]; };
-                };
-            };
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;
+        /**
+         * Unread Count
+         * @description Lightweight poll endpoint — returns just the unread count.
+         */
+        get: operations["unread_count_notifications_unread_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
     "/notifications": {
-        parameters: { query?: never; header?: never; path?: never; cookie?: never; };
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         /** List Notifications */
-        get: {
-            parameters: {
-                query?: {
-                    limit?: number;
-                    offset?: number;
-                    unread_only?: boolean;
-                };
-                header?: never; path?: never; cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                200: {
-                    headers: { [name: string]: unknown; };
-                    content: { "application/json": components["schemas"]["NotificationListResponse"]; };
-                };
-            };
-        };
-        put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;
-    };
-    "/notifications/read-all": {
-        parameters: { query?: never; header?: never; path?: never; cookie?: never; };
-        get?: never; put?: never; delete?: never; options?: never; head?: never; trace?: never;
-        /** Mark All Read */
-        post: {
-            parameters: { query?: never; header?: never; path?: never; cookie?: never; };
-            requestBody?: never;
-            responses: { 204: { headers: { [name: string]: unknown; }; content?: never; }; };
-        };
+        get: operations["list_notifications_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
+        trace?: never;
     };
     "/notifications/{notification_id}/read": {
-        parameters: { query?: never; header?: never; path?: never; cookie?: never; };
-        get?: never; put?: never; post?: never; delete?: never; options?: never; head?: never; trace?: never;
-        /** Mark Notification Read */
-        patch: {
-            parameters: {
-                query?: never; header?: never;
-                path: { notification_id: string; };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                200: {
-                    headers: { [name: string]: unknown; };
-                    content: { "application/json": components["schemas"]["NotificationResponse"]; };
-                };
-            };
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark Notification Read */
+        patch: operations["mark_notification_read_notifications__notification_id__read_patch"];
+        trace?: never;
+    };
+    "/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark All Read */
+        post: operations["mark_all_read_notifications_read_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
     "/todos": {
         parameters: {
@@ -1394,6 +1496,268 @@ export interface paths {
         patch: operations["update_entry_workouts__workout_id__entries__entry_id__patch"];
         trace?: never;
     };
+    "/budget/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Accounts */
+        get: operations["list_accounts_budget_accounts_get"];
+        put?: never;
+        /** Create Account */
+        post: operations["create_account_budget_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Account */
+        get: operations["get_account_budget_accounts__account_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Account */
+        delete: operations["delete_account_budget_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Account */
+        patch: operations["update_account_budget_accounts__account_id__patch"];
+        trace?: never;
+    };
+    "/budget/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Categories */
+        get: operations["list_categories_budget_categories_get"];
+        put?: never;
+        /** Create Category */
+        post: operations["create_category_budget_categories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/categories/{category_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Category */
+        get: operations["get_category_budget_categories__category_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Category */
+        delete: operations["delete_category_budget_categories__category_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Category */
+        patch: operations["update_category_budget_categories__category_id__patch"];
+        trace?: never;
+    };
+    "/budget/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Summary */
+        get: operations["get_summary_budget_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Analytics
+         * @description Per-category spending breakdown for a calendar month.
+         *     Defaults to the current month when year/month are omitted.
+         */
+        get: operations["get_analytics_budget_analytics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Transactions */
+        get: operations["list_transactions_budget_transactions_get"];
+        put?: never;
+        /** Create Transaction */
+        post: operations["create_transaction_budget_transactions_post"];
+        /**
+         * Bulk Delete Transactions
+         * @description Delete all transactions for the household, optionally filtered to one account.
+         *     Returns { "deleted": <count> }.
+         */
+        delete: operations["bulk_delete_transactions_budget_transactions_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/transactions/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Transactions Csv
+         * @description Download all visible transactions as a CSV file.
+         *     Filename: hearth-budget-YYYY-MM.csv based on date_from or the current month.
+         */
+        get: operations["export_transactions_csv_budget_transactions_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/transactions/{transaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction */
+        get: operations["get_transaction_budget_transactions__transaction_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Transaction */
+        delete: operations["delete_transaction_budget_transactions__transaction_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Transaction */
+        patch: operations["update_transaction_budget_transactions__transaction_id__patch"];
+        trace?: never;
+    };
+    "/budget/transactions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Import Transactions */
+        post: operations["bulk_import_transactions_budget_transactions_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/auto-categorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Categorize
+         * @description Keyword-match uncategorized transactions against category keyword lists.
+         *     Pass account_id to restrict to a single account; omit to scan the whole household.
+         *     Returns { "updated": <count> }.
+         */
+        post: operations["auto_categorize_budget_auto_categorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/import/detect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detect Import File
+         * @description Upload a file and get back format detection + column info.
+         *
+         *     For OFX/QFX: returns estimated transaction count and date range.
+         *     For CSV: returns column headers, up to 5 sample rows, and a best-guess
+         *     column mapping for the frontend to display/edit before confirming import.
+         */
+        post: operations["detect_import_file_budget_import_detect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import File
+         * @description Import transactions from an OFX/QFX or CSV file into the given account.
+         *     Duplicates are silently skipped (dedup by hash + external_id).
+         *
+         *     For CSV files, supply `column_mapping` as a JSON-encoded CSVColumnMapping.
+         *     If omitted for CSV, heuristic detection is used.
+         */
+        post: operations["import_file_budget_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1414,10 +1778,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/debug/cors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cors Debug
+         * @description Returns CORS configuration — useful for diagnosing desktop binary issues.
+         */
+        get: operations["cors_debug_debug_cors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddMemberRequest */
+        AddMemberRequest: {
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Role
+             * @default member
+             */
+            role: string;
+        };
         /** AddressData */
         AddressData: {
             /** Label */
@@ -1498,6 +1894,11 @@ export interface components {
              */
             clear_api_key: boolean;
         };
+        /** AutoCategorizeResponse */
+        AutoCategorizeResponse: {
+            /** Updated */
+            updated: number;
+        };
         /**
          * AutoCreateRule
          * @description Rule for automatic entry creation inside a collection.
@@ -1510,7 +1911,7 @@ export interface components {
             frequency: "daily";
             /**
              * Title Template
-             * @default %B %d, %Y
+             * @default {{day_of_week}}, {{month}} {{day}}, {{year}}
              */
             title_template: string;
         };
@@ -1529,10 +1930,468 @@ export interface components {
             /** Alias */
             alias: string | null;
         };
+        /** Body_detect_import_file_budget_import_detect_post */
+        Body_detect_import_file_budget_import_detect_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_import_file_budget_import_post */
+        Body_import_file_budget_import_post: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** File */
+            file: string;
+            /** Column Mapping */
+            column_mapping?: string | null;
+        };
         /** Body_upload_file_uploads_post */
         Body_upload_file_uploads_post: {
             /** File */
             file: string;
+        };
+        /** BudgetAccountCreate */
+        BudgetAccountCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Account Type
+             * @default checking
+             * @enum {string}
+             */
+            account_type: "checking" | "savings" | "credit_card" | "loan" | "investment" | "other";
+            /**
+             * Scope
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "shared";
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+        };
+        /** BudgetAccountResponse */
+        BudgetAccountResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /** Name */
+            name: string;
+            /** Account Type */
+            account_type: string;
+            /** Scope */
+            scope: string;
+            /** Currency */
+            currency: string;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetAccountUpdate */
+        BudgetAccountUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Account Type */
+            account_type?: ("checking" | "savings" | "credit_card" | "loan" | "investment" | "other") | null;
+            /** Scope */
+            scope?: ("personal" | "shared") | null;
+            /** Currency */
+            currency?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
+        };
+        /**
+         * BudgetAnalyticsResponse
+         * @description Per-category spending breakdown for a calendar month.
+         */
+        BudgetAnalyticsResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Total Expenses */
+            total_expenses: number;
+            /** Total Income */
+            total_income: number;
+            /** Transaction Count */
+            transaction_count: number;
+            /** By Category */
+            by_category: components["schemas"]["BudgetCategoryAnalyticsEntry"][];
+        };
+        /** BudgetCategoryAnalyticsEntry */
+        BudgetCategoryAnalyticsEntry: {
+            /** Category Id */
+            category_id: string | null;
+            /** Category Name */
+            category_name: string;
+            /** Category Color */
+            category_color: string | null;
+            /** Category Icon */
+            category_icon: string | null;
+            /** Total Expenses */
+            total_expenses: number;
+            /** Total Income */
+            total_income: number;
+            /** Transaction Count */
+            transaction_count: number;
+        };
+        /** BudgetCategoryCreate */
+        BudgetCategoryCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Default Scope
+             * @default personal
+             * @enum {string}
+             */
+            default_scope: "personal" | "household";
+            /** Split Config */
+            split_config?: {
+                [key: string]: number;
+            } | null;
+            /** Color */
+            color?: string | null;
+            /** Icon */
+            icon?: string | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /** Keywords */
+            keywords?: string[] | null;
+        };
+        /** BudgetCategoryResponse */
+        BudgetCategoryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Name */
+            name: string;
+            /** Default Scope */
+            default_scope: string;
+            /** Split Config */
+            split_config: {
+                [key: string]: unknown;
+            } | null;
+            /** Color */
+            color: string | null;
+            /** Icon */
+            icon: string | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Keywords */
+            keywords: string[] | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetCategoryUpdate */
+        BudgetCategoryUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Default Scope */
+            default_scope?: ("personal" | "household") | null;
+            /** Split Config */
+            split_config?: {
+                [key: string]: number;
+            } | null;
+            /** Color */
+            color?: string | null;
+            /** Icon */
+            icon?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Keywords */
+            keywords?: string[] | null;
+            /** Archived At */
+            archived_at?: string | null;
+        };
+        /**
+         * BudgetFileImportResponse
+         * @description Returned by POST /budget/import after parsing + inserting.
+         */
+        BudgetFileImportResponse: {
+            /** Inserted */
+            inserted: number;
+            /** Skipped */
+            skipped: number;
+            /** Parse Errors */
+            parse_errors?: string[];
+        };
+        /**
+         * BudgetImportDetectResponse
+         * @description Returned by POST /budget/import/detect.
+         *     Provides enough information for the frontend to render the column-mapping
+         *     step (CSV) or a simple confirmation step (OFX).
+         */
+        BudgetImportDetectResponse: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "ofx" | "csv" | "unknown";
+            /** Columns */
+            columns?: string[] | null;
+            /** Sample Rows */
+            sample_rows?: string[][] | null;
+            detected_mapping?: components["schemas"]["CSVColumnMapping"] | null;
+            /** Mapping Confidence */
+            mapping_confidence?: number | null;
+            /** Estimated Transaction Count */
+            estimated_transaction_count?: number | null;
+            /** Date Range Start */
+            date_range_start?: string | null;
+            /** Date Range End */
+            date_range_end?: string | null;
+            /** Errors */
+            errors?: string[];
+        };
+        /**
+         * BudgetSummaryResponse
+         * @description Aggregate totals for a date range — used by the summary bar on the budget page.
+         */
+        BudgetSummaryResponse: {
+            /** Total Income */
+            total_income: number;
+            /** Total Expenses */
+            total_expenses: number;
+            /** Transaction Count */
+            transaction_count: number;
+            /** Date From */
+            date_from: string | null;
+            /** Date To */
+            date_to: string | null;
+        };
+        /**
+         * BudgetTransactionBulkImport
+         * @description Payload for the bulk-upsert import endpoint.
+         *     Transactions with a dedup_hash or external_id already in the DB are skipped.
+         */
+        BudgetTransactionBulkImport: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Import Source
+             * @enum {string}
+             */
+            import_source: "csv" | "ofx" | "manual" | "teller" | "plaid";
+            /** Transactions */
+            transactions: components["schemas"]["BudgetTransactionCreate"][];
+        };
+        /** BudgetTransactionBulkImportResponse */
+        BudgetTransactionBulkImportResponse: {
+            /** Inserted */
+            inserted: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** BudgetTransactionCreate */
+        BudgetTransactionCreate: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Category Id */
+            category_id?: string | null;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Amount */
+            amount: number;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /** Description */
+            description: string;
+            /** Merchant Name */
+            merchant_name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Scope */
+            scope?: ("personal" | "household") | null;
+            /** Split Override */
+            split_override?: {
+                [key: string]: number;
+            } | null;
+            /** Import Source */
+            import_source?: ("csv" | "ofx" | "manual" | "teller" | "plaid") | null;
+            /** External Id */
+            external_id?: string | null;
+        };
+        /** BudgetTransactionListResponse */
+        BudgetTransactionListResponse: {
+            /** Items */
+            items: components["schemas"]["BudgetTransactionResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** BudgetTransactionResponse */
+        BudgetTransactionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /** Category Id */
+            category_id: string | null;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Amount */
+            amount: number;
+            /** Currency */
+            currency: string;
+            /** Description */
+            description: string;
+            /** Merchant Name */
+            merchant_name: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Scope */
+            scope: string;
+            /** Split Override */
+            split_override: {
+                [key: string]: unknown;
+            } | null;
+            /** Import Source */
+            import_source: string | null;
+            /** External Id */
+            external_id: string | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetTransactionUpdate */
+        BudgetTransactionUpdate: {
+            /** Category Id */
+            category_id?: string | null;
+            /** Date */
+            date?: string | null;
+            /** Amount */
+            amount?: number | null;
+            /** Description */
+            description?: string | null;
+            /** Merchant Name */
+            merchant_name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Scope */
+            scope?: ("personal" | "household") | null;
+            /** Split Override */
+            split_override?: {
+                [key: string]: number;
+            } | null;
+            /** Archived At */
+            archived_at?: string | null;
+        };
+        /**
+         * CSVColumnMapping
+         * @description Maps CSV column header names to transaction fields.
+         *     Exactly one of amount_col or (debit_col + credit_col) should be provided.
+         */
+        CSVColumnMapping: {
+            /** Date Col */
+            date_col: string;
+            /** Description Col */
+            description_col: string;
+            /** Amount Col */
+            amount_col?: string | null;
+            /** Debit Col */
+            debit_col?: string | null;
+            /** Credit Col */
+            credit_col?: string | null;
+            /** Merchant Col */
+            merchant_col?: string | null;
         };
         /** CalendarEventCreate */
         CalendarEventCreate: {
@@ -1695,12 +2554,67 @@ export interface components {
             /** Calendar Name */
             calendar_name?: string | null;
         };
+        /**
+         * ChangePasswordRequest
+         * @description Requires the current password to authorise the change.
+         */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
         /** ChatRequest */
         ChatRequest: {
             /** Content */
             content: string;
             /** Conversation Id */
             conversation_id?: string | null;
+        };
+        /** CoachDigestResponse */
+        CoachDigestResponse: {
+            /** Id */
+            id: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Kind */
+            kind: string;
+            /** Content */
+            content: string;
+            /** Tone */
+            tone: string;
+            /** Created At */
+            created_at: string;
+        };
+        /** CoachGenerateRequest */
+        CoachGenerateRequest: {
+            /** Kind */
+            kind: string;
+            /**
+             * Tone
+             * @default supportive
+             */
+            tone: string;
+            /**
+             * Pinned Project Ids
+             * @default []
+             */
+            pinned_project_ids: string[];
+            /**
+             * Pinned Goal Ids
+             * @default []
+             */
+            pinned_goal_ids: string[];
+            /**
+             * Pinned Habit Ids
+             * @default []
+             */
+            pinned_habit_ids: string[];
+            /** For Date */
+            for_date?: string | null;
         };
         /** CollectionCreate */
         CollectionCreate: {
@@ -1777,6 +2691,58 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * CollectionTemplateAssign
+         * @description Body for POST /collections/{id}/templates
+         */
+        CollectionTemplateAssign: {
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+        };
+        /** CollectionTemplateListResponse */
+        CollectionTemplateListResponse: {
+            /** Items */
+            items: components["schemas"]["CollectionTemplateResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * CollectionTemplateResponse
+         * @description A template as returned within a collection's template list.
+         */
+        CollectionTemplateResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /**
+             * Collection Id
+             * Format: uuid
+             */
+            collection_id: string;
+            /** Is Default */
+            is_default: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            template: components["schemas"]["TemplateResponse"];
         };
         /** CollectionUpdate */
         CollectionUpdate: {
@@ -2006,13 +2972,6 @@ export interface components {
              */
             last_message_at: string;
         };
-        /** ChangePasswordRequest */
-        ChangePasswordRequest: {
-            /** Current Password */
-            current_password: string;
-            /** New Password */
-            new_password: string;
-        };
         /**
          * DeleteMeRequest
          * @description Password confirmation is required to prevent accidental account deletion.
@@ -2050,10 +3009,16 @@ export interface components {
             editor_json?: {
                 [key: string]: unknown;
             } | null;
-            /** @default personal */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default personal
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /**
          * DocumentImportItem
@@ -2122,6 +3087,10 @@ export interface components {
              * @enum {string}
              */
             kind: "page" | "template";
+            /** Visibility */
+            visibility: string;
+            /** Shared With User Ids */
+            shared_with_user_ids: string[];
             /** Archived At */
             archived_at: string | null;
             /**
@@ -2225,6 +3194,10 @@ export interface components {
              * @enum {string}
              */
             kind: "page" | "template";
+            /** Visibility */
+            visibility: string;
+            /** Shared With User Ids */
+            shared_with_user_ids: string[];
             /** Archived At */
             archived_at: string | null;
             /**
@@ -2323,6 +3296,27 @@ export interface components {
             visibility?: string | null;
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
+        };
+        /**
+         * DomainPermissions
+         * @description Per-domain action thresholds. Each value is a role name: owner | member | viewer.
+         */
+        DomainPermissions: {
+            /**
+             * Read
+             * @default viewer
+             */
+            read: string;
+            /**
+             * Create
+             * @default viewer
+             */
+            create: string;
+            /**
+             * Manage Others
+             * @default member
+             */
+            manage_others: string;
         };
         /** EmailData */
         EmailData: {
@@ -2466,10 +3460,16 @@ export interface components {
             unit?: string | null;
             /** Due Date */
             due_date?: string | null;
-            /** @default personal */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default personal
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** GoalListResponse */
         GoalListResponse: {
@@ -2666,10 +3666,16 @@ export interface components {
              * @default []
              */
             items: components["schemas"]["GroceryItemData"][];
-            /** @default household */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default household
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** GroceryListListResponse */
         GroceryListListResponse: {
@@ -2770,10 +3776,16 @@ export interface components {
              * @enum {string}
              */
             status: "active" | "paused" | "archived";
-            /** @default personal */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default personal
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** HabitListResponse */
         HabitListResponse: {
@@ -2862,6 +3874,41 @@ export interface components {
             /** Completion Rate 30D */
             completion_rate_30d?: number | null;
         };
+        /** HouseholdNameResponse */
+        HouseholdNameResponse: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * HouseholdPermissionsResponse
+         * @description Fully-populated permissions config (defaults filled in) plus the domain metadata.
+         */
+        HouseholdPermissionsResponse: {
+            /** Config */
+            config: {
+                [key: string]: components["schemas"]["DomainPermissions"];
+            };
+            /** Domains */
+            domains: {
+                [key: string]: string;
+            }[];
+        };
+        /** ImpersonateResponse */
+        ImpersonateResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            /** User Id */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string | null;
+        };
         /** IngredientData */
         "IngredientData-Input": {
             /** Name */
@@ -2927,13 +3974,6 @@ export interface components {
             /** Password */
             password: string;
         };
-        /** RegisterRequest */
-        RegisterRequest: {
-            /** Email */
-            email: string;
-            /** Password */
-            password: string;
-        };
         /**
          * LoginResponse
          * @description Returned by /auth/login. Includes the user so the frontend doesn't need a follow-up call.
@@ -2966,57 +4006,6 @@ export interface components {
              * Format: date-time
              */
             joined_at: string;
-        };
-        /** AddMemberRequest */
-        AddMemberRequest: {
-            /** Email */
-            email: string;
-            /** Display Name */
-            display_name?: string | null;
-            /** Role: admin | member | viewer */
-            role?: string;
-        };
-        /** UpdateHouseholdNameRequest */
-        UpdateHouseholdNameRequest: {
-            /** Name */
-            name: string;
-        };
-        /** HouseholdNameResponse */
-        HouseholdNameResponse: {
-            /** Name */
-            name: string;
-        };
-        /** ImpersonateResponse */
-        ImpersonateResponse: {
-            /** Access Token */
-            access_token: string;
-            token_type: string;
-            /** User Id */
-            user_id: string;
-            /** Email */
-            email: string;
-            /** Display Name */
-            display_name: string | null;
-        };
-        /** DomainPermissions — per-domain action thresholds. Each value is a role: owner | member | viewer */
-        DomainPermissions: {
-            /** Minimum role required to view items */
-            read: string;
-            /** Minimum role required to create items */
-            create: string;
-            /** Minimum role required to edit or delete items created by others */
-            manage_others: string;
-        };
-        /** HouseholdPermissionsResponse */
-        HouseholdPermissionsResponse: {
-            /** Per-domain permission config (defaults filled in) */
-            config: Record<string, components["schemas"]["DomainPermissions"]>;
-            /** Ordered list of configurable domains with display metadata */
-            domains: { key: string; label: string; description: string }[];
-        };
-        /** UpdatePermissionsRequest */
-        UpdatePermissionsRequest: {
-            config: Record<string, Record<string, string>>;
         };
         /** MessageResponse */
         MessageResponse: {
@@ -3088,10 +4077,6 @@ export interface components {
             tag_ids: string[];
             /** Collection Id */
             collection_id?: string | null;
-            /** @default personal */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
         };
         /** NoteListResponse */
         NoteListResponse: {
@@ -3194,10 +4179,55 @@ export interface components {
             tag_ids?: string[] | null;
             /** Collection Id */
             collection_id?: string | null;
-            /** Visibility */
-            visibility?: string | null;
-            /** Shared With User Ids */
-            shared_with_user_ids?: string[] | null;
+        };
+        /** NotificationListResponse */
+        NotificationListResponse: {
+            /** Items */
+            items: components["schemas"]["NotificationResponse"][];
+            /** Total */
+            total: number;
+            /** Unread Count */
+            unread_count: number;
+        };
+        /** NotificationResponse */
+        NotificationResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /**
+             * Recipient Id
+             * Format: uuid
+             */
+            recipient_id: string;
+            /** Actor Id */
+            actor_id: string | null;
+            /** Type */
+            type: string;
+            /** Entity Type */
+            entity_type: string;
+            /**
+             * Entity Id
+             * Format: uuid
+             */
+            entity_id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            } | null;
+            /** Read At */
+            read_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** OccurrenceCreate */
         OccurrenceCreate: {
@@ -3330,10 +4360,16 @@ export interface components {
              * @default 0
              */
             sort_order: number;
-            /** @default household */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default household
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** ProjectGoalListResponse */
         ProjectGoalListResponse: {
@@ -3454,10 +4490,16 @@ export interface components {
             body?: {
                 [key: string]: unknown;
             } | null;
-            /** @default household */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default household
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** RecipeCreate */
         "RecipeCreate-Output": {
@@ -3493,10 +4535,16 @@ export interface components {
             body?: {
                 [key: string]: unknown;
             } | null;
-            /** @default household */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
+            /**
+             * Visibility
+             * @default household
+             */
+            visibility: string;
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
         };
         /** RecipeListResponse */
         RecipeListResponse: {
@@ -3607,6 +4655,13 @@ export interface components {
             visibility?: string | null;
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
         };
         /** SetupRequest */
         SetupRequest: {
@@ -3730,6 +4785,103 @@ export interface components {
             /** Color */
             color?: string | null;
         };
+        /** TemplateCreate */
+        TemplateCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Scope
+             * @default household
+             * @enum {string}
+             */
+            scope: "household" | "user";
+            /**
+             * Domain
+             * @enum {string}
+             */
+            domain: "notes" | "documents";
+            /** Title Template */
+            title_template?: string | null;
+            /** Content Md */
+            content_md?: string | null;
+            /** Content Json */
+            content_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** TemplateListResponse */
+        TemplateListResponse: {
+            /** Items */
+            items: components["schemas"]["TemplateResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** TemplateResponse */
+        TemplateResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "household" | "user";
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Domain
+             * @enum {string}
+             */
+            domain: "notes" | "documents";
+            /** Title Template */
+            title_template: string | null;
+            /** Content Md */
+            content_md: string | null;
+            /** Content Json */
+            content_json: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** TemplateUpdate */
+        TemplateUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Scope */
+            scope?: ("household" | "user") | null;
+            /** Title Template */
+            title_template?: string | null;
+            /** Content Md */
+            content_md?: string | null;
+            /** Content Json */
+            content_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** TodoCreate */
         TodoCreate: {
             /** Project Id */
@@ -3754,9 +4906,14 @@ export interface components {
             recurring?: {
                 [key: string]: unknown;
             } | null;
-            /** @default household */
-            visibility?: string;
-            /** @default [] */
+            /** Link Url */
+            link_url?: string | null;
+            /**
+             * Visibility
+             * @default household
+             */
+            visibility: string;
+            /** Shared With User Ids */
             shared_with_user_ids?: string[];
         };
         /** TodoListResponse */
@@ -3850,47 +5007,6 @@ export interface components {
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
         };
-        /** NotificationResponse */
-        NotificationResponse: {
-            /** Id */
-            id: string;
-            /** Household Id */
-            household_id: string;
-            /** Recipient Id */
-            recipient_id: string;
-            /** Actor Id */
-            actor_id: string | null;
-            /** Type */
-            type: string;
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: string;
-            /** Payload */
-            payload: {
-                [key: string]: unknown;
-            } | null;
-            /** Read At */
-            read_at: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** NotificationListResponse */
-        NotificationListResponse: {
-            items: components["schemas"]["NotificationResponse"][];
-            /** Total */
-            total: number;
-            /** Unread Count */
-            unread_count: number;
-        };
-        /** UnreadCountResponse */
-        UnreadCountResponse: {
-            /** Unread Count */
-            unread_count: number;
-        };
         /**
          * TokenResponse
          * @description Returned by /auth/refresh. The refresh token is delivered via httpOnly cookie, not here.
@@ -3903,6 +5019,16 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /** UnreadCountResponse */
+        UnreadCountResponse: {
+            /** Unread Count */
+            unread_count: number;
+        };
+        /** UpdateHouseholdNameRequest */
+        UpdateHouseholdNameRequest: {
+            /** Name */
+            name: string;
         };
         /** UpdateMeRequest */
         UpdateMeRequest: {
@@ -3918,6 +5044,13 @@ export interface components {
             date_format?: string | null;
             /** Week Start */
             week_start?: string | null;
+        };
+        /** UpdatePermissionsRequest */
+        UpdatePermissionsRequest: {
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
         };
         /**
          * UsageModelBreakdown
@@ -3970,9 +5103,9 @@ export interface components {
             /** Display Name */
             display_name: string | null;
             /** Household Name */
-            household_name: string | null;
-            /** Role: owner | admin | member | viewer | agent */
-            role: string | null;
+            household_name?: string | null;
+            /** Role */
+            role?: string | null;
             /** Is Active */
             is_active: boolean;
             /** Is Agent */
@@ -3984,141 +5117,16 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Timezone */
-            timezone: string | null;
+            timezone?: string | null;
             /** Date Format */
-            date_format: string | null;
+            date_format?: string | null;
             /** Week Start */
-            week_start: string | null;
+            week_start?: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-        };
-        /** TemplateCreate */
-        TemplateCreate: {
-            /** Name */
-            name: string;
-            /** Description */
-            description?: string | null;
-            /**
-             * Domain
-             * @enum {string}
-             */
-            domain: "notes" | "documents";
-            /**
-             * Scope
-             * @default household
-             * @enum {string}
-             */
-            scope: "household" | "user";
-            /** Title Template */
-            title_template?: string | null;
-            /** Content Md */
-            content_md?: string | null;
-            /** Content Json */
-            content_json?: unknown | null;
-        };
-        /** TemplateUpdate */
-        TemplateUpdate: {
-            /** Name */
-            name?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Title Template */
-            title_template?: string | null;
-            /** Content Md */
-            content_md?: string | null;
-            /** Content Json */
-            content_json?: unknown | null;
-        };
-        /** TemplateResponse */
-        TemplateResponse: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Household Id
-             * Format: uuid
-             */
-            household_id: string;
-            /** Created By User Id */
-            created_by_user_id: string | null;
-            /** Name */
-            name: string;
-            /** Description */
-            description: string | null;
-            /**
-             * Domain
-             * @enum {string}
-             */
-            domain: "notes" | "documents";
-            /**
-             * Scope
-             * @enum {string}
-             */
-            scope: "household" | "user";
-            /** Title Template */
-            title_template: string | null;
-            /** Content Md */
-            content_md: string | null;
-            /** Content Json */
-            content_json: unknown | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** TemplateListResponse */
-        TemplateListResponse: {
-            /** Items */
-            items: components["schemas"]["TemplateResponse"][];
-            /** Total */
-            total: number;
-        };
-        /** CollectionTemplateAssign */
-        CollectionTemplateAssign: {
-            /**
-             * Template Id
-             * Format: uuid
-             */
-            template_id: string;
-            /**
-             * Is Default
-             * @default false
-             */
-            is_default: boolean;
-        };
-        /** CollectionTemplateResponse */
-        CollectionTemplateResponse: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            template: components["schemas"]["TemplateResponse"];
-            /** Is Default */
-            is_default: boolean;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** CollectionTemplateListResponse */
-        CollectionTemplateListResponse: {
-            /** Items */
-            items: components["schemas"]["CollectionTemplateResponse"][];
-            /** Total */
-            total: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -4149,10 +5157,6 @@ export interface components {
              * @default []
              */
             entries: components["schemas"]["ExerciseEntryCreate"][];
-            /** @default personal */
-            visibility?: string;
-            /** @default [] */
-            shared_with_user_ids?: string[];
         };
         /** WorkoutListResponse */
         WorkoutListResponse: {
@@ -4216,10 +5220,6 @@ export interface components {
             workout_date?: string | null;
             /** Notes */
             notes?: string | null;
-            /** Visibility */
-            visibility?: string | null;
-            /** Shared With User Ids */
-            shared_with_user_ids?: string[] | null;
         };
         /**
          * WorkoutWithEntriesResponse
@@ -4247,6 +5247,10 @@ export interface components {
             workout_date: string;
             /** Notes */
             notes: string | null;
+            /** Visibility */
+            visibility: string;
+            /** Shared With User Ids */
+            shared_with_user_ids: string[];
             /**
              * Created At
              * Format: date-time
@@ -4262,16 +5266,6 @@ export interface components {
              * @default []
              */
             exercise_names: string[];
-            /**
-             * Visibility
-             * @default personal
-             */
-            visibility: string;
-            /**
-             * Shared With User Ids
-             * @default []
-             */
-            shared_with_user_ids: string[];
             /**
              * Entries
              * @default []
@@ -4538,6 +5532,95 @@ export interface operations {
             };
         };
     };
+    get_coach_digest_ai_coach_digest_get: {
+        parameters: {
+            query?: {
+                /** @description 'morning' or 'evening' */
+                kind?: string;
+                /** @description Date (YYYY-MM-DD); defaults to today */
+                for_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachDigestResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_coach_digest_ai_coach_digest_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoachGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachDigestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_coach_tones_ai_coach_tones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     chat_ai_chat_post: {
         parameters: {
             query?: never;
@@ -4798,17 +5881,16 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content?: never;
             };
-            403: {
-                headers: { [name: string]: unknown };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
@@ -4850,13 +5932,18 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["MemberResponse"];
                 };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
@@ -4878,20 +5965,25 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["HouseholdNameResponse"];
                 };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    impersonate_households_dev_impersonate_post: {
+    impersonate_households_dev_impersonate__target_user_id__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4904,13 +5996,71 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["ImpersonateResponse"];
                 };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_permissions_households_permissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HouseholdPermissionsResponse"];
+                };
+            };
+        };
+    };
+    update_permissions_households_permissions_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePermissionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HouseholdPermissionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
@@ -5233,7 +6383,10 @@ export interface operations {
     };
     delete_collection_collections__collection_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description If provided, all entries in this collection are moved to the target collection before deletion. If omitted, entries are deleted with the collection. */
+                migrate_to?: string | null;
+            };
             header?: never;
             path: {
                 collection_id: string;
@@ -5326,87 +6479,11 @@ export interface operations {
             };
         };
     };
-    list_collection_templates_collections__collection_id__templates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["CollectionTemplateListResponse"] };
-            };
-            422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
-            };
-        };
-    };
-    assign_template_to_collection_collections__collection_id__templates_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string };
-            cookie?: never;
-        };
-        requestBody: {
-            content: { "application/json": components["schemas"]["CollectionTemplateAssign"] };
-        };
-        responses: {
-            201: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["CollectionTemplateResponse"] };
-            };
-            422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
-            };
-        };
-    };
-    remove_template_from_collection_collections__collection_id__templates__template_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string; template_id: string };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: { headers: { [name: string]: unknown }; content?: never };
-            422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
-            };
-        };
-    };
-    set_default_template_collections__collection_id__templates__template_id__default_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { collection_id: string; template_id: string };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["CollectionTemplateResponse"] };
-            };
-            422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
-            };
-        };
-    };
     list_templates_templates_get: {
         parameters: {
             query?: {
-                domain?: ("notes" | "documents") | null;
-                limit?: number;
-                offset?: number;
+                /** @description Filter by domain: 'notes' or 'documents' */
+                domain?: string | null;
             };
             header?: never;
             path?: never;
@@ -5414,13 +6491,23 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Successful Response */
             200: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["TemplateListResponse"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateListResponse"];
+                };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -5432,16 +6519,28 @@ export interface operations {
             cookie?: never;
         };
         requestBody: {
-            content: { "application/json": components["schemas"]["TemplateCreate"] };
+            content: {
+                "application/json": components["schemas"]["TemplateCreate"];
+            };
         };
         responses: {
+            /** @description Successful Response */
             201: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["TemplateResponse"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateResponse"];
+                };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -5449,39 +6548,30 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path: { template_id: string };
+            path: {
+                template_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
+            /** @description Successful Response */
             200: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["TemplateResponse"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateResponse"];
+                };
             };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
-            };
-        };
-    };
-    update_template_templates__template_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: { template_id: string };
-            cookie?: never;
-        };
-        requestBody: {
-            content: { "application/json": components["schemas"]["TemplateUpdate"] };
-        };
-        responses: {
-            200: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["TemplateResponse"] };
-            };
-            422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -5489,15 +6579,191 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path: { template_id: string };
+            path: {
+                template_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            204: { headers: { [name: string]: unknown }; content?: never };
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
             422: {
-                headers: { [name: string]: unknown };
-                content: { "application/json": components["schemas"]["HTTPValidationError"] };
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_templates__template_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collection_templates_collections__collection_id__templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionTemplateListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_template_collections__collection_id__templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionTemplateAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionTemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_template_collections__collection_id__templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_default_template_collections__collection_id__templates__template_id__default_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -6922,9 +8188,9 @@ export interface operations {
                 tag_id?: string | null;
                 /** @description Filter to a single collection. Mutually exclusive with collection_ids. */
                 collection_id?: string | null;
-                /** @description Filter to notes in any of these collections. Pass multiple times. */
+                /** @description Filter to notes in any of these collections. Pass multiple times: ?collection_ids=<id1>&collection_ids=<id2> */
                 collection_ids?: string[] | null;
-                /** @description When true, return notes from all collections alongside uncollected notes. */
+                /** @description When true, return notes from all collections alongside uncollected notes. Used by the graph view and global search. */
                 include_all_collections?: boolean;
                 /** @description Full-text filter on title and content */
                 q?: string | null;
@@ -7109,6 +8375,7 @@ export interface operations {
         parameters: {
             query?: {
                 search?: string | null;
+                tag_ids?: string[];
                 limit?: number;
                 offset?: number;
             };
@@ -7516,6 +8783,108 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    unread_count_notifications_unread_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCountResponse"];
+                };
+            };
+        };
+    };
+    list_notifications_notifications_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                unread_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_notification_read_notifications__notification_id__read_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_all_read_notifications_read_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -7984,7 +9353,775 @@ export interface operations {
             };
         };
     };
+    list_accounts_budget_accounts_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAccountResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_account_budget_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAccountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_account_budget_accounts__account_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAccountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_budget_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_account_budget_accounts__account_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetAccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAccountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_categories_budget_categories_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_category_budget_categories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetCategoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_category_budget_categories__category_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_category_budget_categories__category_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_category_budget_categories__category_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetCategoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_summary_budget_summary_get: {
+        parameters: {
+            query?: {
+                account_id?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_analytics_budget_analytics_get: {
+        parameters: {
+            query?: {
+                year?: number | null;
+                month?: number | null;
+                account_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAnalyticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_transactions_budget_transactions_get: {
+        parameters: {
+            query?: {
+                account_id?: string | null;
+                category_id?: string | null;
+                scope?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTransactionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_transaction_budget_transactions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTransactionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTransactionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_delete_transactions_budget_transactions_delete: {
+        parameters: {
+            query?: {
+                account_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_transactions_csv_budget_transactions_export_get: {
+        parameters: {
+            query?: {
+                account_id?: string | null;
+                category_id?: string | null;
+                scope?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction_budget_transactions__transaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTransactionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_transaction_budget_transactions__transaction_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_transaction_budget_transactions__transaction_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTransactionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTransactionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_import_transactions_budget_transactions_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTransactionBulkImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTransactionBulkImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_categorize_budget_auto_categorize_post: {
+        parameters: {
+            query?: {
+                account_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoCategorizeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detect_import_file_budget_import_detect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_detect_import_file_budget_import_detect_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetImportDetectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_file_budget_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_file_budget_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetFileImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    cors_debug_debug_cors_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -9,11 +9,12 @@ for transactions is enforced via the scope + owner_user_id columns:
   - household scope  → all household members can see the transaction
   - personal scope   → only the owner_user_id can see the transaction
 """
+import calendar
 import csv
 import hashlib
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, timezone
 from typing import Any
 
 from sqlalchemy import case, delete, func, or_, select
@@ -28,6 +29,8 @@ from life_dashboard.domains.budget.schemas import (
     BudgetAccountCreate,
     BudgetAccountUpdate,
     BudgetAccountResponse,
+    BudgetAnalyticsResponse,
+    BudgetCategoryAnalyticsEntry,
     BudgetCategoryCreate,
     BudgetCategoryUpdate,
     BudgetCategoryResponse,
@@ -313,6 +316,93 @@ async def get_summary(
         transaction_count=int(row.transaction_count or 0),
         date_from=date_from,
         date_to=date_to,
+    )
+
+
+async def get_analytics(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    year: int,
+    month: int,
+    account_id: uuid.UUID | None = None,
+) -> BudgetAnalyticsResponse:
+    """
+    Return per-category spending breakdown for the given calendar month.
+    Groups all visible transactions by category in a single SQL query.
+    NULL category_id rows are returned as "Uncategorized".
+    """
+    first_day = date_type(year, month, 1)
+    last_day = date_type(year, month, calendar.monthrange(year, month)[1])
+
+    stmt = (
+        select(
+            BudgetTransaction.category_id,
+            BudgetCategory.name.label("category_name"),
+            BudgetCategory.color.label("category_color"),
+            BudgetCategory.icon.label("category_icon"),
+            func.sum(
+                case((BudgetTransaction.amount < 0, BudgetTransaction.amount), else_=0)
+            ).label("sum_expenses"),
+            func.sum(
+                case((BudgetTransaction.amount > 0, BudgetTransaction.amount), else_=0)
+            ).label("sum_income"),
+            func.count().label("transaction_count"),
+        )
+        .outerjoin(BudgetCategory, BudgetTransaction.category_id == BudgetCategory.id)
+        .where(
+            BudgetTransaction.household_id == household_id,
+            _transaction_visible_to(BudgetTransaction, user_id),
+            BudgetTransaction.archived_at.is_(None),
+            BudgetTransaction.date >= first_day,
+            BudgetTransaction.date <= last_day,
+        )
+        .group_by(
+            BudgetTransaction.category_id,
+            BudgetCategory.name,
+            BudgetCategory.color,
+            BudgetCategory.icon,
+        )
+    )
+    if account_id is not None:
+        stmt = stmt.where(BudgetTransaction.account_id == account_id)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    by_category: list[BudgetCategoryAnalyticsEntry] = []
+    total_expenses = 0.0
+    total_income = 0.0
+    total_count = 0
+
+    for row in rows:
+        exp = float(abs(row.sum_expenses or 0))
+        inc = float(row.sum_income or 0)
+        total_expenses += exp
+        total_income += inc
+        total_count += int(row.transaction_count or 0)
+        by_category.append(BudgetCategoryAnalyticsEntry(
+            category_id=row.category_id,
+            category_name=row.category_name or "Uncategorized",
+            category_color=row.category_color,
+            category_icon=row.category_icon,
+            total_expenses=exp,
+            total_income=inc,
+            transaction_count=int(row.transaction_count or 0),
+        ))
+
+    by_category.sort(key=lambda e: e.total_expenses, reverse=True)
+
+    return BudgetAnalyticsResponse(
+        year=year,
+        month=month,
+        date_from=first_day,
+        date_to=last_day,
+        total_expenses=total_expenses,
+        total_income=total_income,
+        transaction_count=total_count,
+        by_category=by_category,
     )
 
 
