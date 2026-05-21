@@ -50,3 +50,4 @@ infra/scripts/run-api.sh
 infra/scripts/run-web.sh
 # Bundled Node.js runtime downloaded by service.sh for non-dev users (~50MB)
 infra/runtime/
+api/*.db
