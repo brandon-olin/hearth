@@ -135,7 +135,13 @@ export function HabitsWidget({ today }: { today: string }) {
     params: { query: { limit: 50 } },
   });
 
-  const habits = data?.items ?? [];
+  // Filter to habits that have actually started (start_date <= today).
+  // Uses the browser's local date so this is always timezone-correct.
+  const habits = (data?.items ?? []).filter((h) => {
+    const cadence = (h.cadence ?? {}) as Record<string, unknown>;
+    const startDate = cadence.start_date as string | null | undefined;
+    return !startDate || startDate <= today;
+  });
   const total = habits.length;
 
   return (

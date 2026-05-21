@@ -32,10 +32,15 @@ function todayStr() {
   return `${y}-${m}-${day}`;
 }
 
-function resolveKind(showKind: AiCoachWidgetConfig["show_kind"]): "morning" | "evening" {
+function isFriday(): boolean {
+  return new Date().getDay() === 5;
+}
+
+function resolveKind(showKind: AiCoachWidgetConfig["show_kind"]): "morning" | "evening" | "weekly" {
   if (showKind === "morning") return "morning";
   if (showKind === "evening") return "evening";
-  // auto: morning before noon, evening after
+  if (showKind === "weekly") return "weekly";
+  // auto: morning before noon, evening after noon; weekly tab available on Fridays separately
   return new Date().getHours() < 12 ? "morning" : "evening";
 }
 
@@ -52,6 +57,7 @@ function SettingsPanel({ config, onConfigChange }: SettingsPanelProps) {
     { value: "auto", label: "Auto", description: "Morning before noon, evening after" },
     { value: "morning", label: "Morning", description: "Always show the morning digest" },
     { value: "evening", label: "Evening", description: "Always show the evening digest" },
+    { value: "weekly", label: "Weekly", description: "Always show the Friday week-in-review" },
   ] as const;
 
   // Fetch goals and projects for the pinned-items pickers
@@ -297,8 +303,14 @@ export function AiCoachWidget({ config, isEditMode, onConfigChange }: AiCoachWid
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // On Fridays, allow toggling between the regular digest and the weekly review
+  const [showWeekly, setShowWeekly] = useState(false);
 
-  const kind = resolveKind(config.show_kind);
+  const friday = isFriday();
+  const baseKind = resolveKind(config.show_kind);
+  // If the user has "weekly" pinned, or it's Friday and they've toggled to weekly
+  const kind: "morning" | "evening" | "weekly" =
+    baseKind === "weekly" ? "weekly" : (friday && showWeekly ? "weekly" : baseKind);
   const today = todayStr();
 
   // ── Fetch stored digest ────────────────────────────────────────────────────
@@ -361,8 +373,8 @@ export function AiCoachWidget({ config, isEditMode, onConfigChange }: AiCoachWid
   }
 
   // ── Header ─────────────────────────────────────────────────────────────────
-  const KindIcon = kind === "morning" ? Sun : Moon;
-  const kindLabel = kind === "morning" ? "Morning briefing" : "Day in review";
+  const KindIcon = kind === "morning" ? Sun : kind === "weekly" ? Sparkles : Moon;
+  const kindLabel = kind === "morning" ? "Morning briefing" : kind === "weekly" ? "Week in review" : "Day in review";
 
   return (
     <div className="space-y-3">
@@ -384,6 +396,23 @@ export function AiCoachWidget({ config, isEditMode, onConfigChange }: AiCoachWid
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Friday weekly review toggle */}
+          {friday && baseKind !== "weekly" && (
+            <button
+              type="button"
+              onClick={() => setShowWeekly((w) => !w)}
+              className={cn(
+                "px-2 py-1 rounded text-[10px] font-medium transition-colors cursor-pointer",
+                showWeekly
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={showWeekly ? "Show daily digest" : "Show week in review"}
+            >
+              {showWeekly ? "Daily" : "Weekly"}
+            </button>
+          )}
+
           {/* Settings toggle — always visible */}
           <button
             type="button"

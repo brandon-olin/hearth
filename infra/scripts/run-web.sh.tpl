@@ -12,5 +12,5 @@ set -a
 set +a
 
 exec "{{APP_DIR}}/web/node_modules/.bin/next" start \
-    --hostname 127.0.0.1 \
+    --hostname 0.0.0.0 \
     --port 1337

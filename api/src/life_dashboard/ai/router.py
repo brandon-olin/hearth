@@ -142,7 +142,7 @@ async def delete_conversation(
 
 @router.get("/coach/digest", response_model=CoachDigestResponse | None)
 async def get_coach_digest(
-    kind: str = Query(default="morning", description="'morning' or 'evening'"),
+    kind: str = Query(default="morning", description="'morning', 'evening', or 'weekly'"),
     for_date: date | None = Query(default=None, description="Date (YYYY-MM-DD); defaults to today"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -178,10 +178,10 @@ async def generate_coach_digest(
     Replaces any existing digest for the same (user, date, kind) slot.
     Called by the widget's 'Generate now' / 'Regenerate' button.
     """
-    if data.kind not in ("morning", "evening"):
+    if data.kind not in ("morning", "evening", "weekly"):
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail="kind must be 'morning' or 'evening'",
+            detail="kind must be 'morning', 'evening', or 'weekly'",
         )
 
     user_settings = await service.get_or_create_settings(db, current_user.id)

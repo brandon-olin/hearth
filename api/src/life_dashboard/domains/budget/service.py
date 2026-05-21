@@ -13,6 +13,7 @@ import calendar
 import csv
 import hashlib
 import io
+import re
 import uuid
 from datetime import date as date_type, datetime, timezone
 from typing import Any
@@ -236,6 +237,7 @@ async def list_transactions(
     *,
     account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None,
+    uncategorized: bool = False,
     scope: str | None = None,
     date_from: Any | None = None,
     date_to: Any | None = None,
@@ -256,6 +258,8 @@ async def list_transactions(
         base = base.where(BudgetTransaction.account_id == account_id)
     if category_id is not None:
         base = base.where(BudgetTransaction.category_id == category_id)
+    if uncategorized:
+        base = base.where(BudgetTransaction.category_id.is_(None))
     if scope is not None:
         base = base.where(BudgetTransaction.scope == scope)
     if date_from is not None:
@@ -300,6 +304,7 @@ async def get_summary(
         BudgetTransaction.household_id == household_id,
         _transaction_visible_to(BudgetTransaction, user_id),
         BudgetTransaction.archived_at.is_(None),
+        BudgetTransaction.is_transfer.is_(False),
     )
     if account_id is not None:
         stmt = stmt.where(BudgetTransaction.account_id == account_id)
@@ -355,6 +360,7 @@ async def get_analytics(
             BudgetTransaction.household_id == household_id,
             _transaction_visible_to(BudgetTransaction, user_id),
             BudgetTransaction.archived_at.is_(None),
+            BudgetTransaction.is_transfer.is_(False),
             BudgetTransaction.date >= first_day,
             BudgetTransaction.date <= last_day,
         )
@@ -376,20 +382,47 @@ async def get_analytics(
     total_income = 0.0
     total_count = 0
 
+    # Accumulate orphaned/truly-uncategorized rows into one bucket.
+    # category_name is None whenever the LEFT JOIN finds no matching category —
+    # this covers both NULL category_id and stale UUIDs pointing to deleted categories.
+    uncategorized_exp = 0.0
+    uncategorized_inc = 0.0
+    uncategorized_count = 0
+
     for row in rows:
         exp = float(abs(row.sum_expenses or 0))
         inc = float(row.sum_income or 0)
+        count = int(row.transaction_count or 0)
         total_expenses += exp
         total_income += inc
-        total_count += int(row.transaction_count or 0)
+        total_count += count
+
+        if row.category_name is None:
+            # No matching category found (NULL id or orphaned reference)
+            uncategorized_exp += exp
+            uncategorized_inc += inc
+            uncategorized_count += count
+        else:
+            by_category.append(BudgetCategoryAnalyticsEntry(
+                category_id=row.category_id,
+                category_name=row.category_name,
+                category_color=row.category_color,
+                category_icon=row.category_icon,
+                total_expenses=exp,
+                total_income=inc,
+                transaction_count=count,
+            ))
+
+    # Add the merged uncategorized bucket last (sorted below anyway)
+    if uncategorized_count > 0:
         by_category.append(BudgetCategoryAnalyticsEntry(
-            category_id=row.category_id,
-            category_name=row.category_name or "Uncategorized",
-            category_color=row.category_color,
-            category_icon=row.category_icon,
-            total_expenses=exp,
-            total_income=inc,
-            transaction_count=int(row.transaction_count or 0),
+            category_id=None,
+            category_name="Uncategorized",
+            category_color=None,
+            category_icon=None,
+            total_expenses=uncategorized_exp,
+            total_income=uncategorized_inc,
+            transaction_count=uncategorized_count,
         ))
 
     by_category.sort(key=lambda e: e.total_expenses, reverse=True)
@@ -485,6 +518,156 @@ async def update_transaction(
     return BudgetTransactionResponse.model_validate(txn)
 
 
+# ── Transaction description tokeniser ─────────────────────────────────────────
+#
+# Bank descriptions are messy: "SP THUMA CHECKOUT.THUM CA 05/18" and
+# "POS DEBIT SP THUMA +14159490635 CA 9215" both come from the same merchant.
+# We strip common noise and compare the remaining meaningful tokens.
+
+_NOISE_RE = re.compile(
+    r"""
+    \b\d{2}/\d{2}(?:/\d{2,4})?\b  # dates: 05/18, 05/18/24
+    | \b\d{4,}\b                   # long numbers: 9215, 14159490635
+    | \+\d+                        # phone with + prefix
+    | \#\d+                        # store numbers: #91
+    """,
+    re.VERBOSE,
+)
+
+# Single-word tokens to always discard
+_NOISE_WORDS = frozenset({
+    # Bank action prefixes
+    "POS", "ACH", "SP", "SQ", "TST", "CHECKCARD", "PURCHASE", "DEBIT",
+    "CREDIT", "AUTOPAY", "PAYMENT", "TRANSFER", "WITHDRAWAL", "DEPOSIT",
+    "ONLINE", "RECURRING", "PREAUTH", "AUTH", "PMT", "DDA", "EFT",
+    # US state abbreviations
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+    # Canadian provinces
+    "AB", "BC", "MB", "NB", "NL", "NS", "ON", "PE", "QC", "SK",
+})
+
+
+def _significant_tokens(text: str) -> frozenset[str]:
+    """
+    Extract meaningful brand-name tokens from a raw bank description.
+
+    Strips bank noise (dates, phone numbers, store numbers), Square-style
+    asterisk prefixes ("SQ *MERCHANT" → "MERCHANT"), and known filler words
+    (action prefixes, US/CA state/province codes).
+
+    Returns an empty frozenset if nothing meaningful survives.
+    """
+    upper = text.upper()
+    cleaned = _NOISE_RE.sub(" ", upper)
+    cleaned = cleaned.replace("*", " ")   # Square: "SQ *MERCHANT" → "SQ  MERCHANT"
+    tokens = re.split(r"[\s.,+\-/\\|:;]+", cleaned)
+    return frozenset(
+        t for t in tokens
+        if len(t) >= 3
+        and t not in _NOISE_WORDS
+        and not t.isdigit()
+    )
+
+
+async def apply_category_to_similar(
+    db: AsyncSession,
+    transaction_id: uuid.UUID,
+    category_id: uuid.UUID,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> tuple[int, bool]:
+    """
+    Apply category_id to all uncategorized transactions that appear to be from
+    the same merchant as the source transaction.
+
+    Strategy — frequency-based token selection:
+      1. Extract significant tokens from the source description.
+      2. For each token, count how many uncategorized candidates contain it.
+      3. The token that appears in the FEWEST candidates is the most discriminating
+         (e.g. "BUFFALO" hits 80+ local transactions; "SALO" hits 2 haircut ones).
+      4. Use that rarest token as a substring match criterion — same approach as
+         auto_categorize_transactions — rather than any-intersection logic.
+
+    This prevents a city-name (or other widely-shared geographic token) from
+    causing hundreds of unrelated transactions to be bulk-categorized.
+
+    Also adds the winning token to the category's keywords for future
+    auto-categorization runs.
+
+    Returns (updated_count, keyword_added).
+    The original transaction is excluded — caller should already have categorised it.
+    """
+    source = await get_transaction(db, transaction_id, household_id, user_id)
+    if source is None:
+        return 0, False
+
+    source_text = source.merchant_name or source.description or ""
+    source_tokens = _significant_tokens(source_text)
+    if not source_tokens:
+        return 0, False
+
+    # Load all uncategorized candidates (we need them for frequency analysis)
+    stmt = select(BudgetTransaction).where(
+        BudgetTransaction.household_id == household_id,
+        BudgetTransaction.category_id.is_(None),
+        BudgetTransaction.archived_at.is_(None),
+        BudgetTransaction.id != transaction_id,
+    )
+    result = await db.execute(stmt)
+    candidates = result.scalars().all()
+
+    # Pick the most DISCRIMINATING token — the one present in the fewest candidates.
+    # A token like "BUFFALO" that appears in 80 % of all local transactions is noise;
+    # "SALO" appearing in only 2 is the actual merchant name.
+    def _hit_count(token: str) -> int:
+        t = token.lower()
+        return sum(
+            1 for c in candidates
+            if t in (c.description or "").lower()
+            or t in (c.merchant_name or "").lower()
+        )
+
+    best_token = min(source_tokens, key=_hit_count)
+    search = best_token.lower()
+
+    # Substring match — consistent with auto_categorize_transactions
+    similar = [
+        c for c in candidates
+        if search in (c.description or "").lower()
+        or search in (c.merchant_name or "").lower()
+    ]
+
+    updated = 0
+    for txn in similar:
+        txn.category_id = category_id
+        txn.updated_at = datetime.now(timezone.utc)
+        updated += 1
+
+    # Add the winning token to the category's keyword list for future imports
+    keyword_added = False
+    cat_stmt = select(BudgetCategory).where(
+        BudgetCategory.id == category_id,
+        BudgetCategory.household_id == household_id,
+    )
+    cat_result = await db.execute(cat_stmt)
+    category_obj = cat_result.scalar_one_or_none()
+    if category_obj is not None:
+        existing_lower = {k.lower() for k in (category_obj.keywords or [])}
+        if search not in existing_lower:
+            category_obj.keywords = list(category_obj.keywords or []) + [best_token.title()]
+            category_obj.updated_at = datetime.now(timezone.utc)
+            keyword_added = True
+
+    if updated > 0 or keyword_added:
+        await db.commit()
+
+    return updated, keyword_added
+
+
 async def auto_categorize_transactions(
     db: AsyncSession,
     household_id: uuid.UUID,
@@ -512,11 +695,12 @@ async def auto_categorize_transactions(
     if not categories:
         return 0
 
-    # Load uncategorized transactions
+    # Load uncategorized, non-transfer transactions
     txn_stmt = select(BudgetTransaction).where(
         BudgetTransaction.household_id == household_id,
         BudgetTransaction.category_id.is_(None),
         BudgetTransaction.archived_at.is_(None),
+        BudgetTransaction.is_transfer.is_(False),
     )
     if account_id is not None:
         txn_stmt = txn_stmt.where(BudgetTransaction.account_id == account_id)

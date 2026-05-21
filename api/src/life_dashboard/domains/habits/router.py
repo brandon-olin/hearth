@@ -66,7 +66,7 @@ async def update_habit(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HabitWithStats:
-    habit = await service.update_habit(db, habit_id, current_user.household_id, data)
+    habit = await service.update_habit(db, habit_id, current_user.household_id, data, user_id=current_user.id)
     if habit is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Habit not found")
     # Re-fetch with stats so the response includes an up-to-date streak
@@ -79,7 +79,7 @@ async def delete_habit(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
-    deleted = await service.delete_habit(db, habit_id, current_user.household_id)
+    deleted = await service.delete_habit(db, habit_id, current_user.household_id, user_id=current_user.id)
     if not deleted:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Habit not found")
 

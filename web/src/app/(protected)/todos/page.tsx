@@ -262,7 +262,7 @@ export default function TodosPage() {
 
       {/* Quick-add row — hidden on the Done tab, and hidden if user can't create */}
       {filter !== "done" && can("todos", "create") && (
-        <QuickAdd className="mb-4" />
+        <QuickAdd className="mb-4" onOpen={openCreate} />
       )}
 
       {/* Content */}

@@ -250,12 +250,30 @@ async def list_habits(
     if status is not None:
         query = query.where(Habit.status == status)
 
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
-    habits = list(
+    # Fetch all matching habits so we can filter by start_date in Python.
+    # (start_date lives inside the JSONB cadence field, making a SQL-level filter
+    # awkward; the list is small enough that Python-side filtering is fine.)
+    all_habits = list(
         (await db.execute(
-            query.order_by(Habit.name.asc()).limit(limit).offset(offset)
+            query.order_by(Habit.name.asc())
         )).scalars().all()
     )
+
+    # Filter out habits that haven't reached their start_date yet.
+    today_date = date.today()
+    def _has_started(h: Habit) -> bool:
+        cadence_h = h.cadence or {}
+        start_str: str | None = cadence_h.get("start_date")
+        if not start_str:
+            return True
+        try:
+            return date.fromisoformat(start_str) <= today_date
+        except ValueError:
+            return True
+
+    started_habits = [h for h in all_habits if _has_started(h)]
+    total = len(started_habits)
+    habits = started_habits[offset : offset + limit]
 
     # Batch-load the last 90 days of completed occurrences for all returned habits
     # in a single query so we can compute streaks and rates without N+1 queries.
@@ -318,6 +336,7 @@ async def update_habit(
     habit_id: uuid.UUID,
     household_id: uuid.UUID,
     data: HabitUpdate,
+    user_id: uuid.UUID | None = None,
 ) -> HabitResponse | None:
     query = select(Habit).where(Habit.id == habit_id, Habit.household_id == household_id)
     if user_id is not None:
@@ -339,6 +358,7 @@ async def delete_habit(
     db: AsyncSession,
     habit_id: uuid.UUID,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     query = select(Habit).where(Habit.id == habit_id, Habit.household_id == household_id)
     if user_id is not None:

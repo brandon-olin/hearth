@@ -36,6 +36,39 @@ def _extract_wikilink_titles(markdown: str) -> list[str]:
     return list(dict.fromkeys(m.group(1).strip() for m in _WIKILINK_RE.finditer(markdown)))
 
 
+async def _resolve_referring_notes(
+    db: AsyncSession,
+    title: str,
+    household_id: uuid.UUID,
+    exclude_id: uuid.UUID | None = None,
+) -> None:
+    """
+    Find every note in the household whose content_md contains [[title]]
+    and re-resolve its backlinks.  Called when a note is created or renamed
+    so that existing notes which already reference the new title get their
+    note_backlinks rows updated without requiring a manual re-save.
+    """
+    if not title:
+        return
+    # ILIKE match is intentionally loose — the precise resolution is handled
+    # inside _resolve_backlinks itself.
+    pattern = f"%[[{title}]]%"
+    stmt = (
+        select(Note)
+        .where(
+            Note.household_id == household_id,
+            Note.archived_at.is_(None),
+            Note.content_md.ilike(pattern),
+        )
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Note.id != exclude_id)
+    result = await db.execute(stmt)
+    referring = result.scalars().all()
+    for note in referring:
+        await _resolve_backlinks(db, note, household_id)
+
+
 async def _resolve_backlinks(
     db: AsyncSession,
     source: Note,
@@ -68,7 +101,7 @@ async def _resolve_backlinks(
                 func.lower(Note.title) == title.lower(),
             )
         )
-        note = result.scalar_one_or_none()
+        note = result.scalars().first()
         if note:
             title_to_note[title.lower()] = note
 
@@ -236,8 +269,12 @@ async def create_note(
     for tag_id in data.tag_ids:
         db.add(NoteTag(note_id=note.id, tag_id=tag_id))
 
-    # Resolve wikilinks
+    # Resolve wikilinks outgoing from this new note
     await _resolve_backlinks(db, note, household_id)
+
+    # Retroactively resolve backlinks in any existing notes that already
+    # contain [[this note's title]] — they were previously unresolvable.
+    await _resolve_referring_notes(db, note.title, household_id, exclude_id=note.id)
 
     await db.commit()
     await db.refresh(note)
@@ -257,6 +294,7 @@ async def update_note(
         return None
 
     updated_fields = data.model_fields_set
+    old_title = note.title  # capture before any mutation for retroactive resolution
     if "title" in updated_fields and data.title is not None:
         note.title = data.title
     if "content_md" in updated_fields:
@@ -281,6 +319,16 @@ async def update_note(
     # Re-resolve backlinks whenever content changes
     if "content_md" in updated_fields or "title" in updated_fields:
         await _resolve_backlinks(db, note, household_id)
+
+    # If the title changed, retroactively resolve any notes that reference the
+    # new title — they may have been pointing at this note all along.
+    title_changed = (
+        "title" in updated_fields
+        and data.title is not None
+        and data.title.lower() != old_title.lower()
+    )
+    if title_changed:
+        await _resolve_referring_notes(db, data.title, household_id, exclude_id=note.id)
 
     await db.commit()
     await db.refresh(note)

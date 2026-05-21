@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, JSON, Numeric, String, Text, Uuid
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, Numeric, String, Text, Uuid
 from sqlalchemy import Enum as SaEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -174,6 +174,11 @@ class BudgetTransaction(Base):
     scope: Mapped[str] = mapped_column(TransactionScope, nullable=False, default="personal")
     # Per-transaction split override. NULL = use category split_config.
     split_override: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    # True when this transaction is one leg of an internal transfer between accounts.
+    # Both legs should be marked is_transfer=True. Transfers are excluded from
+    # income/expense aggregates so they don't inflate totals in multi-account views.
+    is_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     import_source: Mapped[str | None] = mapped_column(ImportSource, nullable=True)
     # Bank-provided transaction ID (OFX FITID, Teller/Plaid transaction_id)

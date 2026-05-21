@@ -44,10 +44,10 @@ export interface ProjectProgressConfig {
 export interface AiCoachWidgetConfig {
   tone: CoachTone;
   /**
-   * "auto" = show morning digest before noon, evening digest after noon.
-   * "morning" / "evening" = always show that session's digest.
+   * "auto" = morning before noon, evening after noon (+ weekly tab on Fridays).
+   * "morning" / "evening" / "weekly" = always show that session's digest.
    */
-  show_kind: "auto" | "morning" | "evening";
+  show_kind: "auto" | "morning" | "evening" | "weekly";
   pinned_project_ids: string[];
   pinned_goal_ids: string[];
   pinned_habit_ids: string[];

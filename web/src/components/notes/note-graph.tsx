@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
 import { apiBaseUrl } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/auth/token";
 import { cn } from "@/lib/utils";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Loader2 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
 type NoteSummary = components["schemas"]["NoteSummary"];
@@ -23,6 +23,7 @@ interface GraphNode {
   vy: number;
   degree: number;  // edge count — used for radius
   color: string;
+  isGhost: boolean; // true = unresolved wikilink target with no real note yet
 }
 
 interface GraphEdge {
@@ -37,6 +38,9 @@ function parseWikilinks(md: string | null): string[] {
   const matches = md.match(/\[\[([^\]]+)\]\]/g) ?? [];
   return matches.map((m) => m.slice(2, -2).trim());
 }
+
+// Prefix used for ghost node IDs so they can be distinguished from real note IDs
+const GHOST_PREFIX = "ghost::";
 
 // ── Force simulation ──────────────────────────────────────────────────────────
 
@@ -122,9 +126,10 @@ function tickSimulation(
   return totalV / nodes.length;
 }
 
-// ── Default tag colors (fallback if tag has no color) ─────────────────────────
+// ── Colors ─────────────────────────────────────────────────────────────────────
 
 const FALLBACK_COLOR = "#94a3b8";
+const GHOST_COLOR    = "#cbd5e1"; // lighter slate — visually distinct from real nodes
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -143,11 +148,15 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [dimensions, setDimensions] = useState({ w: 800, h: 600 });
+  // Ghost node being created right now (its graph ID, e.g. "ghost::title")
+  const [creatingGhostId, setCreatingGhostId] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
+  // Always fetch all notes across every collection so wikilinks are resolved globally.
   const { data: notesData } = $api.useQuery("get", "/notes", {
-    params: { query: { limit: 500 } },
+    params: { query: { limit: 500, include_all_collections: true } },
   });
 
   const { data: tagsData } = $api.useQuery("get", "/tags", {
@@ -176,6 +185,14 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     })),
   });
 
+  // Stable primitive key — only changes when actual tag/note assignment data changes.
+  // useQueries returns a new array reference every render, so depending on tagNoteQueries
+  // directly would recompute the memo (and fire the color-patch effect) on every render,
+  // causing an infinite setState loop.
+  const colorDataKey = tagNoteQueries
+    .map((q, i) => `${tags[i]?.id ?? ""}:${tags[i]?.color ?? ""}:${(q.data?.noteIds ?? []).join(",")}`)
+    .join("|");
+
   // Build nodeId → color (use first matching tag's color) — reactive memo
   const nodeColorMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -188,7 +205,8 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
       });
     });
     return map;
-  }, [tagNoteQueries, tags]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorDataKey]);
 
   // Keep a ref so startSimulation (a callback) always reads the latest value
   const nodeColorMapRef = useRef(nodeColorMap);
@@ -198,13 +216,16 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
 
   // Whenever the color map updates, patch both simNodes and renderNodes so the
   // animation loop (which spreads simNodes) picks up the correct colors too.
+  // Ghost nodes are never in the color map so they keep GHOST_COLOR.
   useEffect(() => {
     if (!simNodes.current.length) return;
     simNodes.current.forEach((n) => {
-      n.color = nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR;
+      if (!n.isGhost) n.color = nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR;
     });
     setRenderNodes((prev) =>
-      prev.map((n) => ({ ...n, color: nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR }))
+      prev.map((n) =>
+        n.isGhost ? n : { ...n, color: nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR }
+      )
     );
   }, [nodeColorMap]);
 
@@ -229,23 +250,49 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     const notes = notesData.items;
     const titleToId = new Map(notes.map((n) => [n.title.toLowerCase(), n.id]));
 
-    // Build edges from wikilinks
+    // Build edges, collecting both resolved targets and ghost (unresolved) targets.
     const edges: GraphEdge[] = [];
     const edgeSet = new Set<string>();
+    // ghost title (lowercase) → ghost node ID
+    const ghostNodes = new Map<string, GraphNode>();
+
     for (const note of notes) {
       const targets = parseWikilinks(note.content_md);
       for (const t of targets) {
-        const targetId = titleToId.get(t.toLowerCase());
-        if (!targetId || targetId === note.id) continue;
-        const key = [note.id, targetId].sort().join(":");
-        if (!edgeSet.has(key)) {
-          edgeSet.add(key);
-          edges.push({ source: note.id, target: targetId });
+        const tLower = t.toLowerCase();
+        const targetId = titleToId.get(tLower);
+
+        if (targetId && targetId !== note.id) {
+          // Resolved → real edge between two existing notes
+          const key = [note.id, targetId].sort().join(":");
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            edges.push({ source: note.id, target: targetId });
+          }
+        } else if (!targetId) {
+          // Unresolved → create / reuse a ghost node for this title
+          const ghostId = `${GHOST_PREFIX}${tLower}`;
+          if (!ghostNodes.has(tLower)) {
+            ghostNodes.set(tLower, {
+              id: ghostId,
+              title: t, // preserve original casing for display
+              x: 0, y: 0, vx: 0, vy: 0,
+              degree: 0,
+              color: GHOST_COLOR,
+              isGhost: true,
+            });
+          }
+          // Edge from the real note to the ghost node
+          const key = [note.id, ghostId].sort().join(":");
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            edges.push({ source: note.id, target: ghostId });
+          }
         }
       }
     }
 
-    // Compute degree
+    // Compute degree (real + ghost nodes participate equally)
     const degree = new Map<string, number>();
     for (const e of edges) {
       degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
@@ -255,16 +302,24 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     const { w, h } = dimensions;
     const cx = w / 2, cy = h / 2;
 
-    const nodes: GraphNode[] = notes.map((n) => ({
-      id:     n.id,
-      title:  n.title,
+    const realNodes: GraphNode[] = notes.map((n) => ({
+      id:      n.id,
+      title:   n.title,
       x: 0, y: 0, vx: 0, vy: 0,
-      degree: degree.get(n.id) ?? 0,
-      color:  nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR,
+      degree:  degree.get(n.id) ?? 0,
+      color:   nodeColorMapRef.current.get(n.id) ?? FALLBACK_COLOR,
+      isGhost: false,
     }));
 
-    initPositions(nodes, cx, cy, Math.min(w, h) * 0.32);
-    simNodes.current = nodes;
+    // Apply computed degrees to ghost nodes
+    for (const gn of ghostNodes.values()) {
+      gn.degree = degree.get(gn.id) ?? 0;
+    }
+
+    const allNodes: GraphNode[] = [...realNodes, ...ghostNodes.values()];
+
+    initPositions(allNodes, cx, cy, Math.min(w, h) * 0.32);
+    simNodes.current = allNodes;
     simEdges.current = edges;
 
     if (animFrame.current) cancelAnimationFrame(animFrame.current);
@@ -302,7 +357,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const { w, h } = dimensions;
-  const nodeRadius = (n: GraphNode) => Math.max(12, Math.min(22, 12 + n.degree * 2.5));
+  const nodeRadius = (n: GraphNode) => Math.max(10, Math.min(22, 10 + n.degree * 2.5));
 
   const hoveredNeighbors = new Set<string>();
   if (hoveredId) {
@@ -311,6 +366,17 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
       if (e.target === hoveredId) hoveredNeighbors.add(e.source);
     });
   }
+
+  // Count ghost nodes for the legend hint
+  const ghostCount = renderNodes.filter((n) => n.isGhost).length;
+
+  // Only show tags that actually color at least one node in this graph.
+  // Without this filter, tags from other domains (e.g. recipe tags) would
+  // appear in the legend even though no notes carry them.
+  const noteIdsInGraph = new Set((notesData?.items ?? []).map((n) => n.id));
+  const visibleTags = tags.filter((_, i) =>
+    (tagNoteQueries[i]?.data?.noteIds ?? []).some((id) => noteIdsInGraph.has(id))
+  );
 
   return (
     <div className="relative w-full h-full">
@@ -332,23 +398,33 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
         </button>
       </div>
 
-      {/* Tag legend */}
-      {tags.length > 0 && (
-        <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-1.5 max-w-[200px]">
-          {tags.map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border bg-background/80"
-            >
+      {/* Tag legend + ghost hint */}
+      <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
+        {visibleTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 max-w-[200px]">
+            {visibleTags.map((tag) => (
               <span
-                className="w-2 h-2 rounded-full"
-                style={{ background: tag.color ?? FALLBACK_COLOR }}
-              />
-              {tag.name}
-            </span>
-          ))}
-        </div>
-      )}
+                key={tag.id}
+                className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border bg-background/80"
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: tag.color ?? FALLBACK_COLOR }}
+                />
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
+        {ghostCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-full border bg-background/80 text-muted-foreground max-w-fit">
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 1.5" />
+            </svg>
+            {ghostCount} unwritten {ghostCount === 1 ? "idea" : "ideas"} — click to create
+          </span>
+        )}
+      </div>
 
       {/* SVG */}
       <svg
@@ -366,6 +442,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
             if (!s || !t) return null;
             const isHighlighted =
               hoveredId && (e.source === hoveredId || e.target === hoveredId);
+            const isGhostEdge = s.isGhost || t.isGhost;
             return (
               <line
                 key={`${e.source}-${e.target}`}
@@ -373,7 +450,8 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
                 x2={t.x} y2={t.y}
                 stroke={isHighlighted ? "var(--primary)" : "var(--border)"}
                 strokeWidth={isHighlighted ? 2 : 1}
-                strokeOpacity={hoveredId && !isHighlighted ? 0.2 : 0.6}
+                strokeOpacity={hoveredId && !isHighlighted ? 0.15 : isGhostEdge ? 0.4 : 0.6}
+                strokeDasharray={isGhostEdge ? "4 3" : undefined}
                 style={{ transition: "stroke-opacity 0.15s, stroke-width 0.15s" }}
               />
             );
@@ -396,11 +474,40 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
                 transform={`translate(${n.x},${n.y})`}
                 onMouseEnter={() => setHoveredId(n.id)}
                 onMouseLeave={() => setHoveredId(null)}
-                onClick={() => onSelect(n.id)}
+                onClick={async () => {
+                  if (n.isGhost) {
+                    if (creatingGhostId) return; // already creating
+                    setCreatingGhostId(n.id);
+                    try {
+                      const token = getAccessToken();
+                      const res = await fetch(`${apiBaseUrl}/notes`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        // No collection_id — ghost notes always live in global Notes
+                        body: JSON.stringify({ title: n.title }),
+                      });
+                      if (res.ok) {
+                        const created = await res.json() as { id: string };
+                        // Refresh graph data so the new node becomes real
+                        await qc.invalidateQueries({ queryKey: ["get", "/notes"] });
+                        onSelect(created.id);
+                      }
+                    } catch {
+                      // silently ignore — graph will retain the ghost node
+                    } finally {
+                      setCreatingGhostId(null);
+                    }
+                  } else {
+                    onSelect(n.id);
+                  }
+                }}
                 style={{ cursor: "pointer" }}
               >
-                {/* Outer ring for selected */}
-                {isSelected && (
+                {/* Outer ring for selected real nodes */}
+                {isSelected && !n.isGhost && (
                   <circle
                     r={r + 5}
                     fill="none"
@@ -410,15 +517,49 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
                   />
                 )}
 
-                {/* Node circle */}
-                <circle
-                  r={r}
-                  fill={n.color}
-                  fillOpacity={isDimmed ? 0.2 : 0.85}
-                  stroke={isHovered || isSelected ? "var(--primary)" : "var(--background)"}
-                  strokeWidth={isHovered || isSelected ? 2 : 1.5}
-                  style={{ transition: "fill-opacity 0.15s, r 0.1s" }}
-                />
+                {n.isGhost ? (
+                  /* Ghost node — dashed ring, no fill, lighter treatment */
+                  <>
+                    <circle
+                      r={r}
+                      fill="var(--background)"
+                      fillOpacity={isDimmed ? 0.3 : 0.7}
+                      stroke={
+                        creatingGhostId === n.id
+                          ? "var(--primary)"
+                          : isHovered
+                          ? "var(--primary)"
+                          : GHOST_COLOR
+                      }
+                      strokeWidth={isHovered || creatingGhostId === n.id ? 2 : 1.5}
+                      strokeDasharray={creatingGhostId === n.id ? undefined : "4 2.5"}
+                      style={{ transition: "fill-opacity 0.15s, stroke 0.15s" }}
+                    />
+                    {/* Click hint / loading indicator */}
+                    {(isHovered || creatingGhostId === n.id) && (
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize={r * 0.85}
+                        fill="var(--primary)"
+                        fillOpacity={0.85}
+                        style={{ pointerEvents: "none", userSelect: "none" }}
+                      >
+                        {creatingGhostId === n.id ? "…" : "+"}
+                      </text>
+                    )}
+                  </>
+                ) : (
+                  /* Real node */
+                  <circle
+                    r={r}
+                    fill={n.color}
+                    fillOpacity={isDimmed ? 0.2 : 0.85}
+                    stroke={isHovered || isSelected ? "var(--primary)" : "var(--background)"}
+                    strokeWidth={isHovered || isSelected ? 2 : 1.5}
+                    style={{ transition: "fill-opacity 0.15s, r 0.1s" }}
+                  />
+                )}
 
                 {/* Label */}
                 {showLabel && (
@@ -426,12 +567,13 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
                     y={r + 13}
                     textAnchor="middle"
                     fontSize={11}
-                    fill="var(--foreground)"
-                    fillOpacity={isDimmed ? 0.3 : 1}
+                    fill={n.isGhost ? "var(--muted-foreground)" : "var(--foreground)"}
+                    fillOpacity={isDimmed ? 0.3 : n.isGhost ? 0.7 : 1}
                     style={{
                       fontWeight: isHovered || isSelected ? 600 : 400,
                       pointerEvents: "none",
                       userSelect: "none",
+                      fontStyle: n.isGhost ? "italic" : "normal",
                     }}
                   >
                     {n.title.length > 22 ? n.title.slice(0, 20) + "…" : n.title}
@@ -445,7 +587,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
                     textAnchor="middle"
                     fontSize={10}
                     fill="var(--muted-foreground)"
-                    fillOpacity={0.5}
+                    fillOpacity={n.isGhost ? 0.35 : 0.5}
                     style={{ pointerEvents: "none", userSelect: "none" }}
                   >
                     {n.title.length > 14 ? n.title.slice(0, 12) + "…" : n.title}
@@ -463,6 +605,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
           No notes to graph yet.
         </div>
       )}
+
     </div>
   );
 }

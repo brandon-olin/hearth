@@ -9,13 +9,15 @@ import { getAccessToken } from "@/lib/auth/token";
 import { apiBaseUrl } from "@/lib/api/client";
 import { resolveFolderIcon } from "@/lib/sidebar/folder-icons";
 import { NoteEditor } from "@/components/notes/note-editor";
+import { NoteGraph } from "@/components/notes/note-graph";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useFocusMode } from "@/lib/focus/context";
 import { FocusToggle } from "@/components/focus/focus-toggle";
 import { Button } from "@/components/ui/button";
 import {
-  Loader2, BookOpen, FileText, AlertCircle, ChevronLeft,
+  Loader2, BookOpen, FileText, AlertCircle,
   Settings, CalendarCheck, Plus, X, Check, ChevronDown,
+  List, Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { components } from "@/lib/api/schema";
@@ -23,6 +25,7 @@ import type { components } from "@/lib/api/schema";
 type NoteSummary  = components["schemas"]["NoteSummary"];
 type CollectionResponse = components["schemas"]["CollectionResponse"];
 type TemplateResponse   = components["schemas"]["TemplateResponse"];
+type View = "list" | "graph";
 
 /** Sentinel value: user clicked "New" but hasn't saved yet */
 const NEW_ITEM_ID = "__new__";
@@ -34,8 +37,10 @@ export default function CollectionPage() {
   const { focused } = useFocusMode();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pendingTitle, setPendingTitle] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [todayLoading, setTodayLoading] = useState(false);
+  const [view, setView] = useState<View>("list");
 
   // ── Fetch collection metadata ─────────────────────────────────────────────
   const { data: collection, isLoading: collectionLoading, isError: collectionError } =
@@ -93,7 +98,10 @@ export default function CollectionPage() {
 
   const handleSelect   = useCallback((note: NoteSummary) => setSelectedId(note.id), []);
   const handleNewItem  = useCallback(() => setSelectedId(NEW_ITEM_ID), []);
-  const handleCreated  = useCallback((note: NoteSummary) => setSelectedId(note.id), []);
+  const handleCreated  = useCallback((note: NoteSummary) => {
+    setSelectedId(note.id);
+    setPendingTitle("");
+  }, []);
   const handleDeleted  = useCallback(() => setSelectedId(null), []);
   const handleNavigate = useCallback((noteId: string) => setSelectedId(noteId), []);
 
@@ -131,19 +139,44 @@ export default function CollectionPage() {
     return (
       <div className="flex flex-col h-full min-h-full">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background">
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 px-1.5 gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0 -ml-1"
-            onClick={() => router.push("/notes")}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Notes</span>
-          </Button>
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background min-h-[40px]">
+          {/* Icon + title */}
           {ColIcon
-            ? <ColIcon className="h-5 w-5 shrink-0" />
-            : <span className="text-lg leading-none shrink-0">{iconDisplay}</span>}
-          <h1 className="text-sm font-semibold truncate flex-1">{collection.name}</h1>
+            ? <ColIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            : <span className="text-base leading-none shrink-0">{iconDisplay}</span>}
+          <h1 className="text-sm font-semibold truncate">{collection.name}</h1>
+
+          {/* List / Graph toggle */}
+          <div className="flex rounded-md overflow-hidden border text-xs shrink-0 ml-2">
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1 transition-colors",
+                view === "list"
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              <List className="h-3 w-3" />
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("graph")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1 transition-colors border-l",
+                view === "graph"
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              <Network className="h-3 w-3" />
+              Graph
+            </button>
+          </div>
+
+          <div className="flex-1" />
 
           {/* Today button — only for auto-create collections */}
           {collection.auto_create_rule && (
@@ -176,55 +209,85 @@ export default function CollectionPage() {
 
         {/* Main content */}
         <div className="flex flex-1 min-h-0">
-          {/* Note list sidebar */}
-          <aside
-            className="shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out"
-            style={{ width: focused ? 0 : width, opacity: focused ? 0 : 1 }}
-          >
-            <CollectionNoteList
-              collectionId={id}
-              collectionName={collection.name}
-              selectedId={isNew ? null : selectedId}
-              onSelect={handleSelect}
-              onNewNote={handleNewItem}
-            />
-          </aside>
+          {view === "list" ? (
+            <>
+              {/* Note list sidebar */}
+              <aside
+                className="shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out"
+                style={{ width: focused ? 0 : width, opacity: focused ? 0 : 1 }}
+              >
+                <CollectionNoteList
+                  collectionId={id}
+                  collectionName={collection.name}
+                  selectedId={isNew ? null : selectedId}
+                  onSelect={handleSelect}
+                  onNewNote={handleNewItem}
+                />
+              </aside>
 
-          {/* Resize handle */}
-          <div
-            className="shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
-            style={{ width: focused ? 0 : 4 }}
-            onMouseDown={startResize}
-          />
-
-          {/* Editor pane */}
-          <main className="flex-1 min-w-0 overflow-auto">
-            {selectedId === null ? (
-              <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
-                <DomainIcon className="h-10 w-10 mb-3 opacity-30" />
-                <p className="text-sm">Select an entry or create one.</p>
-                {collection.auto_create_rule && (
-                  <button
-                    type="button"
-                    onClick={handleTodayClick}
-                    className="mt-3 text-sm text-primary hover:underline flex items-center gap-1.5"
-                  >
-                    <CalendarCheck className="h-4 w-4" />
-                    Open today&apos;s entry
-                  </button>
-                )}
-              </div>
-            ) : (
-              <NoteEditor
-                key={selectedId}
-                noteId={editorNoteId}
-                defaultCollectionId={id}
-                onCreated={handleCreated}
-                onDeleted={handleDeleted}
-                onNavigate={handleNavigate}
+              {/* Resize handle */}
+              <div
+                className="shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
+                style={{ width: focused ? 0 : 4 }}
+                onMouseDown={startResize}
               />
-            )}
-          </main>
+
+              {/* Editor pane */}
+              <main className="flex-1 min-w-0 overflow-auto">
+                {selectedId === null ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
+                    <DomainIcon className="h-10 w-10 mb-3 opacity-30" />
+                    <p className="text-sm">Select an entry or create one.</p>
+                    {collection.auto_create_rule && (
+                      <button
+                        type="button"
+                        onClick={handleTodayClick}
+                        className="mt-3 text-sm text-primary hover:underline flex items-center gap-1.5"
+                      >
+                        <CalendarCheck className="h-4 w-4" />
+                        Open today&apos;s entry
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <NoteEditor
+                    key={selectedId}
+                    noteId={editorNoteId}
+                    initialTitle={isNew ? pendingTitle : undefined}
+                    defaultCollectionId={id}
+                    onCreated={handleCreated}
+                    onDeleted={handleDeleted}
+                    onNavigate={handleNavigate}
+                  />
+                )}
+              </main>
+            </>
+          ) : (
+            /* ── Graph view ── */
+            <div className="flex flex-1 min-h-0 min-w-0">
+              <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+                <NoteGraph
+                  selectedId={selectedId}
+                  onSelect={(nodeId) => { setSelectedId(nodeId); }}
+                />
+              </div>
+              {selectedId && selectedId !== "__new__" && (
+                <>
+                  <div className="w-px bg-border shrink-0" />
+                  <div className="w-[380px] shrink-0 overflow-auto border-l">
+                    <NoteEditor
+                      key={selectedId}
+                      noteId={selectedId}
+                      defaultCollectionId={id}
+                      onCreated={handleCreated}
+                      onDeleted={() => setSelectedId(null)}
+                      onNavigate={(noteId) => setSelectedId(noteId)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Collection settings panel */}
@@ -241,16 +304,10 @@ export default function CollectionPage() {
   // ── Documents-backed collection ───────────────────────────────────────────
   return (
     <div className="flex flex-col h-full min-h-full">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background">
-        <Button
-          variant="ghost" size="sm"
-          className="h-7 px-1.5 gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0 -ml-1"
-          onClick={() => router.push("/documents")}
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Documents</span>
-        </Button>
-        <span className="text-lg leading-none">{iconDisplay}</span>
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background min-h-[40px]">
+        {ColIcon
+          ? <ColIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          : <span className="text-base leading-none shrink-0">{iconDisplay}</span>}
         <h1 className="text-sm font-semibold truncate flex-1">{collection.name}</h1>
         <Button
           variant="ghost" size="sm"

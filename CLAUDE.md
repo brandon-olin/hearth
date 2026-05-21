@@ -82,6 +82,18 @@ If a design makes the self-hosted product feel crippled or fake, push back.
 
 ---
 
+## Progress tracking — required after every build phase
+
+After completing any meaningful unit of work — whether via the coding agent, the Telegram bot (`/run`), or manual development — always update these two files before ending the session:
+
+**`claude-progress.txt`** — append a new `=== DATE — session type ===` block at the end of the file. Never modify previous blocks. Include: what was worked on, status (complete / partial / blocked), commits made this session, what was done, what was left, and the recommended next feature. For infrastructure work (bot, infra scripts, migrations) that isn't a feature_list entry, use the session type "Infrastructure session" instead of "Coding session".
+
+**`feature_list.json`** — flip `"passes": true` on any feature whose every verification step now passes. Never remove or rename entries; only add new ones at the bottom of the relevant category.
+
+This rule applies to the Telegram bot too: after the bot finishes a `/run` session, the coding agent prompt (`agent/coding.md`) already instructs the agent to update both files. If you add features or infra manually, update them yourself before committing.
+
+---
+
 ## When unsure
 
 1. Preserve privacy and data scope boundaries.

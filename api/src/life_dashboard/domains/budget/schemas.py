@@ -93,6 +93,11 @@ class AutoCategorizeResponse(BaseModel):
     updated: int  # number of transactions that had a category assigned
 
 
+class ApplyToSimilarResponse(BaseModel):
+    updated: int          # transactions categorized (excluding the original)
+    keyword_added: bool   # whether the merchant name was added as a new keyword
+
+
 class BudgetSummaryResponse(BaseModel):
     """Aggregate totals for a date range — used by the summary bar on the budget page."""
     total_income: float        # sum of positive amounts (inflows)
@@ -141,6 +146,7 @@ class BudgetTransactionCreate(BaseModel):
     split_override: SplitConfig = None
     import_source: ImportSource | None = None
     external_id: str | None = None
+    is_transfer: bool = False
 
 
 class BudgetTransactionUpdate(BaseModel):
@@ -152,6 +158,7 @@ class BudgetTransactionUpdate(BaseModel):
     notes: str | None = None
     scope: TransactionScope | None = None
     split_override: SplitConfig = None
+    is_transfer: bool | None = None
     archived_at: datetime | None = None
 
 
@@ -171,6 +178,7 @@ class BudgetTransactionResponse(BaseModel):
     notes: str | None
     scope: str
     split_override: dict[str, Any] | None
+    is_transfer: bool
     import_source: str | None
     external_id: str | None
     archived_at: datetime | None
@@ -199,7 +207,8 @@ class BudgetTransactionBulkImport(BaseModel):
 
 class BudgetTransactionBulkImportResponse(BaseModel):
     inserted: int
-    skipped: int  # duplicates detected and skipped
+    skipped: int           # duplicates detected and skipped
+    auto_categorized: int = 0  # transactions matched by keyword rules after import
 
 
 # ── File import (OFX / CSV) ───────────────────────────────────────────────────
@@ -240,4 +249,5 @@ class BudgetFileImportResponse(BaseModel):
     """Returned by POST /budget/import after parsing + inserting."""
     inserted: int
     skipped: int
+    auto_categorized: int = 0  # transactions matched by keyword rules after import
     parse_errors: list[str] = Field(default_factory=list)

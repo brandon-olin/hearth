@@ -53,12 +53,23 @@ export default function NotesPage() {
     setView("list");
   }, []);
 
+  // Title to pre-fill when a ghost node is clicked in the graph view
+  const [pendingTitle, setPendingTitle] = useState<string>("");
+
+  const handleGhostSelect = useCallback((title: string) => {
+    setPendingTitle(title);
+    setSelectedId(NEW_NOTE_ID);
+    setView("list");
+  }, []);
+
   const handleCreated = useCallback((note: NoteSummary) => {
     setSelectedId(note.id);
+    setPendingTitle("");
   }, []);
 
   const handleDeleted = useCallback(() => {
     setSelectedId(null);
+    setPendingTitle("");
   }, []);
 
   const handleNavigate = useCallback((id: string) => {
@@ -73,7 +84,9 @@ export default function NotesPage() {
 
       {/* ── View toggle bar ───────────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 bg-background min-h-[40px]">
-        <div className="flex rounded-md overflow-hidden border text-xs shrink-0">
+        <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <h1 className="text-sm font-semibold">Notes</h1>
+        <div className="flex rounded-md overflow-hidden border text-xs shrink-0 ml-2">
           <button
             type="button"
             onClick={() => setView("list")}
@@ -140,6 +153,7 @@ export default function NotesPage() {
                 <NoteEditor
                   key={selectedId}
                   noteId={editorNoteId}
+                  initialTitle={isNew ? pendingTitle : undefined}
                   onCreated={handleCreated}
                   onDeleted={handleDeleted}
                   onNavigate={handleNavigate}

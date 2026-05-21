@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
@@ -213,11 +214,10 @@ export function EventSheet({ open, event, defaultDate, onClose }: EventSheetProp
           {/* Date */}
           <div className="space-y-1.5">
             <Label htmlFor="ev-date">Date</Label>
-            <Input
+            <DatePicker
               id="ev-date"
-              type="date"
               value={form.date}
-              onChange={(e) => patch("date", e.target.value)}
+              onChange={(v) => patch("date", v)}
             />
           </div>
 

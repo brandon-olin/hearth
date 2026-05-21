@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
@@ -204,17 +204,19 @@ interface NoteEditorProps {
   noteId: string | null;
   /** When set, new notes are stamped with this collection_id on creation. */
   defaultCollectionId?: string;
+  /** Pre-fill the title when opening in create mode (e.g. from a ghost node click). */
+  initialTitle?: string;
   onCreated: (note: NoteSummary) => void;
   onDeleted: () => void;
   onNavigate: (id: string) => void;
 }
 
-export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, onNavigate }: NoteEditorProps) {
+export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreated, onDeleted, onNavigate }: NoteEditorProps) {
   const qc = useQueryClient();
   const isNew = noteId === null;
 
   // ── Local form state ───────────────────────────────────────────────────────
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initialTitle ?? "");
   const [content, setContent] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [tags, setTags] = useState<NoteTagRef[]>([]);
@@ -227,6 +229,19 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
   // Autosave: save 1s after the user stops typing (update mode only)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty = useRef(false);
+
+  // Guard: only allow saves AFTER the server data has been loaded into the form.
+  // Without this, a save firing before noteData arrives would overwrite the note
+  // with empty content (content = "" until the populate effect runs).
+  const hasInitializedRef = useRef(isNew); // new notes don't need server load
+
+  // Always-current refs so the setTimeout closure never reads stale state.
+  const contentRef = useRef(content);
+  const titleRef = useRef(title);
+  useLayoutEffect(() => {
+    contentRef.current = content;
+    titleRef.current = title;
+  }, [content, title]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const { mutateAsync: createNote } = $api.useMutation("post", "/notes");
@@ -243,7 +258,7 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     setSaving(true);
     createNote({
       body: {
-        title: "",
+        title: initialTitle ?? "",
         content_md: null,
         tag_ids: [],
         collection_id: defaultCollectionId ?? null,
@@ -279,12 +294,14 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     isDirty.current = false;
     setSaveError(null);
     setConfirmDelete(false);
+    // Allow saves now that we have real data in the form.
+    hasInitializedRef.current = true;
   }, [noteId, noteData, isNew]);
 
   // ── Save helpers ───────────────────────────────────────────────────────────
   const save = useCallback(
     async (fields: { title?: string; content_md?: string; tag_ids?: string[] }) => {
-      if (isNew) return;
+      if (isNew || !hasInitializedRef.current) return;
       setSaving(true);
       setSaveError(null);
       try {
@@ -304,20 +321,33 @@ export function NoteEditor({ noteId, defaultCollectionId, onCreated, onDeleted, 
     [isNew, noteId, updateNote, qc]
   );
 
-  // Autosave content after 1s idle
+  // Autosave content after 1s idle.
+  // Uses contentRef/titleRef so the setTimeout closure always reads the latest
+  // values — avoids the stale-closure bug where one render's content would be
+  // saved instead of the current content.
   const scheduleAutosave = useCallback(() => {
     if (isNew) return;
     isDirty.current = true;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
-      save({ content_md: content, title });
+      save({ content_md: contentRef.current, title: titleRef.current });
     }, 1000);
-  }, [isNew, save, content, title]);
+  }, [isNew, save]); // intentionally no content/title — read from refs instead
 
-  // Flush autosave on unmount
+  // Flush pending autosave on unmount (e.g. when switching list ↔ graph view).
+  // Without this, keystrokes typed in the last second before unmount would be
+  // silently dropped.
+  const saveRef = useRef(save);
+  useLayoutEffect(() => { saveRef.current = save; }, [save]);
   useEffect(() => {
     return () => {
-      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        if (isDirty.current && hasInitializedRef.current) {
+          // Fire the save synchronously on unmount so in-flight edits aren't lost.
+          saveRef.current({ content_md: contentRef.current, title: titleRef.current });
+        }
+      }
     };
   }, []);
 

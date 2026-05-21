@@ -49,6 +49,7 @@ interface DetectResult {
 interface ImportResult {
   inserted: number;
   skipped: number;
+  auto_categorized: number;
   parse_errors: string[];
 }
 
@@ -710,6 +711,9 @@ export default function BudgetImportPage() {
               {importResult.skipped > 0 && (
                 <>, {importResult.skipped} skipped as duplicates</>
               )}.
+              {importResult.auto_categorized > 0 && (
+                <> <strong>{importResult.auto_categorized}</strong> automatically categorized.</>
+              )}
             </p>
           </div>
           {importResult.parse_errors.length > 0 && (

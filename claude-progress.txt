@@ -77,3 +77,26 @@ Recommended next feature: budget-003 (Budget dashboard widget)
   that shows current month income/expenses/net balance, similar to the summary bar on
   the budget page but condensed for the dashboard grid.
 
+=== 2026-05-20 — Infrastructure session ===
+Feature worked on: Telegram bot — remote command interface for autonomous agent sessions
+Status: complete
+Commits this session:
+  (none — bot files are untracked; committed separately if desired)
+What was done:
+  Added infra/scripts/hearth-bot.py — a python-telegram-bot (v22) bot that acts as a
+  remote control for autonomous Claude Code sessions. Commands: /run <task> starts a
+  headless `claude -p` session with the agent/coding.md prompt prepended; /status checks
+  whether an agent is running; /stop kills it; /log shows last 10 git commits; /progress
+  tails claude-progress.txt; /features lists failing entries from feature_list.json.
+  Plain messages are treated as /run. A background thread watches for new git commits
+  every 15 s and relays them to Telegram in real time. Auth is locked to a single
+  Telegram user ID (HEARTH_BOT_USER_ID env var).
+  Also added infra/scripts/run-bot.sh (sources infra/local.env and launches the bot)
+  and infra/launchd/com.lifedashboard.bot.plist.tpl (launchd template for always-on
+  running alongside the API and web services).
+  python-telegram-bot 22.7 installed in api/.venv.
+What was NOT done / left for next session:
+  Bot files are untracked in git — add to version control when ready to share.
+  No /features-next or /assign commands yet.
+Recommended next feature: budget-003 (Budget dashboard widget)
+

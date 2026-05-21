@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -276,11 +277,10 @@ function RecurrenceSection({
             <Label htmlFor="recur-end" className="text-sm">
               Ends
             </Label>
-            <Input
+            <DatePicker
               id="recur-end"
-              type="date"
               value={state.end_date}
-              onChange={(e) => set("end_date", e.target.value)}
+              onChange={(v) => set("end_date", v)}
               placeholder="Never"
             />
             {state.end_date && (
@@ -548,11 +548,10 @@ export function TodoSheet({ open, todo, defaultProjectId, onClose }: TodoSheetPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="todo-due">Due date</Label>
-              <Input
+              <DatePicker
                 id="todo-due"
-                type="date"
                 value={form.due_date}
-                onChange={(e) => handleDueDateChange(e.target.value)}
+                onChange={handleDueDateChange}
               />
             </div>
             <div className="space-y-1.5">

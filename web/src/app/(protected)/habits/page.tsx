@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { HabitRow } from "@/components/habits/habit-row";
 import { HabitSheet } from "@/components/habits/habit-sheet";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, Repeat } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
 type Habit = components["schemas"]["HabitWithStats"];
@@ -53,7 +53,10 @@ export default function HabitsPage() {
     <div className="page-content-wide">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold">Habits</h1>
+        <div className="flex items-center gap-2">
+          <Repeat className="h-5 w-5 text-muted-foreground" />
+          <h1 className="text-xl font-semibold">Habits</h1>
+        </div>
         <div className="flex items-center gap-2">
           <Select
             value={filter}

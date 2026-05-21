@@ -79,28 +79,38 @@ async def lifespan(app: FastAPI):
 
         scheduler = AsyncIOScheduler()
 
-        # Morning digest: fires at 2:00 AM local time each day.
+        # Morning digest: 7:00 AM each day — ready when you wake up.
         scheduler.add_job(
             run_scheduled_digests,
-            CronTrigger(hour=2, minute=0),
+            CronTrigger(hour=7, minute=0),
             args=["morning"],
             id="coach_morning",
             replace_existing=True,
-            misfire_grace_time=3600,  # If the server was down, catch up within 1 hour.
+            misfire_grace_time=3600,
         )
 
-        # Evening digest: fires at 8:00 PM local time each day.
+        # Evening digest: 5:30 PM each day — end-of-workday wind-down.
         scheduler.add_job(
             run_scheduled_digests,
-            CronTrigger(hour=20, minute=0),
+            CronTrigger(hour=17, minute=30),
             args=["evening"],
             id="coach_evening",
             replace_existing=True,
             misfire_grace_time=3600,
         )
 
+        # Weekly digest: 5:00 PM every Friday — week-in-review summary.
+        scheduler.add_job(
+            run_scheduled_digests,
+            CronTrigger(day_of_week="fri", hour=17, minute=0),
+            args=["weekly"],
+            id="coach_weekly",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         scheduler.start()
-        logger.info("AI coach scheduler started (morning=02:00, evening=20:00)")
+        logger.info("AI coach scheduler started (morning=07:00, evening=17:30, weekly=Fri 17:00)")
     except ImportError:
         logger.warning(
             "apscheduler not installed — AI coach background scheduling disabled. "

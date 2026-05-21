@@ -4,11 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth/context";
 import { apiClient } from "@/lib/api/client";
 import { DEFAULT_LAYOUT, migrateLayout, type DashboardLayout } from "./types";
+import type { components } from "@/lib/api/schema";
+
+type User = components["schemas"]["UserResponse"];
 
 const PATCH_DEBOUNCE_MS = 1000;
 
 export function useDashboardLayout() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
 
   const [layout, setLayoutState] = useState<DashboardLayout>(() =>
     migrateLayout(user?.preferences as Record<string, unknown> | null)
@@ -31,16 +34,21 @@ export function useDashboardLayout() {
   const setLayout = useCallback((next: DashboardLayout) => {
     setLayoutState(next);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      apiClient.PATCH("/auth/me", {
+    timerRef.current = setTimeout(async () => {
+      const { data } = await apiClient.PATCH("/auth/me", {
         body: {
           preferences: {
             dashboard: next as unknown as Record<string, unknown>,
           },
         },
       });
+      // Keep the in-memory user.preferences in sync so that navigating away
+      // and back doesn't restore stale preferences from the auth context.
+      if (data?.preferences) {
+        updateUser({ preferences: data.preferences as User["preferences"] });
+      }
     }, PATCH_DEBOUNCE_MS);
-  }, []);
+  }, [updateUser]);
 
   // Exit edit mode automatically on unmount (e.g. navigating away and back)
   useEffect(() => {

@@ -48,6 +48,72 @@
       "passes": false
     },
     {
+      "id": "budget-005",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Category groups — collapsible category sections",
+      "description": "Allow budget categories to be organized into named groups. Groups are collapsible in the UI. Each category belongs to one group; ungrouped categories fall into a default 'Other' bucket. Requires a new budget_category_groups table with a sort_order and name, and a group_id FK on budget_categories. The /budget/categories response should nest categories inside their group. On first setup, seed the default groups and assignments listed below.\n\nProposed default groups (inspired by YNAB, adapted for Hearth):\n\nGroup 1 — Fixed Monthly (sort 1): Immediate recurring obligations, roughly the same every month. Default categories: Housing, Utilities, Insurance, Subscriptions.\n\nGroup 2 — Everyday Spending (sort 2): Regular variable spending that happens most weeks. Default categories: Groceries, Dining, Transportation, Personal Care.\n\nGroup 3 — Irregular / True Expenses (sort 3): Predictable but infrequent — plan for these monthly even when they do not hit every month (the YNAB true-expenses concept). Default categories: Household, Healthcare, Travel, Gifts, Education, Shopping.\n\nGroup 4 — Savings & Goals (sort 4): Money leaving the spending pool for a future purpose. Default categories: Savings.\n\nGroup 5 — Just for Fun (sort 5): Discretionary and lifestyle spending. Default categories: Entertainment, Gaming, Vices.\n\nGroup 6 — Income (sort 6): Inflows; displayed separately from spending groups. Default categories: Income.\n\nNote: YNAB ships with Immediate Obligations, True Expenses, Debt Payments, Quality of Life Goals, and Just for Fun. Hearth folds Debt Payments into Fixed Monthly (debt is modeled as account types, not categories) and renames Quality of Life Goals to Savings & Goals for clarity.",
+      "steps": [
+        "Navigate to /budget → Categories",
+        "Create a group named 'Fixed Monthly'",
+        "Drag or assign Housing, Insurance, Subscriptions into that group",
+        "Verify the category list renders the group header with categories nested beneath it",
+        "Collapse the group and verify the categories hide",
+        "Verify uncategorized categories appear under a default 'Other' group",
+        "Verify the analytics page respects group order when rendering categories"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-006",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget targets — monthly envelope per category",
+      "description": "Add a monthly budget target amount to each category (zero-based envelope budgeting). The categories list and analytics page show budgeted vs. actual vs. remaining for the selected month. A category is 'over budget' when actual spending exceeds the target; the delta is highlighted in red. Targets are stored per-category (not per-month) as a default monthly amount, with optional per-month overrides in a budget_targets table keyed by (category_id, year, month).",
+      "steps": [
+        "Navigate to /budget → Categories and open a category",
+        "Set a monthly budget target of $500 on Groceries",
+        "Navigate to /budget → Analytics for the current month",
+        "Verify Groceries shows '$X spent of $500 budgeted' with a progress bar",
+        "Add transactions that exceed $500 in Groceries",
+        "Verify the category is highlighted as over-budget",
+        "Change the month and verify the same $500 target applies"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-007",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Ready to assign — unallocated balance indicator",
+      "description": "Show a persistent 'Ready to assign' figure at the top of the budget page: total income for the month minus the sum of all category budget targets. When positive, the user still has dollars without a job. When zero, every dollar is assigned. When negative, they have over-allocated. This is the forcing function for zero-based budgeting — it should be the most prominent number on the page.",
+      "steps": [
+        "Navigate to /budget for the current month",
+        "Verify a 'Ready to assign' figure appears at the top",
+        "Verify the number equals total income minus sum of all category targets",
+        "Set a new category target and verify the figure updates immediately",
+        "Reduce a target until 'Ready to assign' reaches $0 and verify a 'fully assigned' state is shown",
+        "Over-allocate and verify the figure goes negative with a warning state"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-008",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Month-to-month rollover for underspent categories",
+      "description": "Allow a category to be configured to roll over its unspent balance to the next month. If Groceries is budgeted at $500 and only $380 is spent, the following month starts with a $120 carry-forward added to the $500 target. Rollover is opt-in per category (a boolean flag). Overspending in a rollover category reduces the following month's effective budget rather than resetting to zero.",
+      "steps": [
+        "Open a category and enable 'Roll over unspent balance'",
+        "End the month with $120 unspent in that category",
+        "Navigate to the following month's budget view",
+        "Verify the category shows $620 available ($500 target + $120 rollover)",
+        "Disable rollover and verify the following month resets to $500",
+        "Overspend by $50 with rollover enabled and verify next month shows $450"
+      ],
+      "passes": false
+    },
+    {
       "id": "budget-004",
       "category": "Budget",
       "priority": 2,

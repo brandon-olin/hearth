@@ -21,6 +21,6 @@ until "$PG_ISREADY" -h 127.0.0.1 -p 5432 -U {{PG_SUPERUSER}} -q; do
 done
 
 exec "{{APP_DIR}}/api/.venv/bin/uvicorn" life_dashboard.main:app \
-    --host 127.0.0.1 \
+    --host 0.0.0.0 \
     --port 1338 \
     --workers 2

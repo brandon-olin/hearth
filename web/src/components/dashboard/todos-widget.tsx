@@ -51,7 +51,7 @@ function applyFilter(items: Todo[], filter: TodoFilter): Todo[] {
     case "today_overdue":
       return active.filter((t) => t.due_date && t.due_date <= today);
     case "this_week":
-      return active.filter((t) => !t.due_date || t.due_date <= weekEnd);
+      return active.filter((t) => t.due_date && t.due_date <= weekEnd);
     case "all":
       return active;
   }

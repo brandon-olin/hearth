@@ -90,11 +90,11 @@ export function ProjectProgressWidget({ config }: { config: ProjectProgressConfi
 
       {/* Progress ring — 2/3 width, centered */}
       {progressLoading && !isComplete ? (
-        <div className="w-1/3 aspect-square mx-auto flex items-center justify-center">
+        <div className="w-2/3 aspect-square mx-auto flex items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
         </div>
       ) : pct !== null ? (
-        <div className="w-1/3 aspect-square mx-auto">
+        <div className="w-2/3 aspect-square mx-auto">
           <ProgressRing percent={pct} />
         </div>
       ) : null}

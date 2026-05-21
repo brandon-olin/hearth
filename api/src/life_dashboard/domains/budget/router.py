@@ -18,6 +18,7 @@ from life_dashboard.domains.budget.parsers.csv_parser import (
     parse_csv,
 )
 from life_dashboard.domains.budget.schemas import (
+    ApplyToSimilarResponse,
     AutoCategorizeResponse,
     BudgetAccountCreate,
     BudgetAccountUpdate,
@@ -209,6 +210,7 @@ async def get_analytics(
 async def list_transactions(
     account_id: uuid.UUID | None = Query(default=None),
     category_id: uuid.UUID | None = Query(default=None),
+    uncategorized: bool = Query(default=False),
     scope: str | None = Query(default=None, pattern="^(personal|household)$"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
@@ -222,6 +224,7 @@ async def list_transactions(
         db, current_user.household_id, current_user.id,
         account_id=account_id,
         category_id=category_id,
+        uncategorized=uncategorized,
         scope=scope,
         date_from=date_from,
         date_to=date_to,
@@ -301,6 +304,24 @@ async def update_transaction(
     return result
 
 
+@router.post("/apply-to-similar", response_model=ApplyToSimilarResponse)
+async def apply_category_to_similar(
+    transaction_id: uuid.UUID = Query(...),
+    category_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ApplyToSimilarResponse:
+    """
+    Apply the given category to all uncategorized transactions that share the same
+    merchant_name as the specified transaction. Also adds the merchant name as a
+    keyword to the category for future auto-categorization.
+    """
+    updated, keyword_added = await service.apply_category_to_similar(
+        db, transaction_id, category_id, current_user.household_id, current_user.id
+    )
+    return ApplyToSimilarResponse(updated=updated, keyword_added=keyword_added)
+
+
 @router.delete("/transactions", status_code=http_status.HTTP_200_OK)
 async def bulk_delete_transactions(
     account_id: uuid.UUID | None = Query(default=None),
@@ -339,7 +360,7 @@ async def bulk_import_transactions(
     current_user: User = Depends(get_current_user),
 ) -> BudgetTransactionBulkImportResponse:
     try:
-        return await service.bulk_import_transactions(
+        result = await service.bulk_import_transactions(
             db,
             current_user.household_id,
             data.account_id,
@@ -348,6 +369,19 @@ async def bulk_import_transactions(
         )
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Auto-categorize newly imported transactions immediately
+    auto_categorized = 0
+    if result.inserted > 0:
+        auto_categorized = await service.auto_categorize_transactions(
+            db, current_user.household_id, account_id=data.account_id
+        )
+
+    return BudgetTransactionBulkImportResponse(
+        inserted=result.inserted,
+        skipped=result.skipped,
+        auto_categorized=auto_categorized,
+    )
 
 
 # ── Auto-categorize ───────────────────────────────────────────────────────────
@@ -561,8 +595,16 @@ async def import_file(
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+    # Auto-categorize newly imported transactions immediately
+    auto_categorized = 0
+    if bulk_result.inserted > 0:
+        auto_categorized = await service.auto_categorize_transactions(
+            db, current_user.household_id, account_id=account_id
+        )
+
     return BudgetFileImportResponse(
         inserted=bulk_result.inserted,
         skipped=bulk_result.skipped,
+        auto_categorized=auto_categorized,
         parse_errors=parse_errors,
     )

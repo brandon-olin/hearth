@@ -142,7 +142,14 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                router.push(habitLink.path);
+                const isExternal =
+                  habitLink.path.startsWith("http://") ||
+                  habitLink.path.startsWith("https://");
+                if (isExternal) {
+                  window.open(habitLink.path, "_blank", "noopener,noreferrer");
+                } else {
+                  router.push(habitLink.path);
+                }
               }}
               className="flex items-center gap-1.5 min-w-0 text-left group"
               title={`Go to ${habitLink.label}`}

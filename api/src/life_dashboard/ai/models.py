@@ -147,6 +147,7 @@ class AiUsage(Base):
 class CoachDigestKind(str, enum.Enum):
     morning = "morning"
     evening = "evening"
+    weekly = "weekly"
 
 
 class AiCoachDigest(Base):

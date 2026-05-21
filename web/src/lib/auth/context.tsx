@@ -44,6 +44,8 @@ interface AuthContextValue {
   /** True for one session after locale was auto-detected from the browser. Cleared when dismissed. */
   localeAutoDetected: boolean;
   dismissLocaleNotice: () => void;
+  /** Merge partial fields into the in-memory user — call after a PATCH /auth/me so the context stays in sync. */
+  updateUser: (patch: Partial<User>) => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   impersonateUser: (targetUserId: string) => Promise<void>;
@@ -157,6 +159,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLocaleAutoDetected(false);
   }
 
+  function updateUser(patch: Partial<User>) {
+    setUser((prev) => (prev ? { ...prev, ...patch } : null));
+  }
+
   async function logout() {
     await apiClient.POST("/auth/logout", {});
     setAccessToken(null); // clears localStorage too
@@ -223,7 +229,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, impersonating, localeAutoDetected, dismissLocaleNotice, login, logout, impersonateUser, stopImpersonating }}>
+    <AuthContext.Provider value={{ user, isLoading, impersonating, localeAutoDetected, dismissLocaleNotice, updateUser, login, logout, impersonateUser, stopImpersonating }}>
       {children}
     </AuthContext.Provider>
   );

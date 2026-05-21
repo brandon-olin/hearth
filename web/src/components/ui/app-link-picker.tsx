@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { $api } from "@/lib/api/query";
 import { getAccessToken } from "@/lib/auth/token";
 import { ALL_NAVIGABLE } from "@/lib/sidebar/nav-items";
+import { resolveFolderIcon } from "@/lib/sidebar/folder-icons";
 import { cn } from "@/lib/utils";
 import {
   Search,
@@ -14,6 +15,8 @@ import {
   FileText,
   ChefHat,
   FolderKanban,
+  StickyNote,
+  ExternalLink,
 } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
@@ -83,8 +86,9 @@ export function AppLinkPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const dq = useDebounced(query.trim(), 250);
-  const rawQ = query.trim().toLowerCase();
+  const trimmedQ = query.trim();
+  const dq = useDebounced(trimmedQ, 250);
+  const rawQ = trimmedQ.toLowerCase();
   const enabled = dq.length >= 2;
 
   // Focus input when panel opens
@@ -108,6 +112,11 @@ export function AppLinkPicker({
           item.label.toLowerCase().includes(rawQ)
         );
 
+  // ── External URL detection ────────────────────────────────────────────────
+  // Check on the original trimmed query (case-preserving) since URLs are case-sensitive
+  const isExternalUrl =
+    trimmedQ.startsWith("http://") || trimmedQ.startsWith("https://");
+
   // ── Document search (backend, title-only) ─────────────────────────────────
   const [docResults, setDocResults] = useState<{ id: string; title: string }[]>(
     []
@@ -116,7 +125,7 @@ export function AppLinkPicker({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || isExternalUrl) {
       setDocResults([]);
       return;
     }
@@ -148,7 +157,41 @@ export function AppLinkPicker({
       .finally(() => setDocsLoading(false));
 
     return () => controller.abort();
-  }, [dq, enabled]);
+  }, [dq, enabled, isExternalUrl]);
+
+  // ── Notes search (backend, full-text) ────────────────────────────────────
+  const [noteResults, setNoteResults] = useState<{ id: string; title: string }[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const notesAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!enabled || isExternalUrl) {
+      setNoteResults([]);
+      return;
+    }
+    notesAbortRef.current?.abort();
+    const controller = new AbortController();
+    notesAbortRef.current = controller;
+    setNotesLoading(true);
+
+    const token = getAccessToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    fetch(
+      `/api/notes?q=${encodeURIComponent(dq)}&limit=5&include_all_collections=true`,
+      { headers, signal: controller.signal }
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const items = (data.items ?? []) as { id: string; title: string }[];
+        setNoteResults(items.slice(0, 5));
+      })
+      .catch(() => {/* aborted or error */})
+      .finally(() => setNotesLoading(false));
+
+    return () => controller.abort();
+  }, [dq, enabled, isExternalUrl]);
 
   // ── Projects (backend, client-side filtered) ──────────────────────────────
   // Note: /projects does not accept a limit param — it returns all projects
@@ -156,7 +199,7 @@ export function AppLinkPicker({
     "get",
     "/projects",
     {},
-    { enabled }
+    { enabled: enabled && !isExternalUrl }
   );
   type Project = components["schemas"]["ProjectResponse"];
   const matchingProjects: Project[] = (projectsData?.items ?? [])
@@ -168,19 +211,35 @@ export function AppLinkPicker({
     "get",
     "/recipes",
     { params: { query: { limit: 100 } } },
-    { enabled }
+    { enabled: enabled && !isExternalUrl }
   );
   type Recipe = components["schemas"]["RecipeResponse"];
   const matchingRecipes: Recipe[] = (recipesData?.items ?? [])
     .filter((r) => r.name.toLowerCase().includes(dq.toLowerCase()))
     .slice(0, 5);
 
+  // ── Collections (backend, client-side filtered) ───────────────────────────
+  const { data: collectionsData } = $api.useQuery(
+    "get",
+    "/collections",
+    {},
+    { enabled: enabled && !isExternalUrl }
+  );
+  type Collection = components["schemas"]["CollectionResponse"];
+  const matchingCollections: Collection[] = (collectionsData?.items ?? [])
+    .filter((c) => c.name.toLowerCase().includes(dq.toLowerCase()))
+    .slice(0, 5);
+
+  const anyLoading = docsLoading || notesLoading;
   const hasResults =
+    isExternalUrl ||
     matchingNav.length > 0 ||
     docResults.length > 0 ||
+    noteResults.length > 0 ||
     matchingProjects.length > 0 ||
-    matchingRecipes.length > 0;
-  const showEmpty = rawQ.length > 1 && !docsLoading && !hasResults;
+    matchingRecipes.length > 0 ||
+    matchingCollections.length > 0;
+  const showEmpty = rawQ.length > 1 && !anyLoading && !hasResults;
 
   return (
     <div className="space-y-2">
@@ -218,7 +277,7 @@ export function AppLinkPicker({
         <div className="rounded-md border bg-background shadow-md overflow-hidden">
           {/* Input */}
           <div className="flex items-center gap-2 px-3 py-2 border-b">
-            {docsLoading ? (
+            {anyLoading ? (
               <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
             ) : (
               <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -242,8 +301,20 @@ export function AppLinkPicker({
 
           {/* Results */}
           <div className="max-h-60 overflow-y-auto">
-            {/* Nav / sections */}
-            {matchingNav.length > 0 && (
+            {/* External URL */}
+            {isExternalUrl && (
+              <div>
+                <SectionHeader label="External link" />
+                <ResultRow
+                  icon={<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />}
+                  label={trimmedQ}
+                  onSelect={() => select(trimmedQ, trimmedQ)}
+                />
+              </div>
+            )}
+
+            {/* Nav / built-in sections */}
+            {!isExternalUrl && matchingNav.length > 0 && (
               <div>
                 <SectionHeader label={rawQ === "" ? "Go to" : "Pages"} />
                 {matchingNav.map((item) => {
@@ -269,8 +340,35 @@ export function AppLinkPicker({
               </div>
             )}
 
+            {/* Collections */}
+            {enabled && !isExternalUrl && matchingCollections.length > 0 && (
+              <div>
+                <SectionHeader label="Collections" />
+                {matchingCollections.map((c) => {
+                  const ResolvedIcon = c.icon ? resolveFolderIcon(c.icon) : null;
+                  return (
+                    <ResultRow
+                      key={c.id}
+                      icon={
+                        ResolvedIcon ? (
+                          <ResolvedIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : c.icon ? (
+                          // Emoji or unknown string — render as text
+                          <span className="text-sm leading-none">{c.icon}</span>
+                        ) : (
+                          <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
+                        )
+                      }
+                      label={c.name}
+                      onSelect={() => select(`/collections/${c.id}`, c.name)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
             {/* Documents */}
-            {enabled && docResults.length > 0 && (
+            {enabled && !isExternalUrl && docResults.length > 0 && (
               <div>
                 <SectionHeader label="Documents" />
                 {docResults.map((doc) => (
@@ -288,8 +386,27 @@ export function AppLinkPicker({
               </div>
             )}
 
+            {/* Notes */}
+            {enabled && !isExternalUrl && noteResults.length > 0 && (
+              <div>
+                <SectionHeader label="Notes" />
+                {noteResults.map((note) => (
+                  <ResultRow
+                    key={note.id}
+                    icon={
+                      <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
+                    }
+                    label={note.title || "(untitled)"}
+                    onSelect={() =>
+                      select(`/notes/${note.id}`, note.title || "(untitled)")
+                    }
+                  />
+                ))}
+              </div>
+            )}
+
             {/* Projects */}
-            {enabled && matchingProjects.length > 0 && (
+            {enabled && !isExternalUrl && matchingProjects.length > 0 && (
               <div>
                 <SectionHeader label="Projects" />
                 {matchingProjects.map((p) => (
@@ -306,7 +423,7 @@ export function AppLinkPicker({
             )}
 
             {/* Recipes */}
-            {enabled && matchingRecipes.length > 0 && (
+            {enabled && !isExternalUrl && matchingRecipes.length > 0 && (
               <div>
                 <SectionHeader label="Recipes" />
                 {matchingRecipes.map((r) => (

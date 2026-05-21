@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useSegmentId } from "@/lib/hooks/use-segment-id";
@@ -11,7 +11,7 @@ import { TodoSheet } from "@/components/todos/todo-sheet";
 import { QuickAdd } from "@/components/todos/quick-add";
 import { Button } from "@/components/ui/button";
 import { ProjectCreateSheet } from "@/components/projects/project-create-sheet";
-import { Loader2, AlertCircle, Pin, PinOff, ChevronRight, Plus, ChevronLeft, MoreHorizontal, Archive, Trash2 } from "lucide-react";
+import { Loader2, AlertCircle, Pin, PinOff, ChevronRight, Plus, ChevronLeft, MoreHorizontal, Archive, Trash2, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { useRouter as useNextRouter } from "next/navigation";
@@ -120,6 +120,10 @@ export default function ProjectPage() {
   const [showDone, setShowDone] = useState(false);
   const [subProjectSheetOpen, setSubProjectSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch project ──────────────────────────────────────────────────────────
   const {
@@ -212,6 +216,40 @@ export default function ProjectPage() {
     qc.invalidateQueries({ queryKey: ["get", "/projects"] });
   }, [project, id, updateProject, qc]);
 
+  // ── Inline name editing ────────────────────────────────────────────────────
+  const startEditingName = useCallback(() => {
+    if (!project) return;
+    setNameValue(project.name);
+    setEditingName(true);
+    // Focus after state update
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }, [project]);
+
+  const commitNameEdit = useCallback(async () => {
+    const trimmed = nameValue.trim();
+    if (!trimmed || trimmed === project?.name) {
+      setEditingName(false);
+      return;
+    }
+    setNameSaving(true);
+    try {
+      await updateProject({
+        params: { path: { project_id: id } },
+        body: { name: trimmed },
+      });
+      qc.invalidateQueries({ queryKey: ["get", "/projects/{project_id}"] });
+      qc.invalidateQueries({ queryKey: ["get", "/projects"] });
+    } finally {
+      setNameSaving(false);
+      setEditingName(false);
+    }
+  }, [nameValue, project, updateProject, id, qc]);
+
+  const cancelNameEdit = useCallback(() => {
+    setEditingName(false);
+    setNameValue("");
+  }, []);
+
   // ── Todo handlers ──────────────────────────────────────────────────────────
   const handleEdit = useCallback((todo: Todo) => {
     setSelectedTodo(todo);
@@ -267,7 +305,34 @@ export default function ProjectPage() {
             </span>
           </Button>
 
-          <h1 className="text-sm font-semibold truncate flex-1">{project.name}</h1>
+          {/* Project name — click pencil or double-click to rename */}
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onBlur={commitNameEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); commitNameEdit(); }
+                if (e.key === "Escape") { e.preventDefault(); cancelNameEdit(); }
+              }}
+              disabled={nameSaving}
+              className="flex-1 text-sm font-semibold bg-background border rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary min-w-0"
+              autoFocus
+            />
+          ) : (
+            <div className="flex items-center gap-1 flex-1 min-w-0 group/name">
+              <h1 className="text-sm font-semibold truncate">{project.name}</h1>
+              <button
+                type="button"
+                onClick={startEditingName}
+                title="Rename project"
+                className="opacity-0 group-hover/name:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )}
 
           {/* Pin / unpin button */}
           <Button
@@ -461,7 +526,7 @@ export default function ProjectPage() {
               )}
 
               {/* Quick-add */}
-              <QuickAdd projectId={id} className="mt-2" />
+              <QuickAdd onOpen={handleNew} className="mt-2" />
 
               {/* Done / cancelled section */}
               {doneTodos.length > 0 && (
