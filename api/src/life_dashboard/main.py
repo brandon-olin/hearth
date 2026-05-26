@@ -14,6 +14,7 @@ from starlette.types import ASGIApp as _ASGIApp, Receive as _Receive, Scope as _
 
 from life_dashboard.ai.router import router as ai_router
 from life_dashboard.ai.coach_service import run_scheduled_digests
+from life_dashboard.domains.budget.service import sync_all_teller_accounts_globally
 from life_dashboard.auth.router import router as auth_router
 from life_dashboard.households.router import router as households_router
 from life_dashboard.uploads.router import router as uploads_router
@@ -36,6 +37,7 @@ from life_dashboard.domains.budget.router import router as budget_router
 from life_dashboard.auth.service import run_bootstrap_if_needed
 from life_dashboard.setup.router import router as setup_router
 from life_dashboard.core.database import AsyncSessionLocal, create_all_tables, engine, _is_sqlite
+from life_dashboard.core.rate_limit import limiter
 from life_dashboard.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -354,10 +356,22 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,
         )
 
+        # Teller background sync: pull new bank transactions every 4 hours
+        # for all households with linked accounts.  Runs at :00 on hours
+        # 0, 4, 8, 12, 16, 20 — staggered 30 min from digests to avoid
+        # simultaneous DB load.
+        scheduler.add_job(
+            sync_all_teller_accounts_globally,
+            CronTrigger(hour="*/4", minute=30),
+            id="teller_background_sync",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         scheduler.start()
         logger.info(
             "AI coach scheduler started (morning=07:00, evening=17:30, "
-            "weekly=Fri 17:00, profile_refresh=Sun 03:00)"
+            "weekly=Fri 17:00, profile_refresh=Sun 03:00, teller_sync=*/4h:30)"
         )
     except ImportError:
         logger.warning(
@@ -385,6 +399,12 @@ app = FastAPI(
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
 
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 from fastapi import Request
 from fastapi.responses import JSONResponse

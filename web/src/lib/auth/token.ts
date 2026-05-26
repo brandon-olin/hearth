@@ -44,3 +44,18 @@ export function loadStoredToken(): string | null {
   }
   return null;
 }
+
+/**
+ * Returns true if the stored token is expired or will expire within 60 seconds.
+ * Used by the visibilitychange listener to detect "tab backgrounded, timer fired
+ * late" situations so we can proactively refresh before the next API call.
+ */
+export function isTokenExpiringSoon(): boolean {
+  if (!accessToken) return false;
+  try {
+    const expiry = Number(localStorage.getItem(LS_EXPIRY_KEY) ?? "0");
+    return Date.now() >= expiry - 60_000;
+  } catch {
+    return false;
+  }
+}

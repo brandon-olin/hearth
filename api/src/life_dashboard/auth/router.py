@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from life_dashboard.core.rate_limit import limiter
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -52,6 +53,7 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("3/hour")
 async def register(
     body: RegisterRequest,
     request: Request,
@@ -125,6 +127,7 @@ async def register(
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("5/minute")
 async def login(
     body: LoginRequest,
     request: Request,

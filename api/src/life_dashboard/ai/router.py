@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.ai import service
@@ -540,9 +540,24 @@ async def start_journal_session(
 ) -> JournalStartResponse:
     """Start (or resume) a guided journal session anchored to a journal note.
 
-    Finds an existing AiConversation where kind='journal' AND note_id matches;
-    creates one if not. The /ai/chat endpoint streams turns into it and
-    knows to use the journal-mode system prompt because of conv.kind.
+    journal-002: handles three call patterns from the frontend:
+
+    1. Initial mount, no mode:
+         POST /ai/journal/start {note_id}
+       → returns existing journal conversation if any (is_new=false),
+         else creates an EMPTY one (is_new=true, opening_message=None).
+         No LLM call. Fast.
+
+    2. Mode pick on an empty conversation:
+         POST /ai/journal/start {note_id, mode, local_hour}
+       → finds the (just-created) conversation, persists mode, saves
+         the canned opener as the first assistant turn, returns the
+         opening_message. is_new=false (it was created earlier on mount).
+
+    3. Resume of a session that already has a mode:
+         POST /ai/journal/start {note_id} (or {note_id, mode})
+       → returns the existing conversation with its stored mode. Any
+         mode parameter is ignored — once chosen, the mode is locked.
 
     Validates:
       - The target note exists and is owned by the current user.
@@ -580,7 +595,8 @@ async def start_journal_session(
             detail="Talk-it-out is only available for journal entries.",
         )
 
-    # Find existing journal conversation for this user+note, or create one.
+    # Find existing journal conversation for this user+note (per-user
+    # scoping enforced by AiConversation.user_id == current_user.id).
     existing = (await db.execute(
         select(AiConversation).where(
             AiConversation.user_id == current_user.id,
@@ -591,57 +607,84 @@ async def start_journal_session(
         .limit(1)
     )).scalar_one_or_none()
 
+    # Helper — true iff this conversation has zero messages of either
+    # role. The picker chips should re-appear when an empty conversation
+    # gets resumed (e.g. user opened Talk-it-out, closed it without
+    # picking a mode, and is now back).
+    from life_dashboard.ai.models import AiMessage as _AiMessage
+
+    async def _is_empty(conv_id) -> bool:
+        cnt = (await db.execute(
+            select(func.count()).select_from(_AiMessage)
+            .where(_AiMessage.conversation_id == conv_id)
+        )).scalar_one()
+        return cnt == 0
+
     if existing is not None:
+        # Case 2 vs 3: does the user want to set a mode on an as-yet
+        # unset conversation? Allow exactly that one transition; ignore
+        # otherwise (locked after first pick).
+        if data.mode is not None and existing.mode is None:
+            existing.mode = data.mode
+            opener = service.canned_opener_for(data.mode, data.local_hour)
+            if opener:
+                await service.append_message(
+                    db, existing.id, AiMessageRole.assistant, opener
+                )
+            await db.commit()
+            await db.refresh(existing)
+            return JournalStartResponse(
+                conversation_id=existing.id,
+                is_new=False,
+                opening_message=opener,
+                mode=existing.mode,
+                needs_mode_pick=False,
+            )
+        # Already has a mode (case 3) OR caller didn't supply one (case
+        # 1 with existing session) — just return current state. The
+        # picker should re-appear iff this conversation is still empty
+        # AND no mode has been chosen.
+        needs_pick = existing.mode is None and await _is_empty(existing.id)
         return JournalStartResponse(
-            conversation_id=existing.id, is_new=False, opening_message=None,
+            conversation_id=existing.id,
+            is_new=False,
+            opening_message=None,
+            mode=existing.mode,
+            needs_mode_pick=needs_pick,
         )
 
+    # No existing conversation — create one. If a mode arrived on this
+    # call (rare — the frontend usually does mount-then-pick) seed the
+    # opener now. Otherwise the conversation is empty and the frontend
+    # will follow up with a mode pick.
     conv = AiConversation(
         user_id=current_user.id,
         household_id=current_user.household_id,
         title=f"Journal — {note.title}",
         kind="journal",
         note_id=note.id,
+        mode=data.mode,
     )
     db.add(conv)
     await db.commit()
     await db.refresh(conv)
 
-    # journal-001 Phase B: generate a personalized opener and save it as
-    # the first assistant turn so the AI is "already there" when the user
-    # arrives. Best-effort — a failed opener falls back to a static
-    # warm-but-empty string; never blocks session start.
     opening_message: str | None = None
-    try:
-        user_settings = await service.get_or_create_settings(db, current_user.id)
-        provider = service.get_provider(user_settings)
-        if provider is not None:
-            opening_message = await service.generate_journal_opener(
-                db=db,
-                provider=provider,
-                user_id=current_user.id,
-                household_id=current_user.household_id,
-                display_name=current_user.display_name or current_user.email,
+    if data.mode is not None:
+        opener = service.canned_opener_for(data.mode, data.local_hour)
+        if opener:
+            await service.append_message(
+                db, conv.id, AiMessageRole.assistant, opener
             )
-            if opening_message:
-                # Persist as the first assistant message so /ai/chat
-                # streams onto a non-empty history.
-                await service.append_message(
-                    db, conv.id, AiMessageRole.assistant, opening_message
-                )
-                await db.commit()
-    except Exception:
-        # Opener failure must not block session start. Frontend will
-        # display the placeholder text if opening_message is None.
-        import logging
-        logging.getLogger(__name__).exception(
-            "Journal opener generation failed — proceeding without",
-        )
+            await db.commit()
+            opening_message = opener
 
     return JournalStartResponse(
         conversation_id=conv.id,
         is_new=True,
         opening_message=opening_message,
+        mode=conv.mode,
+        needs_mode_pick=conv.mode is None,
     )
 
 

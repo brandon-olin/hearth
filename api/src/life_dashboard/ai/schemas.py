@@ -163,9 +163,28 @@ class UsageSummaryResponse(BaseModel):
 
 # ── Journal session (journal-001) ─────────────────────────────────────────────
 
+JournalMode = Literal["blank", "mood", "body", "rant", "day_review"]
+
+
 class JournalStartRequest(BaseModel):
-    """Start (or resume) a guided journal session for today's entry."""
+    """Start (or resume) a guided journal session for today's entry.
+
+    journal-002:
+      - `mode`: which check-in mode the user picked, or None on the
+        initial mount call. On mount the frontend calls /start with no
+        mode just to look up (or create an empty) conversation. After
+        the user picks a chip, the frontend calls /start AGAIN with the
+        chosen mode, which seeds the canned opener and persists the
+        mode on the conversation.
+      - `local_hour`: user's local hour-of-day (0-23) at the moment they
+        pick the mode. Only used to branch the day_review opener
+        between morning (look-ahead) and evening (look-back). The
+        frontend reads `new Date().getHours()`. Optional — falling
+        back to evening when missing.
+    """
     note_id: uuid.UUID
+    mode: JournalMode | None = None
+    local_hour: int | None = Field(default=None, ge=0, le=23)
 
 
 class JournalStartResponse(BaseModel):
@@ -176,15 +195,24 @@ class JournalStartResponse(BaseModel):
     Frontend uses it to decide whether to wait for an AI-initiated opener
     or just render the existing transcript.
 
-    `opening_message` (journal-001 Phase B) is the personalized first-turn
-    message the AI generates when is_new=true. Already saved as the first
-    assistant message in the conversation by /ai/journal/start. NULL for
-    resumed sessions — their history (including the original opener) is
-    fetched separately when the frontend wants to render it.
+    journal-002:
+      - `opening_message` is the canned mode opener (or None for blank-
+        slate / no-mode calls). Already saved as the first assistant
+        message when non-None, so the chat history is consistent.
+      - `mode` reflects the persisted mode on the conversation —
+        non-null only after the user has picked a check-in mode.
+      - `needs_mode_pick` is true iff the user should be shown the mode
+        picker chips. The frontend uses this directly rather than
+        re-deriving from is_new/mode/message-count. True when the
+        conversation has no messages yet AND no mode set — i.e. a brand
+        new session OR a session the user started earlier and closed
+        without typing.
     """
     conversation_id: uuid.UUID
     is_new: bool
     opening_message: str | None = None
+    mode: JournalMode | None = None
+    needs_mode_pick: bool = False
 
 
 class JournalFinishResponse(BaseModel):

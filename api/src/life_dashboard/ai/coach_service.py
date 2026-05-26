@@ -374,13 +374,13 @@ async def _fetch_history(
     history: dict[str, Any] = {}
 
     # ── Weekly todo completion counts (past 6 weeks) ──────────────────────────
+    # Pull raw completion dates and bucket by Monday-anchored ISO week in
+    # Python. date_trunc("week", ...) is Postgres-only — it raises on SQLite
+    # (local dev) causing _fetch_history to silently return no trajectory data.
     six_weeks_ago = date.fromordinal(for_date.toordinal() - 42)
 
-    todo_q = (
-        select(
-            func.date_trunc("week", Todo.completed_at).label("week_start"),
-            func.count().label("count"),
-        )
+    date_q = (
+        select(func.date(Todo.completed_at).label("completed_date"))
         .where(
             Todo.household_id == household_id,
             Todo.assigned_to_user_id == user_id,
@@ -388,16 +388,28 @@ async def _fetch_history(
             func.date(Todo.completed_at) >= six_weeks_ago,
             func.date(Todo.completed_at) < for_date,  # exclude today (in progress)
         )
-        .group_by(func.date_trunc("week", Todo.completed_at))
-        .order_by(func.date_trunc("week", Todo.completed_at))
     )
     if all_pinned_ids:
-        todo_q = todo_q.where(Todo.project_id.in_(all_pinned_ids))
+        date_q = date_q.where(Todo.project_id.in_(all_pinned_ids))
 
-    rows = (await db.execute(todo_q)).all()
+    date_rows = (await db.execute(date_q)).all()
+
+    # Group into Monday-anchored weeks. SQLite returns date strings;
+    # Postgres returns date/datetime objects — normalise both.
+    from collections import defaultdict as _defaultdict
+    week_counts: dict[date, int] = _defaultdict(int)
+    for (completed_date,) in date_rows:
+        if isinstance(completed_date, str):
+            completed_date = date.fromisoformat(completed_date[:10])
+        elif hasattr(completed_date, "date"):
+            completed_date = completed_date.date()
+        # Monday of this date's ISO week (weekday() == 0 for Mon, 6 for Sun)
+        week_start = date.fromordinal(completed_date.toordinal() - completed_date.weekday())
+        week_counts[week_start] += 1
+
     history["weekly_completions"] = [
-        {"week_start": str(r.week_start.date()) if hasattr(r.week_start, "date") else str(r.week_start), "count": r.count}
-        for r in rows
+        {"week_start": str(ws), "count": cnt}
+        for ws, cnt in sorted(week_counts.items())
     ]
 
     # ── Habit completion rates (7d vs 30d) ────────────────────────────────────

@@ -62,6 +62,15 @@ class AiConversation(Base):
     note_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(), ForeignKey("notes.id", ondelete="SET NULL"), nullable=True
     )
+    # journal-001 Phase C: which "check-in mode" the user chose when
+    # starting this journal session, or NULL if they took the blank-slate
+    # path. Drives (a) the canned opening message and (b) a mode-specific
+    # instruction layered onto the journal system prompt — e.g. rant mode
+    # tells the model to stay with the user, not reality-test. Valid
+    # values: "blank", "mood", "body", "rant", "day_review". Stored as
+    # the literal string the API received so it's easy to inspect in the
+    # database; validation lives at the schema layer.
+    mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     __table_args__ = (
         Index("ix_ai_conversations_user_kind_note", "user_id", "kind", "note_id"),

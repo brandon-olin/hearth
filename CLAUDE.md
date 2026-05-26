@@ -95,6 +95,25 @@ This rule applies to the Telegram bot too: after the bot finishes a `/run` sessi
 
 ---
 
+## Utility scripts (`scripts/`)
+
+Any standalone scripts (data migrations, seed scripts, one-off tools) that need to call the Hearth API must use **Python stdlib only** — no `requests`, `httpx`, or other third-party HTTP libraries. Use `urllib.request` + `urllib.parse` + `json` instead. The project venv has `requests` installed, but scripts run by the developer in various shell contexts have repeatedly failed with `requests not found` due to interpreter path ambiguity. stdlib always works regardless of which Python is on `$PATH`.
+
+```python
+# Correct pattern for API calls in scripts:
+import json, urllib.request, urllib.parse, urllib.error
+
+def api_get(base_url, token, path, params=None):
+    url = f"{base_url}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+```
+
+---
+
 ## When unsure
 
 1. Preserve privacy and data scope boundaries.

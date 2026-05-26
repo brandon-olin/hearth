@@ -3024,6 +3024,60 @@ async def sync_all_teller_accounts(
     )
 
 
+async def sync_all_teller_accounts_globally() -> None:
+    """
+    Scheduler entry point: sync Teller-linked accounts for every household
+    that has at least one active linked account.
+
+    Opens its own DB session (same pattern as run_scheduled_digests) so this
+    can be called from APScheduler without a request context.  Errors on
+    individual households are logged and skipped so one bad enrollment doesn't
+    block the rest.
+    """
+    import logging as _logging
+    from life_dashboard.core.database import AsyncSessionLocal
+
+    _log = _logging.getLogger(__name__)
+    _log.info("Teller background sync starting")
+
+    async with AsyncSessionLocal() as db:
+        # Find all distinct household_ids that have at least one active
+        # Teller-linked account.
+        from sqlalchemy import distinct
+        stmt = (
+            select(distinct(BudgetAccount.household_id))
+            .where(
+                BudgetAccount.teller_account_id.isnot(None),
+                BudgetAccount.teller_access_token.isnot(None),
+                BudgetAccount.archived_at.is_(None),
+            )
+        )
+        household_ids = list((await db.execute(stmt)).scalars().all())
+
+    total_accounts = 0
+    total_inserted = 0
+    errors = 0
+
+    for hid in household_ids:
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await sync_all_teller_accounts(db, hid)
+                total_accounts += result.accounts_synced
+                total_inserted += result.total_inserted
+                _log.info(
+                    "Teller sync household=%s accounts=%d inserted=%d",
+                    hid, result.accounts_synced, result.total_inserted,
+                )
+        except Exception as exc:
+            errors += 1
+            _log.warning("Teller sync failed for household %s: %s", hid, exc)
+
+    _log.info(
+        "Teller background sync done: households=%d accounts=%d inserted=%d errors=%d",
+        len(household_ids), total_accounts, total_inserted, errors,
+    )
+
+
 async def check_budget_thresholds(
     db: AsyncSession,
     household_id: uuid.UUID,

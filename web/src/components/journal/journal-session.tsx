@@ -43,6 +43,40 @@ interface Message {
   streaming?: boolean;
 }
 
+// journal-002: check-in modes. Order here drives the chip order in the
+// picker. Blank slate is rendered separately (always last, slightly
+// de-emphasised) so the structured options come first.
+type Mode = "blank" | "mood" | "body" | "rant" | "day_review";
+
+interface ModeOption {
+  id: Mode;
+  label: string;
+  hint: string;
+}
+
+const STRUCTURED_MODES: ModeOption[] = [
+  {
+    id: "mood",
+    label: "Mood check",
+    hint: "Start with how you feel right now",
+  },
+  {
+    id: "body",
+    label: "Body check",
+    hint: "Tension, energy, tiredness, hunger",
+  },
+  {
+    id: "rant",
+    label: "Rant",
+    hint: "Vent without filter — I'll stay with you",
+  },
+  {
+    id: "day_review",
+    label: "Day review",
+    hint: "Look at the day — ahead or behind",
+  },
+];
+
 export interface JournalSessionProps {
   noteId: string;
   noteTitle: string;
@@ -87,6 +121,17 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // journal-002: check-in mode state.
+  //   showModePicker = true → render the chips above the textarea on the
+  //     first turn of a fresh (or empty-resumed) session.
+  //   pickingMode = true → a chip was just clicked, waiting on the
+  //     backend to seed the canned opener.
+  // After the picker is dismissed (any chip clicked OR blank slate
+  // chosen) we set showModePicker=false; it stays false for the
+  // remainder of the session even if messages drain (they won't).
+  const [showModePicker, setShowModePicker] = useState(false);
+  const [pickingMode, setPickingMode] = useState<Mode | null>(null);
+
   // Synthesis / save state
   const [summary, setSummary] = useState("");
   const [includeTranscript, setIncludeTranscript] = useState(false);
@@ -113,21 +158,23 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
     let cancelled = false;
     (async () => {
       try {
+        // journal-002: mount call sends note_id only — no mode.
+        // The backend either resumes the existing conversation or
+        // creates an empty one. needs_mode_pick tells us whether to
+        // render the picker chips.
         const resp = await jpost<{
           conversation_id: string;
           is_new: boolean;
           opening_message: string | null;
+          mode: Mode | null;
+          needs_mode_pick: boolean;
         }>("/ai/journal/start", { note_id: noteId });
         if (cancelled) return;
         setConversationId(resp.conversation_id);
 
-        // journal-001 Phase B: render the AI's personalized opener
-        // (already saved server-side as the first assistant turn) so
-        // the user arrives at a non-empty conversation. Resumed
-        // sessions: opening_message is null and we just show the empty
-        // surface; the existing transcript is already on the backend
-        // and will show up when the user sends the next turn.
-        if (resp.is_new && resp.opening_message) {
+        // If the backend already saved an opener (mode was set on a
+        // previous call this session that got persisted), render it.
+        if (resp.opening_message) {
           setMessages([
             {
               id: crypto.randomUUID(),
@@ -136,6 +183,8 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
             },
           ]);
         }
+        // Picker visibility — backend computes this directly.
+        setShowModePicker(resp.needs_mode_pick);
         setPhase("conversation");
       } catch (e) {
         if (!cancelled) {
@@ -148,6 +197,54 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
       cancelled = true;
     };
   }, [noteId]);
+
+  // ── Pick a check-in mode ────────────────────────────────────────────────────
+  // Blank slate: just dismiss the picker, no backend call. The
+  // conversation already exists from the mount; the user can start
+  // typing into the empty surface.
+  // Any other mode: POST /ai/journal/start with the mode + local_hour;
+  // backend persists the mode, returns the canned opener, which we
+  // append as the first assistant message.
+  const pickMode = useCallback(
+    async (mode: Mode) => {
+      if (pickingMode) return;
+      if (mode === "blank") {
+        setShowModePicker(false);
+        // Focus the textarea so the user can start typing immediately.
+        setTimeout(() => textareaRef.current?.focus(), 50);
+        return;
+      }
+      setPickingMode(mode);
+      setError(null);
+      try {
+        const resp = await jpost<{
+          conversation_id: string;
+          opening_message: string | null;
+        }>("/ai/journal/start", {
+          note_id: noteId,
+          mode,
+          local_hour: new Date().getHours(),
+        });
+        if (resp.opening_message) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: resp.opening_message!,
+            },
+          ]);
+        }
+        setShowModePicker(false);
+        setTimeout(() => textareaRef.current?.focus(), 50);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to set mode");
+      } finally {
+        setPickingMode(null);
+      }
+    },
+    [pickingMode, noteId],
+  );
 
   // ── Autoscroll on new messages ──────────────────────────────────────────────
   useEffect(() => {
@@ -318,12 +415,57 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
                   <Loader2 className="h-4 w-4 animate-spin" /> Starting session…
                 </div>
               )}
-              {messages.length === 0 && phase === "conversation" && (
-                // Shown only when the session was resumed (no opener
-                // re-fired) OR the opener generation failed and the
-                // fallback also somehow returned empty. New sessions
-                // arrive with the AI's personalized opener already in
-                // the messages array.
+              {/* journal-002: mode picker — shown above the empty
+                  conversation when the user hasn't picked a mode yet.
+                  Replaces the old empty-state placeholder. */}
+              {showModePicker && phase === "conversation" && (
+                <div className="space-y-3 pb-2">
+                  <p className="text-sm text-muted-foreground">
+                    How do you want to start?
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {STRUCTURED_MODES.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => pickMode(m.id)}
+                        disabled={pickingMode !== null}
+                        className={cn(
+                          "text-left rounded-lg border border-border px-4 py-3",
+                          "hover:bg-muted/50 hover:border-foreground/20 transition-colors",
+                          "disabled:opacity-50 disabled:cursor-not-allowed",
+                          pickingMode === m.id && "bg-muted/60",
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-[15px]">{m.label}</span>
+                          {pickingMode === m.id && (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {m.hint}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => pickMode("blank")}
+                    disabled={pickingMode !== null}
+                    className={cn(
+                      "text-xs text-muted-foreground hover:text-foreground",
+                      "underline-offset-2 hover:underline transition-colors",
+                      "disabled:opacity-50 disabled:cursor-not-allowed",
+                    )}
+                  >
+                    or start with a blank slate
+                  </button>
+                </div>
+              )}
+              {/* Empty-state placeholder for resumed sessions that
+                  already have a mode set but the messages array on the
+                  client is still empty (existing transcript lives on
+                  the backend and joins on next send). */}
+              {!showModePicker && messages.length === 0 && phase === "conversation" && (
                 <p className="text-base text-muted-foreground italic">
                   Picking back up. Take your time.
                 </p>

@@ -295,6 +295,19 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
   // with empty content (content = "" until the populate effect runs).
   const hasInitializedRef = useRef(isNew); // new notes don't need server load
 
+  // Guard: ensure the auto-create effect only POSTs once per mount.
+  // React 18 Strict Mode (on by default in Next.js dev) intentionally
+  // invokes useEffect twice — mount → run → cleanup → run again — to
+  // surface non-idempotent effects. The previous `cancelled` flag only
+  // suppressed the React handler; the network request had already been
+  // dispatched, so the second invocation created a duplicate note. Refs
+  // survive Strict Mode's double-invocation on the same component
+  // instance, so flipping this once is enough to short-circuit the
+  // second run. (See CLAUDE.md "Write idempotently" — the deeper fix
+  // is an Idempotency-Key header on the POST so the backend dedupes
+  // retries/back-button replays/multi-tab too.)
+  const hasCreatedNewNoteRef = useRef(false);
+
   // Always-current refs so the setTimeout closure never reads stale state.
   const contentRef = useRef(content);
   const titleRef = useRef(title);
@@ -312,9 +325,26 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
   // Create immediately with an empty title so the note exists from the moment
   // the editor opens. The parent remounts this component in edit mode once
   // onCreated fires with the new note's real ID.
+  //
+  // The hasCreatedNewNoteRef guard prevents a duplicate POST under React
+  // Strict Mode's dev-only effect double-invocation (mount → run → cleanup
+  // → run again). Refs persist across that pseudo-unmount on the SAME
+  // component instance, so flipping the ref once short-circuits the
+  // second invocation.
+  //
+  // NOTE: an earlier version of this code also tracked a `cancelled` flag
+  // in the cleanup function and bailed in the .then() if it was true.
+  // That interacted badly with Strict Mode: the cleanup between the two
+  // effect invocations flipped `cancelled = true`, so the .then() from
+  // the single legitimate POST never ran, onCreated was never called,
+  // and the spinner hung forever. The ref guard is sufficient; the
+  // cancelled flag has been removed. If the component actually unmounts
+  // (user navigates away mid-create) the worst case is a no-op setState
+  // warning — harmless in React 18.
   useEffect(() => {
     if (!isNew) return;
-    let cancelled = false;
+    if (hasCreatedNewNoteRef.current) return;
+    hasCreatedNewNoteRef.current = true;
     setSaving(true);
     createNote({
       body: {
@@ -324,15 +354,13 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
         collection_id: defaultCollectionId ?? null,
       },
     }).then((note) => {
-      if (cancelled) return;
       qc.invalidateQueries({ queryKey: ["get", "/notes"] });
       onCreated(note as unknown as NoteSummary);
     }).catch(() => {
-      if (!cancelled) setSaveError("Failed to create note");
+      setSaveError("Failed to create note");
     }).finally(() => {
-      if (!cancelled) setSaving(false);
+      setSaving(false);
     });
-    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally runs once on mount
 

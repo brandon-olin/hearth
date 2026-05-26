@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
-import { setAccessToken, getAccessToken, loadStoredToken } from "./token";
+import { setAccessToken, getAccessToken, loadStoredToken, isTokenExpiringSoon } from "./token";
 import type { components } from "@/lib/api/schema";
 
 // ── Locale auto-detect ────────────────────────────────────────────────────────
@@ -132,8 +132,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     restore();
+
+    // When the tab regains focus, browsers may have throttled the 14-minute
+    // refresh timer (Chrome caps background timers to ~1 min intervals). If the
+    // stored token has expired or is within 60 seconds of expiring, fire a
+    // proactive refresh so the next API call doesn't get a 401.
+    function onVisibilityChange() {
+      if (document.visibilityState !== "visible") return;
+      if (isTokenExpiringSoon()) {
+        doRefresh();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

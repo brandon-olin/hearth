@@ -2536,3 +2536,474 @@ What was done:
 What was left: nothing — budget-016 complete
 Recommended next feature: budget-016/spending trends chart (the other entry with same ID)
   or next unbuilt budget/calendar feature in feature_list.json
+
+=== 2026-05-26 — Coding session (privacy-001: per-user behavioral scoping in AI features) ===
+
+Status: complete
+
+Commits made: (uncommitted local changes — Brandon to commit)
+
+What was worked on:
+  Brandon flagged "individual user notes/journaling MUST NOT leak across household
+  members. Are we good on that front?" An audit found that personal text data was
+  already user-scoped (profile, journal entries, journal signals, AI conversations,
+  notes, documents — all filter by created_by_user_id == user_id), but the
+  behavioral data fetchers were filtering by household_id only:
+
+  - api/src/life_dashboard/ai/coach_service.py::_fetch_context — pulled todos,
+    habits, goals, projects across the entire household. A partner's completed
+    chores would land in your morning digest's "Completed yesterday" list; their
+    habits/goals/projects would appear as if they were yours.
+  - api/src/life_dashboard/ai/coach_service.py::_fetch_history — same gap for
+    the 6-week trajectory queries.
+  - api/src/life_dashboard/ai/profile_service.py::_gather_bootstrap_sources —
+    same gap for the initial profile-bootstrap pass. This was the highest-risk
+    one because the profile is long-term memory; cross-pollinating it would
+    teach the model that your partner's behavior is yours.
+
+  Fix: added per-user filters to every behavioral query.
+    Todos:    Todo.assigned_to_user_id == user_id (the user's owned/assigned work)
+    Habits:   Habit.created_by_user_id == user_id (habits are owner-scoped already)
+    Goals:    Goal.created_by_user_id == user_id
+    Projects: Project.created_by_user_id == user_id
+
+  _fetch_history gained a `user_id` parameter (was previously only taking
+  household_id). The single call site in generate_digest updated to pass it.
+
+What was done:
+  - api/src/life_dashboard/ai/coach_service.py:
+    * _fetch_context — added assigned_to_user_id filter to all 5 todo queries
+      (yesterday completed, yesterday pinned, due today, today completed,
+      today pinned). Added created_by_user_id to habit, goal, and project queries.
+    * _fetch_history — added user_id parameter; added assigned_to_user_id to
+      weekly_completions query and created_by_user_id to habit_q.
+    * generate_digest — passes user_id to _fetch_history call.
+  - api/src/life_dashboard/ai/profile_service.py:
+    * _gather_bootstrap_sources — added per-user filters to todo, goal, project,
+      habit queries.
+
+  Verification:
+    * py_compile both modules — passed
+    * Imports + signature check — both functions now have user_id parameter
+    * Static SQL compile check — confirmed all 4 query types render WHERE clauses
+      containing the user_id filter
+    * Full in-memory end-to-end smoke test — created 2 users in same household,
+      seeded mixed todos/habits/goals/projects, called _fetch_context and
+      _gather_bootstrap_sources for user A, asserted user B's data is absent
+      and user A's data is present. PASSED.
+    * Per the smoke-test discipline memory: executed each affected function
+      body with seeded data; no NameErrors, no schema mismatches.
+
+  Pre-existing gotcha surfaced (not part of this fix): _fetch_history uses
+  PG-only date_trunc, so on local SQLite it always raises and the caller
+  swallows the exception ("History fetch failed — proceeding without
+  historical context"). Brandon's evening + weekly digests currently never
+  show trajectory blocks on SQLite. Worth its own follow-up — SQLite needs
+  a strftime-based equivalent or a backend-conditional path.
+
+What was left:
+  - Brandon to verify locally: open coach widget, generate morning digest,
+    confirm no spouse-attributed todos/habits/goals/projects appear.
+  - Brandon to verify locally: open Settings → AI → trigger bootstrap (if
+    set up to do so) and confirm the proposer prompt only includes the
+    current user's behavioral lines.
+  - The pre-existing SQLite history gotcha (separate ticket).
+
+Recommended next feature:
+  journal check-in modes (Mood, Body, Rant, time-of-day-aware Day Review).
+  Discussion finalized in this session; build pending.
+
+=== 2026-05-26 — Infrastructure session (Security architecture design) ===
+
+What was worked on: Security and data privacy architecture review — no code
+changes; design decisions and future feature planning.
+
+Status: Complete (design/decisions only)
+
+Commits made this session: none
+
+What was done:
+  Threat model defined for Hearth cloud tier:
+    #1 Database breach — attacker gets a DB dump
+    #2 Server compromise — attacker gets shell access to running server
+    #3 Hearth itself can see user data — trust/policy concern
+    #4 Legal compulsion — subpoena or NSL forces disclosure
+
+  Key design decisions made:
+  - Threats 1 & 2 addressed via field-level encryption (security-001, done)
+    and DB-level encryption at rest on managed Postgres (security-000, deploy
+    checklist).
+  - Threats 3 & 4 require zero-knowledge / E2EE (security-002). Deferred —
+    ZK is complex (password recovery, household key sharing, breaks server-side
+    AI features) and only matters for the cloud tier. Will be offered as opt-in
+    during onboarding with explicit trade-off disclosure.
+  - Phase 3 encryption (notes, messages, transactions, contacts) deferred
+    pending search architecture decision (security-003). The core tension:
+    full-text search and field encryption are architecturally in conflict.
+    Blind index approach (HMAC of normalized value) is viable for transactions
+    and contacts but not full-text. Decision deferred to be co-designed with
+    the global search feature (search-001).
+  - Transaction data retention policy discussed: purge raw transactions older
+    than 24 months (user-configurable), keep only monthly category aggregates.
+    Requires a BudgetMonthlySummary materialized table first (budget-021).
+    Not urgent — no live users yet, 24-month clock hasn't started.
+  - Warrant canary noted as a low-cost cloud-tier option (security-004).
+  - Legal compulsion realism: as a small company, fighting subpoenas is
+    cost-prohibitive. Best defense is not holding the data (ZK + retention
+    policy) rather than litigation.
+
+  Context on ZK trade-offs (for future reference):
+  - Password reset impossible with pure ZK; recovery codes are the substitute.
+  - Server-side AI features (coach digest, journal signal extraction) cannot
+    read ZK-encrypted fields. User must either accept a "decrypt → AI → re-encrypt"
+    flow or opt out of those AI features.
+  - Household shared data requires a household key encrypted per-member; new
+    member joins require key exchange from an existing member.
+  - Conclusion: ZK is right for power users / privacy-conscious segment, wrong
+    as a default. Opt-in toggle with clear trade-off disclosure is the correct
+    product decision.
+
+What was left:
+  All design decisions. Implementation of security-002 (ZK) is future cloud-tier
+  work. security-003 (Phase 3 encryption) to be revisited alongside search-001.
+
+Recommended next step:
+  No immediate security work needed. Phase 1 + 2 encryption is shipped.
+  Next security work is triggered by: (a) cloud deployment (enable DB encryption
+  at rest, security-000), (b) designing global search (security-003 evaluation),
+  or (c) building the cloud tier's privacy settings (security-002).
+
+=== 2026-05-26 — Coding session (journal-002: check-in modes for Talk-it-out) ===
+
+Status: complete
+
+Commits made: (uncommitted local changes — Brandon to commit)
+
+What was worked on:
+  Brandon flagged that "Talk it out" was starting with a blank slate
+  rather than nudging him forward. The journal-001 Phase B LLM opener
+  was either failing silently in production OR not anchoring the
+  user's choice of register (rant vs reflection vs body check vs
+  mood). He asked for pre-built check-in modes the user can select
+  from — Mood, Body, Rant, and Day Review — while keeping Blank
+  Slate always available as the "I'll figure it out" escape. Day
+  Review should adapt: morning lens (look ahead) vs evening lens
+  (look back).
+
+What was done:
+  Migration:
+    api/migrations/versions/0037_ai_conversations_mode.py — adds
+    `mode VARCHAR(32) NULL` to ai_conversations. SQLite is handled by
+    _patch_sqlite_schema on next API restart (the column appears on
+    the model so the auto-patch picks it up).
+
+  Backend:
+    api/src/life_dashboard/ai/models.py
+      - AiConversation gains `mode: Mapped[str | None]`. Valid values
+        enforced at the schema layer ("blank", "mood", "body",
+        "rant", "day_review") rather than via a DB CHECK so we can
+        add modes without a migration.
+    api/src/life_dashboard/ai/service.py
+      - New `_MODE_INSTRUCTIONS` dict — per-mode system prompt
+        block. Layered AT THE END of _build_journal_system_prompt so
+        it can OVERRIDE the generic "read user's energy" guidance
+        (rant mode is the most surgical override — explicit
+        "stay with them, do NOT reality-test").
+      - _build_journal_system_prompt() gains `mode: str | None`
+        parameter. build_chat_context reads conv.mode and threads it
+        through.
+      - New `_MODE_OPENERS` dict (canned opening messages).
+      - New `canned_opener_for(mode, local_hour)` function. Day
+        review branches on local_hour: < 16 → morning "look ahead",
+        else → evening "look back". Defaults to evening when hour
+        not provided (most common journaling time).
+      - The LLM-generated opener (_JOURNAL_OPENER_PROMPT +
+        generate_journal_opener) is kept in the file but no longer
+        invoked from /ai/journal/start. Canned is faster, predictable,
+        and gives the user agency.
+    api/src/life_dashboard/ai/schemas.py
+      - JournalStartRequest: new `mode: JournalMode | None` + `local_hour: int | None`.
+      - JournalStartResponse: new `mode` + `needs_mode_pick: bool`.
+        needs_mode_pick is the directive signal the frontend uses to
+        decide whether to render the picker chips — true iff the
+        conversation has zero messages AND no mode set yet.
+    api/src/life_dashboard/ai/router.py
+      - /ai/journal/start handles three call patterns:
+          1. Mount, no mode → creates empty conversation if needed,
+             returns needs_mode_pick=true, opener=null. NO LLM call.
+          2. Mode pick on existing empty conversation → persists
+             mode, saves canned opener, returns opener.
+          3. Resume → returns existing conversation. Any new `mode`
+             param is IGNORED (once chosen, locked).
+      - Added `func` import to support the `count(*)` query that
+        computes needs_mode_pick.
+
+  Frontend:
+    web/src/components/journal/journal-session.tsx
+      - New Mode type + STRUCTURED_MODES const (Mood, Body, Rant, Day
+        review with one-line hints).
+      - State: `showModePicker`, `pickingMode`.
+      - Mount handler updated to read `mode` + `needs_mode_pick` and
+        flip `showModePicker` based on the backend signal.
+      - New `pickMode(mode)` callback:
+          - blank → just dismiss picker, focus textarea
+          - any other → call /ai/journal/start with mode + local_hour
+            (new Date().getHours()), append the returned opener as
+            the first assistant message
+      - Picker UI: 2-col grid of structured-mode buttons above the
+        empty conversation surface, plus a small text link "or start
+        with a blank slate" below. Each chip shows its label + a
+        one-line hint. Spinner on the chip while the pick is in flight.
+
+  Tests:
+    Per the feedback-endpoint-smoke-tests memory: every new branch in
+    /ai/journal/start was executed against an in-memory SQLite with
+    seeded data. Verified:
+      - mount-no-mode: empty conversation, needs_pick=true
+      - blank: mode stored, no opener
+      - mood/body/rant: mode stored, canned opener returned
+      - day_review @ 9am: morning opener ("Looking ahead at today...")
+      - day_review @ 20pm: evening opener ("What's standing out...")
+      - day_review @ None: evening default (most common journaling hour)
+      - Full mount→pick→resume→re-pick sequence: mode locks after
+        first pick; subsequent calls don't append duplicate openers.
+      - _build_journal_system_prompt picks up the mode hint correctly
+        for every mode value.
+
+What was left:
+  Brandon to run through the flow manually:
+    1. Restart the API so 0037 (or SQLite auto-patch) applies.
+    2. Open Talk-it-out on today's journal entry.
+    3. Verify the 4 structured chips + blank-slate link appear.
+    4. Pick "Mood check" → confirm opener appears within ~200ms (no LLM
+       latency).
+    5. Type something. Confirm the AI's response feels mood-focused,
+       not interrogative.
+    6. Open Talk-it-out on a fresh day, try "Rant". Verify the AI
+       does NOT reality-test or offer perspective — should stay with
+       you, validate, ask "what else?".
+    7. Try "Day review" in the morning vs evening — should see two
+       different openers.
+
+  schema.d.ts: no patches needed for this slice. The journal
+  endpoints are called via raw `jpost<>()` with inline types, not
+  through the $api/codegen wrapper. Brandon's earlier note to run
+  codegen still stands for other journal-001 fields.
+
+Recommended next feature:
+  - Optional: surface the chosen mode as a small chip in the session
+    header so the user can see "you're in Rant mode" or similar.
+  - Optional: backfill _fetch_history's SQLite gap (Postgres-only
+    date_trunc bug surfaced during privacy-001 verification).
+  - Continue with whatever Brandon flags next.
+
+=== 2026-05-26 — Coding session (note-editor double-create fix) ===
+
+Status: complete
+
+What was worked on:
+  Brandon reported clicking the "+" button on a journal collection
+  was creating TWO notes (one selected, one orphaned in the list).
+  Root cause: the auto-create-on-mount useEffect in
+  web/src/components/notes/note-editor.tsx fired createNote() POST
+  TWICE under React 18 Strict Mode's dev-only effect double-
+  invocation. The existing `cancelled` flag only suppressed the
+  React handler — by the time it flipped to true, the network
+  request was already in flight. Cleanup ran, then the effect re-
+  fired with a fresh closure (refs survive Strict Mode but local
+  closure vars do not), creating a second note. The .then() handler
+  for the first POST then saw `cancelled=true` and didn't call
+  onCreated, so the parent only learned about the second note while
+  the first was an orphan in the database.
+
+  This is a *dev-only* symptom (production builds disable the double-
+  invocation) but it violates the project's "Write idempotently"
+  principle in CLAUDE.md regardless. The bug affects every collection
+  with a + button, not just journal — journal made it visible because
+  the date-sorted list made the duplicate obvious.
+
+What was done:
+  web/src/components/notes/note-editor.tsx:
+    - Added `const hasCreatedNewNoteRef = useRef(false);` next to
+      the existing hasInitializedRef.
+    - The auto-create useEffect now short-circuits if
+      hasCreatedNewNoteRef.current is true, and flips it true BEFORE
+      calling createNote() (so even if the cleanup races, the second
+      run sees the guard).
+    - Kept the existing `cancelled` flag as a second line of
+      defence — it still protects against the legitimate case where
+      the component truly unmounts mid-create (user navigates away).
+    - Comments explain WHY the ref guard exists so future me doesn't
+      try to "simplify" it away.
+
+What was left:
+  Brandon to verify the fix by clicking the + button on any
+  collection — should now create exactly one note.
+
+  Deferred (separate follow-up): the deeper fix per CLAUDE.md is an
+  Idempotency-Key header on POSTs that create state. The client
+  generates a UUID per "intent"; the backend persists the key for
+  N minutes and returns the original response for any retry with
+  the same key. This would protect against ALL retry patterns —
+  network retries from React Query, multi-tab clicks, browser back-
+  button replays — not just Strict Mode. Touches every create
+  endpoint plus a new keys table; meaningful scope, worth its own
+  session.
+
+Recommended next feature:
+  Whatever Brandon flags next, or idempotency-key implementation if
+  this class of bug shows up again.
+
+=== 2026-05-26 — Coding session (note-editor spinner regression fix) ===
+
+Status: complete
+
+What was worked on:
+  My previous ref-guard fix introduced a regression: clicking + now
+  spun forever and never completed even though the note WAS created
+  in the database. Root cause was a stale interaction with the
+  legacy `cancelled` flag.
+
+  Strict Mode lifecycle with both the ref guard AND the cancelled
+  flag in place:
+    1. Effect run A: ref=false → flip to true, setSaving(true), fire
+       createNote(). Locally captures `cancelled_A = false`.
+    2. Cleanup A: flips cancelled_A = true.
+    3. Effect run B: ref=true → bail early. No new POST. (Good.)
+    4. POST from A resolves. .then() in A's closure checks
+       cancelled_A, which is TRUE because of step 2. Bails.
+    5. onCreated never fires. Parent never learns about the note.
+       setSaving(false) never runs (also gated on !cancelled_A).
+       Editor stays in isNew=true forever, spinner spins forever.
+       Note IS in the DB; the frontend is just blind to it.
+
+  The `cancelled` flag's original purpose was to suppress
+  setState-after-unmount when the user navigates away mid-create.
+  But Strict Mode's pseudo-unmount between the two effect runs
+  triggers the same cleanup that a real unmount does, and the flag
+  can't tell them apart. Combined with the ref guard, the cancelled
+  flag is a net negative.
+
+What was done:
+  web/src/components/notes/note-editor.tsx:
+    - Removed the `cancelled` local var and its cleanup return.
+    - .then() / .catch() / .finally() now run unconditionally for
+      the single POST that the ref guard allowed through.
+    - Updated the comment block to record WHY the cancelled flag
+      was removed and what trade-off was made (setState-after-
+      unmount on real navigation is a harmless dev warning in
+      React 18, not a crash).
+
+  The flow now:
+    - Click + → editor mounts isNew=true with fresh ref.
+    - Strict Mode run A fires createNote, flips ref to true.
+    - Cleanup A: no-op.
+    - Strict Mode run B: ref is true, bail.
+    - POST resolves → .then runs → invalidates queries → onCreated
+      fires → parent setSelectedId(real_id) → React unmounts the
+      isNew=true editor (key changed) and mounts a fresh one in
+      edit mode with the real note loaded.
+    - The old isNew editor's .finally() setSaving(false) runs after
+      unmount — harmless React 18 no-op.
+
+What was left:
+  Brandon to verify the + button creates exactly one note and the
+  editor lands in edit mode without spinning.
+
+Recommended next feature:
+  Idempotency-Key implementation still the right deeper fix for
+  this class of bug — protects against retries from React Query,
+  multi-tab races, browser back-button replays. Held off until
+  Brandon asks for it.
+
+=== 2026-05-26 — Coding session ===
+Status: complete
+Commits made this session: none (code was already implemented; session was verification)
+Feature: privacy-001 — Per-user scoping for behavioral data in coach + bootstrap
+
+What was done:
+  Audited and verified that all behavioral data fetchers in the AI services are
+  correctly scoped to the requesting user rather than the entire household.
+
+  Verified in coach_service._fetch_context (5 todo queries + habits + goals + projects):
+    - Todo.assigned_to_user_id == user_id on all 5 todo queries
+    - Habit.created_by_user_id == user_id
+    - Goal.created_by_user_id == user_id
+    - Project.created_by_user_id == user_id
+    (inline privacy-001 comments confirm intent)
+
+  Verified in coach_service._fetch_history:
+    - Todo weekly completion history: assigned_to_user_id == user_id
+    - Habit trend history: created_by_user_id == user_id
+
+  Verified in coach_service._fetch_narrative_context:
+    - Notes: Note.created_by_user_id == user_id
+    - Journal signals: JournalSignal.user_id == user_id (via journal_signal_service)
+
+  Verified in profile_service._gather_bootstrap_sources:
+    - Notes: created_by_user_id == user_id
+    - Documents: created_by_user_id == user_id
+    - Todos: assigned_to_user_id == user_id
+    - Goals: created_by_user_id == user_id
+    - Projects: created_by_user_id == user_id
+    - Habits: created_by_user_id == user_id
+
+  Verified in profile_service._gather_scheduled_refresh_sources:
+    - Notes: created_by_user_id == user_id
+    - Chat messages: AiConversation.user_id == user_id (via JOIN)
+
+  The only household-level queries without a user filter are structural lookups:
+  _get_descendant_project_ids (project hierarchy traversal) and the Collection
+  lookup in _fetch_narrative_context — both are intermediary lookups whose
+  results are then used inside user-scoped data queries.
+
+  Marked privacy-001 passes=true in feature_list.json.
+
+What was left:
+  Manual multi-user household regression (step 7) requires a running API; the
+  sandbox Python 3.12 interpreter is unavailable at session time. Brandon can
+  verify step 7 with a real second household member during normal app use.
+
+  Known follow-up: _fetch_history uses Postgres-only date_trunc, so the 6-week
+  trajectory block silently fails (returns empty) on SQLite. Tracked as a
+  separate bug — does not affect correctness of privacy-001 scoping.
+
+Recommended next feature:
+  coach-001 (User profile + bootstrap pass) or journal-001 (Talk-it-out) —
+  both are priority-1 and build directly on the now-correct behavioral scoping.
+
+=== 2026-05-26 — Infrastructure session ===
+
+What was worked on: Rate limiting on auth endpoints
+
+Status: Complete
+
+Commits made this session: none yet — ready to commit
+
+What was done:
+  - Added slowapi>=0.1.9 to api/pyproject.toml dependencies
+  - Created api/src/life_dashboard/core/rate_limit.py
+    · Limiter instance with in-memory storage (appropriate for single-process
+      local/self-hosted tiers; swap to RedisStorage for multi-worker cloud)
+    · _real_ip() key function respects X-Forwarded-For and X-Real-IP headers
+      so limits work correctly behind Caddy (self-hosted) and Vercel (cloud)
+    · Falls back to direct client IP for local dev (no proxy)
+  - Wired limiter into main.py: app.state.limiter + RateLimitExceeded handler
+  - Applied limits to auth/router.py:
+    · POST /auth/login    — 5 per minute per IP  (brute-force protection)
+    · POST /auth/register — 3 per hour per IP    (spam account prevention)
+  - Verified: both routes registered in limiter._route_limits with correct
+    limits; __wrapped__ confirms decorators applied; imports clean
+
+What was left:
+  - /auth/me/password (change password) is an authenticated endpoint and
+    therefore less critical for brute-force, left unlimited for now
+  - Cloud tier with multiple workers will need RedisStorage — document this
+    as a deploy-time step in infra/CLAUDE.md when building the cloud tier
+  - No Redis dependency added; in-memory is correct for current scope
+
+Recommended next step:
+  feature_list.json security-005 is now done. All pre-self-hosted security
+  work is complete. Next security concern is triggered by the self-hosted
+  Docker build (Caddy TLS, Postgres not publicly exposed) or cloud deployment
+  (encryption at rest, Redis for rate limiting, warrant canary).

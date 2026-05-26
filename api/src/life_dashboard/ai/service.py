@@ -559,6 +559,12 @@ async def get_usage_summary(
     from sqlalchemy import case, literal_column
 
     # Current month totals grouped by model.
+    # Compute the first instant of the current month in Python so this query
+    # works on both SQLite (local dev) and Postgres. date_trunc("month", ...)
+    # is Postgres-only and silently returns nothing on SQLite.
+    from datetime import date as _date, datetime as _datetime
+    _today = _date.today()
+    _month_start = _datetime(_today.year, _today.month, 1, tzinfo=timezone.utc)
     monthly_stmt = (
         select(
             AiUsage.model,
@@ -567,8 +573,7 @@ async def get_usage_summary(
         )
         .where(
             AiUsage.user_id == user_id,
-            func.date_trunc("month", AiUsage.created_at)
-            == func.date_trunc("month", func.now()),
+            AiUsage.created_at >= _month_start,
         )
         .group_by(AiUsage.model)
         .order_by(AiUsage.model)
@@ -668,7 +673,11 @@ def _build_system_prompt(user: User, memory_text: str) -> str:
     return "\n".join(parts)
 
 
-def _build_journal_system_prompt(user: User, memory_text: str) -> str:
+def _build_journal_system_prompt(
+    user: User,
+    memory_text: str,
+    mode: str | None = None,
+) -> str:
     """journal-001: system prompt for guided journal sessions.
 
     Differs from the regular chat prompt in:
@@ -680,6 +689,15 @@ def _build_journal_system_prompt(user: User, memory_text: str) -> str:
       - Only the update_profile tool is available (no read/write tools —
         this is a working space, not a task interface)
       - Short responses (1-3 sentences usually) — user does most of the talking
+
+    journal-002: if `mode` is set (the user picked a check-in mode when
+    starting), a mode-specific instruction block is appended so the
+    model adapts its register to the chosen entry point. Modes:
+      - "blank"      — default behaviour, no extra hint
+      - "mood"       — short feeling-focused turns, no reality-testing yet
+      - "body"       — somatic anchor, bridge to feelings only if they go there
+      - "rant"       — explicit "stay with them, do NOT reality-test" mode
+      - "day_review" — surface what stood out, don't force meaning
     """
     name = user.display_name or user.email
     today = date.today().strftime("%B %d, %Y")
@@ -754,7 +772,115 @@ def _build_journal_system_prompt(user: User, memory_text: str) -> str:
             "moment.",
         ]
 
+    # journal-002: mode-specific instruction block. Layered AT THE END so
+    # it overrides the generic "read user's energy" guidance when a
+    # specific lens was picked. Rant mode is the most surgical override —
+    # it directly contradicts the default "pile-on-questions" instinct.
+    mode_block = _MODE_INSTRUCTIONS.get(mode or "")
+    if mode_block:
+        parts += ["", mode_block]
+
     return "\n".join(parts)
+
+
+# journal-002: per-mode instruction blocks. Appended to the journal system
+# prompt when the user picked a specific check-in mode. Empty entry for
+# "blank" so picking the blank-slate chip behaves identically to the old
+# no-mode default. Day-review uses a single instruction because the
+# look-ahead vs look-back distinction is already baked into the opener
+# text — the model picks up the lens from there.
+_MODE_INSTRUCTIONS: dict[str, str] = {
+    "mood": (
+        "## Mode: Mood check\n"
+        "The user picked a mood check-in. Keep your turns SHORT and "
+        "feeling-focused. After they name a feeling, ask one quiet "
+        "follow-up — 'what's underneath it?', 'when did it show up?', "
+        "or just 'tell me more'. Do NOT reality-test, do NOT reframe, "
+        "do NOT problem-solve. Let them name what's there before you "
+        "do anything else."
+    ),
+    "body": (
+        "## Mode: Body check\n"
+        "The user picked a somatic check-in. Help them name sensations "
+        "concretely — tension, weight, energy, hunger, tiredness. "
+        "Anchor in the body before going anywhere else. If they "
+        "bridge to emotional content on their own, follow them. If "
+        "they stay in the body, stay there with them. No reframes."
+    ),
+    "rant": (
+        "## Mode: Rant\n"
+        "The user picked rant mode. They want to vent. Your job is to "
+        "STAY WITH THEM, not to help. Do NOT reality-test. Do NOT "
+        "reframe. Do NOT offer perspective. Do NOT suggest solutions. "
+        "Do NOT point at humans (the rant IS the release). Reflect "
+        "what they said in a sentence, validate the frustration "
+        "('that sounds exhausting', 'no wonder you're done with it'), "
+        "and either ask 'what else?' or stay quiet and wait. The "
+        "point is release, not insight. Only when the rant winds "
+        "down naturally — shorter turns, less heat, they start "
+        "summarising themselves — offer to wrap."
+    ),
+    "day_review": (
+        "## Mode: Day review\n"
+        "The user picked a day review. Help them surface what stood "
+        "out — good, hard, or weird — without forcing meaning. Stay "
+        "reflective, not directive. One thing at a time. If they "
+        "name something hard, sit with it before moving to the next."
+    ),
+    # "blank" intentionally omitted — fall back to default journal prompt.
+}
+
+
+# journal-002: canned opening messages keyed by mode. Replaces the LLM-
+# generated opener (kept around as _JOURNAL_OPENER_PROMPT for now, but no
+# longer invoked from /ai/journal/start). Canned has three advantages:
+#   - Zero latency. The opener renders the instant the user picks a mode.
+#   - Predictable. No failure mode where a flaky LLM call returns empty.
+#   - User-driven. The mode chip puts the user in charge of the lens.
+# Day review branches on local hour at opener-generation time — see
+# canned_opener_for() below.
+_MODE_OPENERS: dict[str, str] = {
+    "mood": (
+        "What's the first word that comes up when you check in with "
+        "how you're feeling right now?"
+    ),
+    "body": (
+        "Take a second to notice your body — tension, energy, "
+        "tiredness, hunger. What's loudest?"
+    ),
+    "rant": "Vent. Don't filter, don't be fair, don't explain. What's bugging you?",
+    "day_review_morning": (
+        "Looking ahead at today — what do you want to make sure "
+        "doesn't slip past you?"
+    ),
+    "day_review_evening": (
+        "What's standing out from today — good, hard, or weird?"
+    ),
+    # "blank" intentionally omitted — None signals "no opener, just an
+    # empty surface the user can start typing into."
+}
+
+
+def canned_opener_for(mode: str | None, local_hour: int | None) -> str | None:
+    """Return the canned opening message for a chosen check-in mode.
+
+    Day review branches on local hour: < 16 ("before 4pm") returns the
+    morning-lens "look ahead" opener; >= 16 returns the evening-lens
+    "look back" opener. The 16:00 threshold is a heuristic — late enough
+    that most of a typical day has happened and reflecting backward
+    feels natural, early enough that we don't refuse to switch lenses
+    until 9pm. Without local_hour, we default to the evening lens (the
+    more common journaling time of day for most people).
+
+    Returns None for blank slate, unknown modes, or no mode at all.
+    """
+    if not mode or mode == "blank":
+        return None
+    if mode == "day_review":
+        is_morning = local_hour is not None and local_hour < 16
+        key = "day_review_morning" if is_morning else "day_review_evening"
+        return _MODE_OPENERS.get(key)
+    return _MODE_OPENERS.get(mode)
 
 
 # journal-001: synthesis prompt used by POST /ai/journal/finish to produce
@@ -1042,7 +1168,11 @@ async def build_chat_context(
     is_journal = conv is not None and getattr(conv, "kind", "chat") == "journal"
 
     if is_journal:
-        system = _build_journal_system_prompt(user, memory.memory_text)
+        # journal-002: thread the conversation's mode into the system
+        # prompt so the model adapts its register (rant → stay with them,
+        # mood → short feeling-focused turns, etc.).
+        conv_mode = getattr(conv, "mode", None) if conv is not None else None
+        system = _build_journal_system_prompt(user, memory.memory_text, mode=conv_mode)
     else:
         system = _build_system_prompt(user, memory.memory_text)
 

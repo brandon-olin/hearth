@@ -761,6 +761,36 @@
     }
   ,
     {
+      "id": "security-005",
+      "category": "Security",
+      "priority": 1,
+      "title": "Rate limiting on auth endpoints",
+      "description": "Brute-force and spam protection on public auth endpoints using slowapi (in-memory storage, single-process). Key function respects X-Forwarded-For and X-Real-IP for correct behaviour behind Caddy (self-hosted) and Vercel (cloud). Limits: POST /auth/login — 5/minute per IP; POST /auth/register — 3/hour per IP. Exceeding the limit returns HTTP 429 with a Retry-After header. Note: in-memory storage is correct for local and single-process self-hosted. When deploying to a multi-worker cloud environment, swap MemoryStorage for RedisStorage in core/rate_limit.py.",
+      "steps": [
+        "Start the API and send 6 rapid POST /auth/login requests from the same IP",
+        "Verify the 6th request returns HTTP 429 Too Many Requests",
+        "Verify the response includes a Retry-After header",
+        "Wait 1 minute and verify login works again",
+        "Send 4 POST /auth/register requests within an hour",
+        "Verify the 4th returns HTTP 429",
+        "Verify legitimate login from a different IP is unaffected during a lockout"
+      ],
+      "passes": true
+    },
+    {
+      "id": "security-000",
+      "category": "Security",
+      "priority": 1,
+      "title": "Encryption at rest — managed Postgres (cloud deployment checklist)",
+      "description": "When moving to a managed Postgres provider (Neon, Supabase, AWS RDS, etc.), enable encryption at rest as a provider-level checkbox. This is not a code change — it's a deploy-time configuration step. Protects against physical disk theft and raw DB dumps (Threat 1). All managed providers support it; it should be verified as enabled on day one of any cloud deployment. Combined with field-level encryption (security-001), this means sensitive data is protected both at the storage layer and the application layer.",
+      "steps": [
+        "Confirm encryption at rest is enabled in the managed Postgres provider's settings before accepting any real user data",
+        "Document the setting location in infra/CLAUDE.md for the cloud deployment tier",
+        "Verify SSL/TLS is enforced for all connections to the DB (no plaintext connections permitted)"
+      ],
+      "passes": false
+    },
+    {
       "id": "security-001",
       "category": "Security",
       "priority": 1,
@@ -820,6 +850,46 @@
       "passes": false
     },
     {
+      "id": "privacy-001",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Per-user scoping for behavioral data in coach + bootstrap",
+      "description": "Audit found that personal text data (notes, journal entries, journal signals, AI conversations, profile) was correctly user-scoped, but the behavioral data fetchers used by the coach digest and profile bootstrap were filtering by household_id only — meaning a household partner's todos, habits, goals, and projects would land in your coach context and your profile bootstrap. Fixed by adding per-user filters: Todo.assigned_to_user_id == user_id for todo queries; Habit.created_by_user_id == user_id for habits; Goal.created_by_user_id == user_id for goals; Project.created_by_user_id == user_id for projects. Applied to coach_service._fetch_context (5 todo queries + habits + goals + projects), coach_service._fetch_history (added user_id parameter; weekly_completions + habit query), and profile_service._gather_bootstrap_sources (all 4 behavioral queries). Side note surfaced during verification: _fetch_history uses Postgres-only date_trunc, so the 6-week trajectory block silently fails on SQLite — separate bug, tracked as a follow-up.",
+      "steps": [
+        "Restart the API; load the AI coach widget and generate a morning digest",
+        "Verify the digest's 'Completed yesterday' list does NOT include todos assigned to other household members",
+        "Verify habit lines in the digest only reference habits this user created",
+        "Verify the digest's goal-progress block (if shown) only shows goals this user created",
+        "Verify the digest's active-projects list (if shown) only shows projects this user created",
+        "Trigger a profile bootstrap (Settings → AI → save key, or manual /ai/profile/bootstrap) and confirm the proposer prompt only references this user's behavioral data — no partner's todos/habits/goals/projects in the source-material section",
+        "(Multi-user setup only): create a partner user in the same household, seed a few of their todos/habits/goals/projects, then regenerate this user's digest and verify clean separation"
+      ],
+      "passes": true
+    },
+    {
+      "id": "journal-002",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Talk-it-out check-in modes (Mood, Body, Rant, Day review)",
+      "description": "Brandon flagged that 'Talk it out' starts with a blank slate, which can feel daunting. Added pre-built check-in modes the user picks before the conversation begins, layered on top of a blank-slate-always-available default. Modes: Mood check ('what's the first word that comes up'), Body check (somatic anchor), Rant (vent — system prompt tells the AI to stay with the user, NOT reality-test), Day review (looks AHEAD before 4pm local / BACK after 4pm). Each mode (a) seeds a canned opening message (zero latency, no LLM call) and (b) appends a mode-specific instruction block to the journal system prompt so the model adapts its register. Backend: migration 0037 adds ai_conversations.mode (VARCHAR(32) NULL); _MODE_OPENERS + canned_opener_for(mode, local_hour) helper in ai/service.py; _MODE_INSTRUCTIONS dict layered onto _build_journal_system_prompt; /ai/journal/start now accepts mode + local_hour, handles three call patterns (mount-no-mode, mode-pick, resume), and returns needs_mode_pick so the frontend doesn't need to derive it. Mode is locked once chosen — repeated /start calls with a different mode are ignored. The LLM-generated opener from journal-001 Phase B is no longer invoked (kept in code as _JOURNAL_OPENER_PROMPT in case we want it back later). Frontend: JournalSession renders 4 structured chips + a small 'or start with a blank slate' link above the empty conversation. Picker visibility is driven by the backend's needs_mode_pick flag. Each chip clicked → fast canned opener, picker disappears. Resumed sessions skip the picker.",
+      "steps": [
+        "Restart the API (SQLite auto-patch handles 0037 on startup; Postgres: alembic upgrade head)",
+        "Open Talk-it-out on today's journal entry — verify the 4 structured mode chips appear above the textarea with one-line hints",
+        "Verify the 'or start with a blank slate' link is rendered below the chips",
+        "Click 'Mood check' — verify the canned opener appears within ~200ms (no LLM latency) and the picker disappears",
+        "Type a reply — verify the AI's response stays short and feeling-focused (no reality-testing, no problem-solving)",
+        "Open a different day's journal entry and pick 'Rant' — type a complaint and verify the AI stays with you (no reality-test, no reframe, no human-pointing — the rant IS the release)",
+        "Pick 'Day review' in the morning (before 4pm local) — verify the opener asks 'Looking ahead at today...'",
+        "Pick 'Day review' in the evening (after 4pm local) — verify the opener asks 'What's standing out from today...'",
+        "Pick 'Body check' — verify the opener asks about tension/energy/tiredness, not feelings directly",
+        "Click 'blank slate' link — verify the picker disappears immediately with no opener, you can just start typing",
+        "Close the modal without picking a mode, then re-open it — verify the picker re-appears (conversation is still empty)",
+        "Close the modal AFTER picking a mode and typing something — verify reopening goes straight to the conversation, no picker",
+        "Confirm the chosen mode persists across reloads (refresh the page mid-session, reopen — mode is still locked)"
+      ],
+      "passes": false
+    },
+    {
       "id": "security-003",
       "category": "Security",
       "priority": 3,
@@ -832,6 +902,38 @@
         "Decide on ai_messages.content strategy — drop search, encrypt journal-kind only, or separate index",
         "Decide on notes.content_md strategy — this is the highest-impact call since notes are the primary content domain",
         "Implement chosen approach and verify search still works as designed"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-021",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Transaction data retention — purge raw transactions, keep monthly aggregates",
+      "description": "Data minimization: raw bank transaction descriptions are sensitive (reveal merchants, habits, health patterns) and don't need to be kept forever. After a configurable retention window (default 24 months), purge raw BudgetTransaction rows and keep only monthly category aggregates. Requires: (1) a new BudgetMonthlySummary model (year, month, category_id, profile_id, total_amount) seeded from existing aggregate queries; (2) a backfill migration to populate it from existing transactions; (3) a purge_old_transactions service function that verifies each month is covered in the summary table before deleting; (4) a periodic background job (APScheduler) that runs the purge on a schedule; (5) a user-configurable retention_months field on BudgetProfile (default 24, options: 12/24/60/forever). The aggregate data was already being computed on the fly for analytics — this materializes it so raw data can be safely dropped. Users who upload historical imports and want to keep them can set retention to 'forever'. Note: the aggregation queries already exist in budget/service.py (get_summary, etc.) — this feature materializes those results and adds the deletion layer on top.",
+      "steps": [
+        "Run migration — verify budget_monthly_summaries table exists with (year, month, category_id, profile_id, total_amount) columns",
+        "Verify the backfill populates a summary row for every (year, month, category) combination that has existing transactions",
+        "Verify the analytics views still return correct figures after the backfill (queries now hit the summary table for historical months)",
+        "Set retention to 12 months on a test profile; trigger the purge job manually",
+        "Verify raw transactions older than 12 months are deleted and the summary rows are intact",
+        "Verify raw transactions within the 12-month window are NOT deleted",
+        "Navigate to /budget analytics for a purged month — verify it still shows correct totals from the summary table",
+        "Set retention to 'forever' and verify the purge job skips that profile entirely",
+        "Verify the background job runs on schedule and logs how many rows it purged"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-004",
+      "category": "Security",
+      "priority": 3,
+      "title": "Warrant canary (cloud tier)",
+      "description": "A publicly visible statement on the Hearth cloud service status/about page stating 'We have never received a National Security Letter, gag order, or secret court order.' The statement is updated (or removed) with each audit period. If Hearth ever receives such an order, the canary is silently removed rather than explicitly confirmed — users who watch for its presence are informed without Hearth violating a gag order. Low-cost, no backend work required — just a public page with a dated statement and a commitment to keep it current. Relevant only for the cloud-hosted tier. Self-hosted users control their own infrastructure and have no Hearth trust assumption. Pairs with the ToS commitment to never sell user data.",
+      "steps": [
+        "Add a warrant canary statement to the cloud product's public status or legal page",
+        "Date the statement and commit to a review cadence (e.g. quarterly)",
+        "Document internally what the removal procedure looks like if ever needed"
       ],
       "passes": false
     }
