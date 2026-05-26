@@ -16,11 +16,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2, Link2, X } from "lucide-react";
 import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
 
 type Goal = components["schemas"]["GoalResponse"];
+
+/** Shape stored in Goal.financial_link when type === "spending_cap" */
+type SpendingCapLink = {
+  type: "spending_cap";
+  category_id: string;
+  monthly_limit: number;
+};
 
 type FormState = {
   title: string;
@@ -75,6 +82,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
   const [form, setForm] = useState<FormState>(blankForm());
   const [visibility, setVisibility] = useState<Visibility>("personal");
   const [sharedWith, setSharedWith] = useState<string[]>([]);
+  const [financialLink, setFinancialLink] = useState<SpendingCapLink | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +91,8 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
       setForm(goal ? formFromGoal(goal) : blankForm());
       setVisibility((goal?.visibility as Visibility) ?? "personal");
       setSharedWith(goal?.shared_with_user_ids ?? []);
+      const fl = goal?.financial_link as SpendingCapLink | null | undefined;
+      setFinancialLink(fl?.type === "spending_cap" ? fl : null);
       setError(null);
     }
   }, [open, goal]);
@@ -90,6 +100,10 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
   const { mutateAsync: createGoal } = $api.useMutation("post", "/goals");
   const { mutateAsync: updateGoal } = $api.useMutation("patch", "/goals/{goal_id}");
   const { mutateAsync: deleteGoal } = $api.useMutation("delete", "/goals/{goal_id}");
+
+  const { data: categoriesData } = $api.useQuery("get", "/budget/categories", {
+    params: { query: {} },
+  });
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -114,6 +128,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
         due_date: form.due_date || null,
         visibility,
         shared_with_user_ids: sharedWith,
+        financial_link: financialLink ?? null,
       };
       if (isEdit) {
         await updateGoal({ params: { path: { goal_id: goal.id } }, body });
@@ -291,6 +306,85 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
               value={form.due_date}
               onChange={(e) => set("due_date", e.target.value)}
             />
+          </div>
+
+          {/* Budget link */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Budget link</Label>
+              {financialLink ? (
+                <button
+                  type="button"
+                  onClick={() => setFinancialLink(null)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Remove budget link"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFinancialLink({
+                      type: "spending_cap",
+                      category_id: categoriesData?.[0]?.id ?? "",
+                      monthly_limit: 0,
+                    })
+                  }
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Link to spending cap
+                </button>
+              )}
+            </div>
+
+            {financialLink && (
+              <div className="rounded-md border bg-muted/40 p-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Sets a monthly spending cap on the selected budget category.
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fl-category" className="text-xs">Category</Label>
+                  <select
+                    id="fl-category"
+                    value={financialLink.category_id}
+                    onChange={(e) =>
+                      setFinancialLink((prev) =>
+                        prev ? { ...prev, category_id: e.target.value } : prev
+                      )
+                    }
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {(categoriesData ?? [])
+                      .filter((c) => !c.archived_at)
+                      .map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fl-limit" className="text-xs">Monthly limit ($)</Label>
+                  <Input
+                    id="fl-limit"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={financialLink.monthly_limit === 0 ? "" : financialLink.monthly_limit}
+                    onChange={(e) =>
+                      setFinancialLink((prev) =>
+                        prev
+                          ? { ...prev, monthly_limit: Number(e.target.value) || 0 }
+                          : prev
+                      )
+                    }
+                    placeholder="500"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

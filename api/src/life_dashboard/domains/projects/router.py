@@ -123,7 +123,7 @@ async def archive_project(
                 status_code=403, detail="You don't have permission to archive others' projects."
             )
     project, error = await service.archive_project(
-        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
+        db, project_id=project_id, household_id=current_user.household_id
     )
     if error == "not_found":
         raise HTTPException(status_code=404, detail="Project not found")
@@ -150,7 +150,7 @@ async def delete_project(
                 status_code=403, detail="You don't have permission to delete others' projects."
             )
     deleted, error = await service.delete_project(
-        db, project_id=project_id, household_id=current_user.household_id, user_id=current_user.id
+        db, project_id=project_id, household_id=current_user.household_id
     )
     if error == "not_found":
         raise HTTPException(status_code=404, detail="Project not found")

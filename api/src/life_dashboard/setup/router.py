@@ -120,6 +120,9 @@ async def complete_setup(
 
     # Seed default system project (Inbox / To-dos)
     await seed_system_project(db, household_id=household.id, user_id=user.id)
+    # Seed default Journal collection (kind='journal') for the AI coach pipeline.
+    from life_dashboard.domains.collections.service import seed_default_journal_collection
+    await seed_default_journal_collection(db, household_id=household.id, user_id=user.id)
 
     await db.commit()
     await db.refresh(user)

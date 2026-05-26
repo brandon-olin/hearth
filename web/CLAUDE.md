@@ -320,6 +320,25 @@ Use this pattern for any UI that should be visible only to admins. Do not add a 
 
 **Forms and mutations:** use `$api.useMutation` with `mutateAsync`. Wrap in try/catch — the middleware throws on non-2xx. Invalidate relevant query keys after success.
 
+**Idempotency — the frontend's half of the contract:**
+
+The API is being hardened with server-side idempotency guards (see `api/CLAUDE.md`), but the frontend must also do its part:
+
+- **Disable submit buttons while a mutation is in flight.** Use the `isPending` state from `useMutation` to set `disabled` and show a loading indicator. Never let a user (or a double-tap) fire the same mutation twice.
+- **Send an `Idempotency-Key` header on all create POSTs.** Generate a `crypto.randomUUID()` once when the form opens (not on every submit) and attach it:
+  ```typescript
+  const idempotencyKey = useRef(crypto.randomUUID());
+
+  await mutateAsync({
+    body: { ... },
+    // openapi-fetch passes extra headers through the `headers` option:
+    // (wire this up once the API middleware supports the header)
+  });
+  ```
+  Re-generating the key on every submit defeats its purpose — the key must be stable across retries of the *same* intent.
+- **Do not optimistically create entities before the server confirms.** Optimistic UI is fine for *status flips* (checking a todo done), but avoid it for `POST` endpoints that mint new rows — a failed request with an optimistically-inserted item followed by a retry creates confusion about which ID is canonical.
+- **After a successful mutation, invalidate the relevant query key** so a subsequent background refetch doesn't silently overwrite the user's just-confirmed state.
+
 **Error handling:** surface errors in UI state; don't swallow them silently.
 
 **Resizable panels:** use the `useResizablePanel` hook with a unique `storageKey`. Drag handles are `<div>` elements with `onMouseDown={startResize}`.

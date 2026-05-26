@@ -66,6 +66,9 @@ async def get_current_user(
     # Attach as plain Python attributes — not ORM columns, never written to DB.
     user.household_id = membership.household_id  # type: ignore[attr-defined]
     user.role = membership.role.value  # type: ignore[attr-defined]
+    # ai-access-001: surface the per-membership AI gate so /auth/me payloads
+    # carry it and the frontend knows whether to render AI surfaces.
+    user.ai_features_enabled = membership.ai_features_enabled  # type: ignore[attr-defined]
 
     household_result = await db.execute(
         select(Household).where(Household.id == membership.household_id)
@@ -74,3 +77,27 @@ async def get_current_user(
     user.household_name = household.name if household else None  # type: ignore[attr-defined]
 
     return user
+
+
+# ai-access-001: dependency that gates AI surfaces on the per-member toggle.
+# Add as `Depends(require_ai_enabled)` to any endpoint that needs to honor
+# the admin's "AI off for this account" decision.
+async def require_ai_enabled(
+    current_user: "User" = Depends(get_current_user),
+) -> "User":
+    """Raise 403 when the current user has AI features disabled by their
+    household admin. Otherwise behaves identically to get_current_user.
+
+    Idempotent: layering this onto an endpoint that already depends on
+    get_current_user is fine — FastAPI resolves the shared dependency once.
+    """
+    if not getattr(current_user, "ai_features_enabled", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI features are disabled for your account by your "
+                "household admin. Ask an admin to enable them in "
+                "Settings → Household."
+            ),
+        )
+    return current_user

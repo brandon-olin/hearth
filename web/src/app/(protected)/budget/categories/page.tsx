@@ -8,10 +8,20 @@ import { fetchWithAuth } from "@/lib/api/fetch-with-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Check, X, Loader2, Tag } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+  Plus, Pencil, Trash2, Check, X, Loader2, Tag, Layers,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface BudgetCategoryGroup {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_income: boolean;
+}
 
 interface BudgetCategory {
   id: string;
@@ -19,22 +29,36 @@ interface BudgetCategory {
   color: string | null;
   icon: string | null;
   keywords: string[] | null;
-  default_scope: "personal" | "household";
+  default_scope: "private" | "shared";
   sort_order: number;
+  group_id: string | null;
+  default_monthly_amount: number | null;
+  rollover_enabled: boolean;
+  notify_threshold_pct: number | null;
+}
+
+interface GroupWithCategories {
+  id: string | null;   // null = implicit "Other" bucket
+  name: string;
+  sort_order: number;
+  is_income: boolean;
+  categories: BudgetCategory[];
 }
 
 // ── Preset palette ────────────────────────────────────────────────────────────
 
 const COLORS = [
-  "#ef4444", "#f97316", "#eab308", "#22c55e",
-  "#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899",
-  "#64748b", "#0ea5e9", "#a3e635", "#f43f5e",
+  // Reds / oranges / yellows
+  "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e",
+  // Teals / blues / purples
+  "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+  // Pinks / roses / warm browns
+  "#ec4899", "#f43f5e", "#db2777", "#b45309", "#92400e", "#78716c",
+  // Extras
+  "#059669", "#0d9488", "#0ea5e9", "#a3e635", "#64748b", "#475569",
 ];
 
-// ── Default categories with merchant keyword seeds ────────────────────────────
-//
-// Keywords use substring matching — "wegmans" catches "WEGMANS #91 BUFFALO NY".
-// Keep entries lowercase; the auto-categorize engine lowercases before comparing.
+// ── Default categories (for the "Load defaults" seed button) ──────────────────
 
 const DEFAULT_CATEGORIES = [
   {
@@ -57,7 +81,6 @@ const DEFAULT_CATEGORIES = [
       "electric", "gas utility", "water bill", "sewage", "con edison",
       "pge", "pg&e", "duke energy", "dominion energy", "national grid",
       "xcel energy", "centerpoint", "atmos energy",
-      // Internet & phone
       "comcast", "xfinity", "spectrum", "cox communications",
       "at&t", "verizon wireless", "t-mobile", "sprint",
       "frontier", "centurylink", "lumen",
@@ -66,47 +89,36 @@ const DEFAULT_CATEGORIES = [
   {
     name: "Groceries", icon: "🛒", color: "#3b82f6",
     keywords: [
-      // National / large regional
       "wegmans", "kroger", "safeway", "whole foods", "trader joe",
       "aldi", "publix", "heb", "meijer", "jewel osco", "stop shop",
       "giant food", "harris teeter", "sprouts", "fresh market",
       "food lion", "winn dixie", "market basket", "price chopper",
       "hannaford", "shoprite", "albertsons", "vons", "ralphs",
       "stater bros", "winco", "save mart", "fresco",
-      // Warehouse
       "costco", "sam's club", "bj's wholesale",
-      // Online grocery
       "instacart", "shipt", "amazon fresh", "walmart grocery",
-      // Generic
       "grocery", "supermarket", "food market",
     ],
   },
   {
     name: "Dining", icon: "🍽️", color: "#f97316",
     keywords: [
-      // Fast food
       "mcdonald", "burger king", "wendy's", "taco bell", "chick-fil-a",
       "chick fil a", "five guys", "shake shack", "in-n-out", "sonic drive",
       "jack in the box", "whataburger", "culver", "raising cane",
       "popeyes", "kfc", "wingstop", "zaxby",
-      // Fast casual
       "chipotle", "panera", "subway", "jimmy john", "jersey mike",
       "firehouse subs", "potbelly", "panda express", "noodles",
       "sweetgreen", "cava", "mod pizza",
-      // Coffee & bakery
       "starbucks", "dunkin", "dutch bros", "caribou coffee",
       "tim hortons", "peet's coffee", "scooter's coffee",
-      // Pizza
       "domino", "pizza hut", "papa john", "little caesars",
-      // Delivery platforms
       "doordash", "grubhub", "ubereats", "uber eats", "seamless",
       "postmates", "caviar",
-      // Sit-down chains
       "olive garden", "applebee's", "outback", "chili's",
       "cheesecake factory", "buffalo wild wings", "texas roadhouse",
       "red lobster", "red robin", "denny's", "ihop", "cracker barrel",
       "first watch", "perkins",
-      // Generic
       "restaurant", "ristorante", "bistro", "cafe", "diner", "grill",
       "sushi", "ramen", "pizzeria", "taqueria", "brasserie",
     ],
@@ -114,22 +126,16 @@ const DEFAULT_CATEGORIES = [
   {
     name: "Transportation", icon: "🚗", color: "#8b5cf6",
     keywords: [
-      // Ride-share
       "uber", "lyft",
-      // Gas stations
       "shell", "bp station", "exxon", "chevron", "sunoco",
       "speedway", "marathon", "circle k", "wawa", "sheetz",
       "casey's", "pilot travel", "flying j", "loves travel",
       "quiktrip", "kwik trip", "racetrac",
-      // Parking
       "parking", "park plus", "spothero", "parkwhiz",
-      // Tolls
       "e-zpass", "sunpass", "fastrak", "pikepass",
-      // Auto
       "jiffy lube", "valvoline", "midas", "firestone", "goodyear",
       "pep boys", "autozone", "o'reilly auto", "advance auto",
       "napa auto", "car wash",
-      // Transit
       "mbta", "mta", "septa", "bart", "wmata", "cta transit",
       "metro card", "clipper card", "ventra",
     ],
@@ -137,21 +143,16 @@ const DEFAULT_CATEGORIES = [
   {
     name: "Travel", icon: "✈️", color: "#14b8a6",
     keywords: [
-      // Airlines
       "delta air", "united air", "american air", "southwest air",
       "jetblue", "alaska air", "spirit air", "frontier air",
       "air canada", "british air", "lufthansa",
-      // Hotels
       "marriott", "hilton", "hyatt", "ihg hotel", "wyndham",
       "best western", "holiday inn", "hampton inn", "courtyard",
       "fairfield inn", "sheraton", "westin", "doubletree",
       "four seasons", "ritz carlton", "kimpton",
-      // Rail
       "amtrak",
-      // Car rental
       "enterprise rent", "hertz", "avis car", "budget car", "alamo",
       "national car", "sixt car", "turo",
-      // Booking platforms
       "expedia", "booking.com", "airbnb", "vrbo", "hotels.com",
       "kayak", "priceline", "orbitz",
     ],
@@ -159,67 +160,51 @@ const DEFAULT_CATEGORIES = [
   {
     name: "Subscriptions", icon: "📱", color: "#a3e635",
     keywords: [
-      // Streaming video
       "netflix", "hulu", "disney plus", "disney+", "hbo max",
       "peacock", "paramount+", "apple tv", "youtube premium",
       "amazon prime video", "espn+", "discovery+", "showtime",
       "sling", "fubo", "philo",
-      // Streaming music
       "spotify", "apple music", "tidal", "pandora",
       "amazon music", "youtube music", "deezer",
-      // Gaming
       "xbox game pass", "playstation plus", "nintendo switch online",
       "steam", "epic games",
-      // Software / cloud
       "adobe", "microsoft 365", "google workspace", "google one",
       "dropbox", "icloud storage", "zoom", "slack",
       "notion", "figma", "github", "1password", "lastpass",
       "nordvpn", "expressvpn",
-      // News & reading
       "new york times", "nyt", "washington post", "wall street journal",
       "wsj", "economist", "bloomberg", "spotify podcast",
       "audible", "kindle unlimited",
-      // Health & fitness
       "peloton", "noom", "calm", "headspace", "whoop",
     ],
   },
   {
     name: "Shopping", icon: "🛍️", color: "#0ea5e9",
     keywords: [
-      // Online
       "amazon", "walmart.com", "target.com", "wayfair", "chewy",
       "etsy", "ebay", "wish.com", "shein", "temu", "shopify",
-      // Department / general
       "walmart", "target", "dollar general", "dollar tree",
       "five below", "big lots",
-      // Electronics
       "best buy", "apple store", "apple.com", "microsoft store",
       "b&h photo", "adorama", "newegg",
-      // Home
       "home depot", "lowe's", "ikea", "williams sonoma",
       "pottery barn", "restoration hardware", "crate barrel",
       "bed bath", "tuesday morning",
-      // Clothing
       "tj maxx", "marshalls", "ross stores", "burlington coat",
       "nordstrom", "macy's", "jcpenney", "kohls", "gap", "old navy",
       "banana republic", "h&m", "zara", "uniqlo",
-      // Pets
       "petsmart", "petco",
     ],
   },
   {
     name: "Healthcare", icon: "🏥", color: "#ef4444",
     keywords: [
-      // Pharmacy
       "walgreens", "cvs pharmacy", "rite aid", "duane reade",
       "express scripts", "optum rx", "caremark",
-      // Dental & vision
       "dental", "dentist", "orthodont", "vision", "lenscrafters",
       "pearle vision", "america's best",
-      // Fitness (non-subscription)
       "planet fitness", "la fitness", "24 hour fitness", "equinox",
       "anytime fitness", "ymca", "crunch fitness",
-      // Generic medical
       "hospital", "clinic", "medical", "urgent care", "labcorp",
       "quest diagnostics",
     ],
@@ -260,7 +245,23 @@ const DEFAULT_CATEGORIES = [
       "savings transfer", "401k", "ira contribution",
     ],
   },
+  {
+    name: "Household", icon: "🛋️", color: "#b45309",
+    keywords: [
+      "home depot", "lowe's", "ikea", "wayfair", "target", "bed bath",
+      "furniture", "hardware store", "paint", "home improvement",
+    ],
+  },
+  {
+    name: "Gifts", icon: "🎁", color: "#db2777",
+    keywords: [
+      "gift", "amazon gift", "etsy", "1-800-flowers", "hallmark",
+      "birthday", "anniversary", "holiday", "donation", "charity",
+    ],
+  },
 ] as const;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function nextUnusedColor(existingCategories: BudgetCategory[]): string {
   const used = new Set(existingCategories.map((c) => c.color).filter(Boolean));
@@ -268,6 +269,49 @@ function nextUnusedColor(existingCategories: BudgetCategory[]): string {
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
+
+async function fetchGrouped(): Promise<GroupWithCategories[]> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories/grouped`);
+  if (!res.ok) throw new Error("Failed to load categories");
+  return res.json() as Promise<GroupWithCategories[]>;
+}
+
+async function fetchGroups(): Promise<BudgetCategoryGroup[]> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/category-groups`);
+  if (!res.ok) throw new Error("Failed to load groups");
+  return res.json() as Promise<BudgetCategoryGroup[]>;
+}
+
+async function createGroup(name: string): Promise<BudgetCategoryGroup> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/category-groups`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, sort_order: 999 }),
+  });
+  if (!res.ok) throw new Error("Failed to create group");
+  return res.json() as Promise<BudgetCategoryGroup>;
+}
+
+async function updateGroup(id: string, body: { name?: string; sort_order?: number; is_income?: boolean }): Promise<BudgetCategoryGroup> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/category-groups/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Failed to update group");
+  return res.json() as Promise<BudgetCategoryGroup>;
+}
+
+async function deleteGroup(id: string): Promise<void> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/category-groups/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete group");
+}
+
+async function seedDefaultGroups(): Promise<{ groups_created: number; categories_assigned: number }> {
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/category-groups/seed-defaults`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to seed groups");
+  return res.json();
+}
 
 async function fetchCategories(): Promise<BudgetCategory[]> {
   const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories`);
@@ -280,6 +324,7 @@ async function createCategory(body: {
   color: string | null;
   icon: string | null;
   keywords: string[] | null;
+  group_id?: string | null;
 }): Promise<BudgetCategory> {
   const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories`, {
     method: "POST",
@@ -292,7 +337,7 @@ async function createCategory(body: {
 
 async function updateCategory(
   id: string,
-  body: Partial<{ name: string; color: string | null; icon: string | null; keywords: string[] | null }>
+  body: Partial<{ name: string; color: string | null; icon: string | null; keywords: string[] | null; group_id: string | null; default_monthly_amount: number | null; rollover_enabled: boolean; notify_threshold_pct: number | null }>
 ): Promise<BudgetCategory> {
   const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories/${id}`, {
     method: "PATCH",
@@ -304,21 +349,14 @@ async function updateCategory(
 }
 
 async function deleteCategory(id: string): Promise<void> {
-  const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories/${id}`, {
-    method: "DELETE",
-  });
+  const res = await fetchWithAuth(`${apiBaseUrl}/budget/categories/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete category");
 }
 
-// ── Color swatch ──────────────────────────────────────────────────────────────
+// ── ColorPicker ───────────────────────────────────────────────────────────────
 
-function ColorPicker({
-  value,
-  onChange,
-}: {
-  value: string | null;
-  onChange: (c: string) => void;
-}) {
+function ColorPicker({ value, onChange }: { value: string | null; onChange: (c: string) => void }) {
+  const isCustom = value != null && !COLORS.includes(value);
   return (
     <div className="flex flex-wrap gap-1.5">
       {COLORS.map((c) => (
@@ -333,19 +371,40 @@ function ColorPicker({
           style={{ backgroundColor: c }}
         />
       ))}
+      {/* Custom color picker — native input styled as a swatch */}
+      <label
+        title="Custom color"
+        className={cn(
+          "w-5 h-5 rounded-full border-2 cursor-pointer transition-transform overflow-hidden flex items-center justify-center",
+          isCustom ? "border-foreground scale-110" : "border-dashed border-muted-foreground hover:scale-105"
+        )}
+        style={isCustom ? { backgroundColor: value! } : undefined}
+      >
+        {!isCustom && (
+          <span className="text-[9px] text-muted-foreground leading-none">+</span>
+        )}
+        <input
+          type="color"
+          value={value ?? "#000000"}
+          onChange={(e) => onChange(e.target.value)}
+          className="sr-only"
+        />
+      </label>
     </div>
   );
 }
 
-// ── Category row ──────────────────────────────────────────────────────────────
+// ── CategoryRow ───────────────────────────────────────────────────────────────
 
 function CategoryRow({
   category,
+  groups,
   onDeleted,
   onUpdated,
   onNavigate,
 }: {
   category: BudgetCategory;
+  groups: BudgetCategoryGroup[];
   onDeleted: (id: string) => void;
   onUpdated: (cat: BudgetCategory) => void;
   onNavigate: (id: string) => void;
@@ -355,28 +414,40 @@ function CategoryRow({
   const [color, setColor] = useState<string | null>(category.color);
   const [icon, setIcon] = useState(category.icon ?? "");
   const [keywordsRaw, setKeywordsRaw] = useState((category.keywords ?? []).join(", "));
+  const [groupId, setGroupId] = useState<string | null>(category.group_id);
+  const [monthlyAmount, setMonthlyAmount] = useState(
+    category.default_monthly_amount != null ? String(category.default_monthly_amount) : ""
+  );
+  const [rolloverEnabled, setRolloverEnabled] = useState(category.rollover_enabled);
+  const [alertsEnabled, setAlertsEnabled] = useState(category.notify_threshold_pct != null);
+  const [alertThreshold, setAlertThreshold] = useState(
+    category.notify_threshold_pct != null ? String(category.notify_threshold_pct) : "80"
+  );
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (editing) nameRef.current?.focus();
-  }, [editing]);
+  useEffect(() => { if (editing) nameRef.current?.focus(); }, [editing]);
 
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const keywords = keywordsRaw
-        .split(",")
-        .map((k) => k.trim())
-        .filter(Boolean);
+      const keywords = keywordsRaw.split(",").map((k) => k.trim()).filter(Boolean);
+      const parsedAmount = monthlyAmount.trim() !== "" ? parseFloat(monthlyAmount) : null;
+      const parsedThreshold = parseInt(alertThreshold, 10);
       const updated = await updateCategory(category.id, {
         name: name.trim(),
         color: color || null,
         icon: icon.trim() || null,
         keywords: keywords.length > 0 ? keywords : null,
+        group_id: groupId,
+        default_monthly_amount: parsedAmount != null && !isNaN(parsedAmount) ? parsedAmount : null,
+        rollover_enabled: rolloverEnabled,
+        notify_threshold_pct: alertsEnabled && !isNaN(parsedThreshold) && parsedThreshold > 0 && parsedThreshold < 100
+          ? parsedThreshold
+          : alertsEnabled ? 80 : null,
       });
       onUpdated(updated);
       setEditing(false);
@@ -398,7 +469,7 @@ function CategoryRow({
 
   if (editing) {
     return (
-      <div className="border rounded-lg p-4 flex flex-col gap-3">
+      <div className="border rounded-lg p-4 flex flex-col gap-3 ml-4">
         <div className="grid grid-cols-[1fr_auto] gap-3">
           <div className="flex flex-col gap-1">
             <Label className="text-xs text-muted-foreground">Name</Label>
@@ -426,6 +497,104 @@ function CategoryRow({
           <ColorPicker value={color} onChange={setColor} />
         </div>
 
+        {groups.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Group</Label>
+            <select
+              value={groupId ?? ""}
+              onChange={(e) => setGroupId(e.target.value || null)}
+              className="h-8 text-sm rounded-md border border-input bg-background px-2 text-foreground"
+            >
+              <option value="">— No group —</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">
+            Monthly budget <span className="text-muted-foreground/60">(optional — leave blank for no target)</span>
+          </Label>
+          <div className="relative w-36">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+            <Input
+              type="number"
+              min="0"
+              step="1"
+              value={monthlyAmount}
+              onChange={(e) => setMonthlyAmount(e.target.value)}
+              placeholder="0"
+              className="h-8 text-sm pl-6"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={rolloverEnabled}
+            onClick={() => setRolloverEnabled(!rolloverEnabled)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+              rolloverEnabled ? "bg-primary" : "bg-input"
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${
+                rolloverEnabled ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </button>
+          <div className="flex flex-col">
+            <Label className="text-xs font-medium">Roll over balance</Label>
+            <span className="text-xs text-muted-foreground">Carry unspent or overspent amount to next month</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={alertsEnabled}
+              onClick={() => setAlertsEnabled(!alertsEnabled)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                alertsEnabled ? "bg-primary" : "bg-input"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${
+                  alertsEnabled ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+            <div className="flex flex-col">
+              <Label className="text-xs font-medium">Budget alerts</Label>
+              <span className="text-xs text-muted-foreground">Notify when spending approaches the monthly target</span>
+            </div>
+          </div>
+          {alertsEnabled && (
+            <div className="flex items-center gap-2 ml-12">
+              <span className="text-xs text-muted-foreground">Alert at</span>
+              <div className="relative w-20">
+                <Input
+                  type="number"
+                  min="1"
+                  max="99"
+                  step="1"
+                  value={alertThreshold}
+                  onChange={(e) => setAlertThreshold(e.target.value)}
+                  className="h-7 text-sm pr-6 text-center"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+              </div>
+              <span className="text-xs text-muted-foreground">of budget (always again at 100%)</span>
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-col gap-1">
           <Label className="text-xs text-muted-foreground">
             Keywords <span className="text-muted-foreground/60">(comma-separated, used for auto-categorization)</span>
@@ -448,6 +617,11 @@ function CategoryRow({
             setColor(category.color);
             setIcon(category.icon ?? "");
             setKeywordsRaw((category.keywords ?? []).join(", "));
+            setGroupId(category.group_id);
+            setMonthlyAmount(category.default_monthly_amount != null ? String(category.default_monthly_amount) : "");
+            setRolloverEnabled(category.rollover_enabled);
+            setAlertsEnabled(category.notify_threshold_pct != null);
+            setAlertThreshold(category.notify_threshold_pct != null ? String(category.notify_threshold_pct) : "80");
             setEditing(false);
           }}>
             Cancel
@@ -458,21 +632,17 @@ function CategoryRow({
   }
 
   return (
-    <div className="flex items-center gap-3 border rounded-lg group overflow-hidden">
-      {/* Clickable left area → navigate to detail page */}
+    <div className="flex items-center gap-3 border rounded-lg group overflow-hidden ml-4">
       <button
         onClick={() => onNavigate(category.id)}
         className="flex items-center gap-3 flex-1 min-w-0 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
       >
-        {/* Color + icon */}
         <div
-          className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-sm"
+          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-sm"
           style={{ backgroundColor: category.color ?? "#94a3b8" }}
         >
           {category.icon ?? ""}
         </div>
-
-        {/* Name + keywords */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium">{category.name}</p>
           {category.keywords && category.keywords.length > 0 && (
@@ -482,11 +652,17 @@ function CategoryRow({
             </p>
           )}
         </div>
-
+        {category.default_monthly_amount != null && (
+          <span className="text-xs tabular-nums text-muted-foreground shrink-0 mr-1">
+            ${category.default_monthly_amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}/mo
+          </span>
+        )}
+        {category.rollover_enabled && (
+          <span className="text-xs text-muted-foreground shrink-0 mr-1" title="Balance rolls over each month">↩</span>
+        )}
         <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
       </button>
 
-      {/* Edit / delete actions */}
       <div className="flex items-center gap-1 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
         {confirmDelete ? (
           <>
@@ -518,29 +694,216 @@ function CategoryRow({
   );
 }
 
-// ── Create form ───────────────────────────────────────────────────────────────
+// ── GroupSection ──────────────────────────────────────────────────────────────
+
+function GroupSection({
+  group,
+  groups,
+  allCategories,
+  onCategoryDeleted,
+  onCategoryUpdated,
+  onNavigate,
+  onGroupRenamed,
+  onGroupIsIncomeToggled,
+  onGroupDeleted,
+}: {
+  group: GroupWithCategories;
+  groups: BudgetCategoryGroup[];
+  allCategories: BudgetCategory[];
+  onCategoryDeleted: (id: string) => void;
+  onCategoryUpdated: (cat: BudgetCategory) => void;
+  onNavigate: (id: string) => void;
+  onGroupRenamed: (id: string, name: string) => void;
+  onGroupIsIncomeToggled: (id: string, is_income: boolean) => void;
+  onGroupDeleted: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(group.name);
+  const [savingName, setSavingName] = useState(false);
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
+  const [togglingIncome, setTogglingIncome] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (editingName) nameRef.current?.focus(); }, [editingName]);
+
+  const isOther = group.id === null;
+
+  const handleSaveName = async () => {
+    if (!nameValue.trim() || isOther || !group.id) return;
+    setSavingName(true);
+    try {
+      await updateGroup(group.id, { name: nameValue.trim() });
+      onGroupRenamed(group.id, nameValue.trim());
+      setEditingName(false);
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleToggleIncome = async () => {
+    if (isOther || !group.id) return;
+    setTogglingIncome(true);
+    try {
+      await updateGroup(group.id, { is_income: !group.is_income });
+      onGroupIsIncomeToggled(group.id, !group.is_income);
+    } finally {
+      setTogglingIncome(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!group.id) return;
+    setDeletingGroup(true);
+    try {
+      await deleteGroup(group.id);
+      onGroupDeleted(group.id);
+    } finally {
+      setDeletingGroup(false);
+      setConfirmDeleteGroup(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      {/* Group header */}
+      <div className="flex items-center gap-2 group/grp py-1">
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+        >
+          {collapsed
+            ? <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          }
+
+          {editingName && !isOther ? (
+            <Input
+              ref={nameRef}
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveName();
+                if (e.key === "Escape") { setNameValue(group.name); setEditingName(false); }
+              }}
+              className="h-6 text-sm font-semibold py-0 px-1 max-w-[180px]"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              {group.name}
+            </span>
+          )}
+
+          <span className="text-xs text-muted-foreground/60 ml-1">
+            ({group.categories.length})
+          </span>
+        </button>
+
+        {/* Group actions — only for real groups, not "Other" */}
+        {!isOther && (
+          <div className="flex items-center gap-1 opacity-0 group-hover/grp:opacity-100 transition-opacity">
+            {editingName ? (
+              <>
+                <Button size="icon-xs" variant="ghost" onClick={() => void handleSaveName()} disabled={savingName}>
+                  {savingName ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                </Button>
+                <Button size="icon-xs" variant="ghost" onClick={() => { setNameValue(group.name); setEditingName(false); }}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </>
+            ) : confirmDeleteGroup ? (
+              <>
+                <span className="text-xs text-muted-foreground">Delete group?</span>
+                <Button size="icon-xs" variant="destructive" onClick={() => void handleDeleteGroup()} disabled={deletingGroup}>
+                  {deletingGroup ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                </Button>
+                <Button size="icon-xs" variant="ghost" onClick={() => setConfirmDeleteGroup(false)}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <button
+                  title={group.is_income ? "Marked as income group — click to unmark" : "Mark as income group"}
+                  onClick={() => void handleToggleIncome()}
+                  disabled={togglingIncome}
+                  className={`text-xs px-1.5 py-0.5 rounded font-medium transition-colors ${
+                    group.is_income
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+                      : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {togglingIncome ? <Loader2 className="w-3 h-3 animate-spin inline" /> : "Income"}
+                </button>
+                <Button size="icon-xs" variant="ghost" onClick={() => setEditingName(true)}>
+                  <Pencil className="w-3 h-3" />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setConfirmDeleteGroup(true)}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Categories */}
+      {!collapsed && (
+        <div className="flex flex-col gap-1.5 mb-2">
+          {group.categories.length === 0 ? (
+            <p className="text-xs text-muted-foreground/50 ml-5 italic py-1">No categories in this group</p>
+          ) : (
+            group.categories.map((cat) => (
+              <CategoryRow
+                key={cat.id}
+                category={cat}
+                groups={groups}
+                onDeleted={onCategoryDeleted}
+                onUpdated={onCategoryUpdated}
+                onNavigate={onNavigate}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── CreateCategoryForm ────────────────────────────────────────────────────────
 
 function CreateCategoryForm({
   onCreated,
-  existingCategories,
+  allCategories,
+  groups,
+  defaultGroupId,
 }: {
   onCreated: (cat: BudgetCategory) => void;
-  existingCategories: BudgetCategory[];
+  allCategories: BudgetCategory[];
+  groups: BudgetCategoryGroup[];
+  defaultGroupId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [color, setColor] = useState<string | null>(COLORS[0]);
   const [icon, setIcon] = useState("");
   const [keywordsRaw, setKeywordsRaw] = useState("");
+  const [groupId, setGroupId] = useState<string | null>(defaultGroupId ?? null);
   const [saving, setSaving] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) nameRef.current?.focus();
-  }, [open]);
+  useEffect(() => { if (open) nameRef.current?.focus(); }, [open]);
 
   const handleOpen = () => {
-    setColor(nextUnusedColor(existingCategories));
+    setColor(nextUnusedColor(allCategories));
+    setGroupId(defaultGroupId ?? null);
     setOpen(true);
   };
 
@@ -554,6 +917,7 @@ function CreateCategoryForm({
         color: color || null,
         icon: icon.trim() || null,
         keywords: keywords.length > 0 ? keywords : null,
+        group_id: groupId,
       });
       onCreated(cat);
       setName("");
@@ -569,7 +933,7 @@ function CreateCategoryForm({
     return (
       <button
         onClick={handleOpen}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-2"
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-2 ml-5"
       >
         <Plus className="w-4 h-4" /> New category
       </button>
@@ -577,7 +941,7 @@ function CreateCategoryForm({
   }
 
   return (
-    <div className="border rounded-lg p-4 flex flex-col gap-3">
+    <div className="border rounded-lg p-4 flex flex-col gap-3 ml-4">
       <div className="grid grid-cols-[1fr_auto] gap-3">
         <div className="flex flex-col gap-1">
           <Label className="text-xs text-muted-foreground">Name</Label>
@@ -605,6 +969,22 @@ function CreateCategoryForm({
         <Label className="text-xs text-muted-foreground">Color</Label>
         <ColorPicker value={color} onChange={setColor} />
       </div>
+
+      {groups.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">Group</Label>
+          <select
+            value={groupId ?? ""}
+            onChange={(e) => setGroupId(e.target.value || null)}
+            className="h-8 text-sm rounded-md border border-input bg-background px-2 text-foreground"
+          >
+            <option value="">— No group —</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1">
         <Label className="text-xs text-muted-foreground">
@@ -635,59 +1015,134 @@ export default function BudgetCategoriesPage() {
   const router = useRouter();
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery<BudgetCategory[]>({
+  // Flat categories list (for flat category operations & "Load defaults" seeding)
+  const { data: flatData, isLoading: flatLoading } = useQuery<BudgetCategory[]>({
     queryKey: ["budget", "categories"],
     queryFn: fetchCategories,
   });
 
-  const [categories, setCategories] = useState<BudgetCategory[] | null>(null);
-  const [seedingDefaults, setSeedingDefaults] = useState(false);
-  const display = categories ?? data ?? [];
+  // Grouped view
+  const { data: groupedData, isLoading: groupedLoading } = useQuery<GroupWithCategories[]>({
+    queryKey: ["budget", "categories", "grouped"],
+    queryFn: fetchGrouped,
+  });
 
-  // Keep local state in sync with query data on first load
+  // Flat group list (for the group picker dropdowns)
+  const { data: groupsData } = useQuery<BudgetCategoryGroup[]>({
+    queryKey: ["budget", "category-groups"],
+    queryFn: fetchGroups,
+  });
+
+  const isLoading = flatLoading || groupedLoading;
+  const allCategories = flatData ?? [];
+  const groups = groupsData ?? [];
+  const [grouped, setGrouped] = useState<GroupWithCategories[] | null>(null);
+  const display = grouped ?? groupedData ?? [];
+  const hasGroups = display.some((g) => g.id !== null);
+
   useEffect(() => {
-    if (data && categories === null) setCategories(data);
-  }, [data, categories]);
+    if (groupedData && grouped === null) setGrouped(groupedData);
+  }, [groupedData, grouped]);
 
-  const handleCreated = (cat: BudgetCategory) => {
-    setCategories((prev) => [...(prev ?? []), cat]);
+  const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["budget", "categories"] });
+    void qc.invalidateQueries({ queryKey: ["budget", "category-groups"] });
   };
 
-  const handleUpdated = (cat: BudgetCategory) => {
-    setCategories((prev) => prev?.map((c) => (c.id === cat.id ? cat : c)) ?? null);
-    void qc.invalidateQueries({ queryKey: ["budget", "categories"] });
+  const handleCategoryUpdated = (cat: BudgetCategory) => {
+    setGrouped(null);  // trigger re-fetch to re-group
+    invalidate();
   };
 
-  const handleDeleted = (id: string) => {
-    setCategories((prev) => prev?.filter((c) => c.id !== id) ?? null);
-    void qc.invalidateQueries({ queryKey: ["budget", "categories"] });
+  const handleCategoryDeleted = (id: string) => {
+    setGrouped(null);
+    invalidate();
   };
 
+  const handleGroupRenamed = (id: string, name: string) => {
+    setGrouped((prev) =>
+      prev?.map((g) => (g.id === id ? { ...g, name } : g)) ?? null
+    );
+  };
+
+  const handleGroupIsIncomeToggled = (id: string, is_income: boolean) => {
+    setGrouped((prev) =>
+      prev?.map((g) => (g.id === id ? { ...g, is_income } : g)) ?? null
+    );
+  };
+
+  const handleGroupDeleted = (id: string) => {
+    setGrouped(null);
+    invalidate();
+  };
+
+  const handleCategoryCreated = () => {
+    setGrouped(null);
+    invalidate();
+  };
+
+  // "Load defaults" — seeds categories only (legacy behaviour)
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
   const handleSeedDefaults = async () => {
     setSeedingDefaults(true);
-    const existingNames = new Set(display.map((c) => c.name.toLowerCase()));
+    const existingNames = new Set(allCategories.map((c) => c.name.toLowerCase()));
     const toCreate = DEFAULT_CATEGORIES.filter(
       (d) => !existingNames.has(d.name.toLowerCase())
     );
     try {
       for (const def of toCreate) {
-        const cat = await createCategory({
+        await createCategory({
           name: def.name,
           color: def.color,
           icon: def.icon,
-          keywords: "keywords" in def ? [...def.keywords] : null,
+          keywords: [...def.keywords],
+          group_id: null,
         });
-        setCategories((prev) => [...(prev ?? []), cat]);
       }
-      void qc.invalidateQueries({ queryKey: ["budget", "categories"] });
+      setGrouped(null);
+      invalidate();
     } finally {
       setSeedingDefaults(false);
     }
   };
 
+  // "Set up groups" — creates default groups + assigns matching categories
+  const [seedingGroups, setSeedingGroups] = useState(false);
+  const handleSeedGroups = async () => {
+    setSeedingGroups(true);
+    try {
+      await seedDefaultGroups();
+      setGrouped(null);
+      invalidate();
+    } finally {
+      setSeedingGroups(false);
+    }
+  };
+
+  // Create new group inline
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [savingGroup, setSavingGroup] = useState(false);
+  const newGroupRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (addingGroup) newGroupRef.current?.focus(); }, [addingGroup]);
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    setSavingGroup(true);
+    try {
+      await createGroup(newGroupName.trim());
+      setNewGroupName("");
+      setAddingGroup(false);
+      setGrouped(null);
+      invalidate();
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto py-6 px-4">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Button size="icon-sm" variant="ghost" onClick={() => router.push("/budget")}>
           <ChevronLeft className="w-4 h-4" />
@@ -695,51 +1150,103 @@ export default function BudgetCategoriesPage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-semibold">Categories</h1>
           <p className="text-xs text-muted-foreground">
-            Add keywords to auto-categorize imported transactions.
+            Organise spending categories into groups for zero-based budgeting.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void handleSeedDefaults()}
-          disabled={seedingDefaults || isLoading}
-          className="text-xs shrink-0"
-        >
-          {seedingDefaults ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-          Load defaults
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {!hasGroups && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleSeedGroups()}
+              disabled={seedingGroups || isLoading}
+              className="text-xs"
+            >
+              {seedingGroups ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Layers className="w-3 h-3 mr-1" />}
+              Set up groups
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleSeedDefaults()}
+            disabled={seedingDefaults || isLoading}
+            className="text-xs"
+          >
+            {seedingDefaults ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Load defaults
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
-      ) : display.length === 0 && categories !== null ? (
+      ) : display.length === 0 && !hasGroups && allCategories.length === 0 ? (
+        /* Truly empty state */
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Tag className="w-8 h-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No categories yet.</p>
           <p className="text-xs text-muted-foreground">
-            Use <strong>Load defaults</strong> to seed standard categories, or create one below.
+            Use <strong>Set up groups</strong> to scaffold the default YNAB-style layout,
+            or <strong>Load defaults</strong> to seed categories without groups.
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2 mb-4">
-          {display.map((cat) => (
-            <CategoryRow
-              key={cat.id}
-              category={cat}
-              onDeleted={handleDeleted}
-              onUpdated={handleUpdated}
+          {/* Grouped sections */}
+          {display.map((group) => (
+            <GroupSection
+              key={group.id ?? "__other__"}
+              group={group}
+              groups={groups}
+              allCategories={allCategories}
+              onCategoryDeleted={handleCategoryDeleted}
+              onCategoryUpdated={handleCategoryUpdated}
               onNavigate={(id) => router.push(`/budget/categories/${id}`)}
+              onGroupRenamed={handleGroupRenamed}
+              onGroupIsIncomeToggled={handleGroupIsIncomeToggled}
+              onGroupDeleted={handleGroupDeleted}
             />
           ))}
 
-          {/* Uncategorized shortcut — always shown so users can find unassigned transactions */}
+          {/* Add new group inline */}
+          {addingGroup ? (
+            <div className="flex items-center gap-2 py-1">
+              <Input
+                ref={newGroupRef}
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleCreateGroup();
+                  if (e.key === "Escape") { setAddingGroup(false); setNewGroupName(""); }
+                }}
+                placeholder="Group name…"
+                className="h-7 text-sm max-w-[200px]"
+              />
+              <Button size="sm" onClick={() => void handleCreateGroup()} disabled={savingGroup || !newGroupName.trim()}>
+                {savingGroup ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setAddingGroup(false); setNewGroupName(""); }}>
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingGroup(true)}
+              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 mt-1"
+            >
+              <Plus className="w-3.5 h-3.5" /> New group
+            </button>
+          )}
+
+          {/* Uncategorized shortcut */}
           <button
             onClick={() => router.push("/budget/categories/uncategorized")}
-            className="flex items-center gap-3 border rounded-lg px-4 py-3 text-left hover:bg-muted/50 transition-colors group"
+            className="flex items-center gap-3 border rounded-lg px-4 py-3 text-left hover:bg-muted/50 transition-colors group mt-2"
           >
-            <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-sm bg-muted">
+            <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-sm bg-muted">
               <Tag className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
             <div className="flex-1 min-w-0">
@@ -751,7 +1258,14 @@ export default function BudgetCategoriesPage() {
         </div>
       )}
 
-      <CreateCategoryForm onCreated={handleCreated} existingCategories={display} />
+      {/* New category form — floated outside groups; users can also use the edit pencil to move to a group */}
+      {!isLoading && (
+        <CreateCategoryForm
+          onCreated={handleCategoryCreated}
+          allCategories={allCategories}
+          groups={groups}
+        />
+      )}
     </div>
   );
 }

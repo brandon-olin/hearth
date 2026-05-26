@@ -12,7 +12,7 @@
   <key>Label</key>
   <string>com.lifedashboard.web</string>
 
-  <!-- The wrapper script sources infra/local.env then exec's `next start` -->
+  <!-- The wrapper script sources infra/local.env then exec's `next dev` -->
   <key>ProgramArguments</key>
   <array>
     <string>{{APP_DIR}}/infra/scripts/run-web.sh</string>

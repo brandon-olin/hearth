@@ -93,6 +93,14 @@ class HouseholdMembership(Base):
     )
     role: Mapped[MembershipRole] = mapped_column(_membership_role_pg, default=MembershipRole.member)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # ai-access-001: admin-controlled gate for AI features (coach, chat,
+    # journal, profile personalisation). Defaults True so existing members
+    # are unaffected. Set to False to lock a member out of AI surfaces
+    # without deleting them or revoking other access. Existing AI data
+    # is preserved — flipping back to True restores the experience.
+    ai_features_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     household: Mapped["Household"] = relationship(back_populates="memberships")
     user: Mapped["User"] = relationship(back_populates="memberships")

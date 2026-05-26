@@ -45,16 +45,16 @@
         "See current month's spending and an optional budget target bar",
         "Widget reloads with fresh data on each visit"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "budget-005",
       "category": "Budget",
       "priority": 1,
-      "title": "Category groups — collapsible category sections",
-      "description": "Allow budget categories to be organized into named groups. Groups are collapsible in the UI. Each category belongs to one group; ungrouped categories fall into a default 'Other' bucket. Requires a new budget_category_groups table with a sort_order and name, and a group_id FK on budget_categories. The /budget/categories response should nest categories inside their group. On first setup, seed the default groups and assignments listed below.\n\nProposed default groups (inspired by YNAB, adapted for Hearth):\n\nGroup 1 — Fixed Monthly (sort 1): Immediate recurring obligations, roughly the same every month. Default categories: Housing, Utilities, Insurance, Subscriptions.\n\nGroup 2 — Everyday Spending (sort 2): Regular variable spending that happens most weeks. Default categories: Groceries, Dining, Transportation, Personal Care.\n\nGroup 3 — Irregular / True Expenses (sort 3): Predictable but infrequent — plan for these monthly even when they do not hit every month (the YNAB true-expenses concept). Default categories: Household, Healthcare, Travel, Gifts, Education, Shopping.\n\nGroup 4 — Savings & Goals (sort 4): Money leaving the spending pool for a future purpose. Default categories: Savings.\n\nGroup 5 — Just for Fun (sort 5): Discretionary and lifestyle spending. Default categories: Entertainment, Gaming, Vices.\n\nGroup 6 — Income (sort 6): Inflows; displayed separately from spending groups. Default categories: Income.\n\nNote: YNAB ships with Immediate Obligations, True Expenses, Debt Payments, Quality of Life Goals, and Just for Fun. Hearth folds Debt Payments into Fixed Monthly (debt is modeled as account types, not categories) and renames Quality of Life Goals to Savings & Goals for clarity.",
+      "title": "Category groups \u2014 collapsible category sections",
+      "description": "Allow budget categories to be organized into named groups. Groups are collapsible in the UI. Each category belongs to one group; ungrouped categories fall into a default 'Other' bucket. Requires a new budget_category_groups table with a sort_order and name, and a group_id FK on budget_categories. The /budget/categories response should nest categories inside their group. On first setup, seed the default groups and assignments listed below.\n\nProposed default groups (inspired by YNAB, adapted for Hearth):\n\nGroup 1 \u2014 Fixed Monthly (sort 1): Immediate recurring obligations, roughly the same every month. Default categories: Housing, Utilities, Insurance, Subscriptions.\n\nGroup 2 \u2014 Everyday Spending (sort 2): Regular variable spending that happens most weeks. Default categories: Groceries, Dining, Transportation, Personal Care.\n\nGroup 3 \u2014 Irregular / True Expenses (sort 3): Predictable but infrequent \u2014 plan for these monthly even when they do not hit every month (the YNAB true-expenses concept). Default categories: Household, Healthcare, Travel, Gifts, Education, Shopping.\n\nGroup 4 \u2014 Savings & Goals (sort 4): Money leaving the spending pool for a future purpose. Default categories: Savings.\n\nGroup 5 \u2014 Just for Fun (sort 5): Discretionary and lifestyle spending. Default categories: Entertainment, Gaming, Vices.\n\nGroup 6 \u2014 Income (sort 6): Inflows; displayed separately from spending groups. Default categories: Income.\n\nNote: YNAB ships with Immediate Obligations, True Expenses, Debt Payments, Quality of Life Goals, and Just for Fun. Hearth folds Debt Payments into Fixed Monthly (debt is modeled as account types, not categories) and renames Quality of Life Goals to Savings & Goals for clarity.",
       "steps": [
-        "Navigate to /budget → Categories",
+        "Navigate to /budget \u2192 Categories",
         "Create a group named 'Fixed Monthly'",
         "Drag or assign Housing, Insurance, Subscriptions into that group",
         "Verify the category list renders the group header with categories nested beneath it",
@@ -62,31 +62,31 @@
         "Verify uncategorized categories appear under a default 'Other' group",
         "Verify the analytics page respects group order when rendering categories"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "budget-006",
       "category": "Budget",
       "priority": 1,
-      "title": "Budget targets — monthly envelope per category",
+      "title": "Budget targets \u2014 monthly envelope per category",
       "description": "Add a monthly budget target amount to each category (zero-based envelope budgeting). The categories list and analytics page show budgeted vs. actual vs. remaining for the selected month. A category is 'over budget' when actual spending exceeds the target; the delta is highlighted in red. Targets are stored per-category (not per-month) as a default monthly amount, with optional per-month overrides in a budget_targets table keyed by (category_id, year, month).",
       "steps": [
-        "Navigate to /budget → Categories and open a category",
+        "Navigate to /budget \u2192 Categories and open a category",
         "Set a monthly budget target of $500 on Groceries",
-        "Navigate to /budget → Analytics for the current month",
+        "Navigate to /budget \u2192 Analytics for the current month",
         "Verify Groceries shows '$X spent of $500 budgeted' with a progress bar",
         "Add transactions that exceed $500 in Groceries",
         "Verify the category is highlighted as over-budget",
         "Change the month and verify the same $500 target applies"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "budget-007",
       "category": "Budget",
       "priority": 1,
-      "title": "Ready to assign — unallocated balance indicator",
-      "description": "Show a persistent 'Ready to assign' figure at the top of the budget page: total income for the month minus the sum of all category budget targets. When positive, the user still has dollars without a job. When zero, every dollar is assigned. When negative, they have over-allocated. This is the forcing function for zero-based budgeting — it should be the most prominent number on the page.",
+      "title": "Ready to assign \u2014 unallocated balance indicator",
+      "description": "Show a persistent 'Ready to assign' figure at the top of the budget page: total income for the month minus the sum of all category budget targets. When positive, the user still has dollars without a job. When zero, every dollar is assigned. When negative, they have over-allocated. This is the forcing function for zero-based budgeting \u2014 it should be the most prominent number on the page.",
       "steps": [
         "Navigate to /budget for the current month",
         "Verify a 'Ready to assign' figure appears at the top",
@@ -95,7 +95,7 @@
         "Reduce a target until 'Ready to assign' reaches $0 and verify a 'fully assigned' state is shown",
         "Over-allocate and verify the figure goes negative with a warning state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "budget-008",
@@ -111,7 +111,7 @@
         "Disable rollover and verify the following month resets to $500",
         "Overspend by $50 with rollover enabled and verify next month shows $450"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "budget-004",
@@ -126,7 +126,7 @@
         "Verify the transaction appears automatically",
         "Delete the recurrence and verify it stops"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "grocery-001",
@@ -142,7 +142,7 @@
         "Verify the recipe's ingredients appear as unchecked items",
         "Verify ingredients already on the list are not duplicated"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "calendar-001",
@@ -157,7 +157,7 @@
         "Click the chip and verify the todo sheet opens",
         "Mark the todo complete and verify it shows strikethrough on the calendar"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "calendar-002",
@@ -172,7 +172,7 @@
         "Verify it does not appear on Tuesday",
         "Click the habit indicator and verify the habit sheet opens"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "notifications-001",
@@ -187,7 +187,7 @@
         "Verify the notification appears with correct message and timestamp",
         "Click 'Mark all read' and verify the badge clears"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "search-001",
@@ -203,7 +203,7 @@
         "Verify the recipe appears",
         "Click a result and verify navigation to the correct item"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "household-001",
@@ -296,20 +296,6 @@
       "passes": false
     },
     {
-      "id": "dashboard-002",
-      "category": "Dashboard",
-      "priority": 3,
-      "title": "Recent recipes widget on dashboard",
-      "description": "A dashboard widget showing the 5 most recently created or viewed recipes, each linking to the recipe detail page. Config: optional tag filter.",
-      "steps": [
-        "Add a 'Recent recipes' widget via 'Add widget'",
-        "Verify 5 recent recipes appear with their cover image (or fallback)",
-        "Click a recipe and verify navigation to the correct recipe",
-        "Create a new recipe and verify it appears at the top of the widget"
-      ],
-      "passes": false
-    },
-    {
       "id": "ux-001",
       "category": "UX Polish",
       "priority": 2,
@@ -337,6 +323,515 @@
         "Verify the new-habit sheet opens",
         "Press ? and verify a shortcuts reference modal appears",
         "Press Escape to close any open sheet"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-009",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget profiles \u2014 foundation (data model + account assignment)",
+      "description": "Introduce budget_profiles as a named financial context sitting above the existing personal/household scope. Each household gets two default profiles seeded on creation: 'Personal' and 'Household'. Add profile_id FK to budget_accounts, budget_categories, budget_category_groups, and budget_targets. Backfill existing data: accounts/categories with scope='personal' \u2192 Personal profile; scope='shared'/'household' \u2192 Household profile. Add a profile switcher dropdown to the budget page header. All existing budget functionality continues to work \u2014 this phase is purely additive and invisible to users except for the profile switcher UI.\n\nKey design decisions:\n- budget_profiles: (id, household_id, name, budgeting_style ['zero_based'|'profit_tracking'], currency, sort_order, created_at)\n- Accounts are assigned to exactly one profile (no many-to-many); cross-profile expenses handled via per-transaction override (budget-011)\n- Profile switcher defaults to the last-used profile (stored in localStorage)\n- 'Personal' and 'Household' profiles are always present and cannot be deleted",
+      "steps": [
+        "Run migration \u2014 verify budget_profiles table exists with Personal and Household rows for the household",
+        "Verify all existing accounts have a profile_id pointing at the correct default profile",
+        "Verify all existing categories have a profile_id",
+        "Open /budget \u2014 verify profile switcher dropdown appears in the header",
+        "Switch between Personal and Household profiles \u2014 verify categories and analytics update to show only that profile's data",
+        "Create a new account and verify it prompts for profile assignment",
+        "Import a CSV \u2014 verify the importer assigns transactions to the selected account's profile"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-010",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget profiles \u2014 scope/profile separation (data model cleanup)",
+      "description": "Cleanly decouple 'scope' (visibility within a profile) from 'profile' (financial context/attribution). Currently the scope column on transactions conflates both concepts. After profiles exist, scope should mean only: is this transaction private to the owner, or shared with all profile members? Attribution is handled by profile_id (via the account).\n\nMigration: for existing transactions, scope='household' \u2192 scope='shared' + profile=Household profile; scope='personal' \u2192 scope='private' + profile=Personal profile. Rename scope enum values from 'personal'/'household' to 'private'/'shared' to remove the naming ambiguity. Update all service layer queries, schemas, and frontend references accordingly.\n\nSplit logic stays unchanged \u2014 split_config and split_override remain on categories and transactions and are resolved against profile members rather than household members.",
+      "steps": [
+        "Run migration \u2014 verify existing transactions have correct scope and profile_id after backfill",
+        "Verify household-scoped transactions (now scope='shared') are visible to all profile members",
+        "Verify personal-scoped transactions (now scope='private') are visible only to the owner",
+        "Verify expense splitting still works correctly for shared transactions in the Household profile",
+        "Verify the API returns the updated scope values and the frontend renders them correctly",
+        "Verify no existing split_config or split_override data was lost"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-011",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Budget profiles \u2014 cross-profile transaction re-attribution",
+      "description": "Handle the common case where a transaction imported into one profile actually belongs in another (e.g. Alice pays a shared grocery run on her personal card, but the expense belongs in the Household profile). Add a nullable profile_id override column to budget_transactions. When set, it overrides the account's profile for analytics, categorization, and visibility \u2014 the transaction physically stays linked to its account (for balance tracking) but analytically lives in the target profile.\n\nUI: in the transaction row, add a 'Move to profile' action. If the target profile is Household and the category has a split_config, prompt to apply splitting. The original account's balance sheet is unaffected \u2014 re-attribution is an analytics concern only.\n\nThis is distinct from the reimbursement/transfer pattern (is_transfer=true), which remains available for users who want formal two-sided bookkeeping.",
+      "steps": [
+        "Import a transaction into a Personal profile account",
+        "Open the transaction and use 'Move to profile' to re-attribute it to the Household profile",
+        "Verify the transaction appears in Household profile analytics but not Personal profile analytics",
+        "Verify the source account balance is unaffected",
+        "If the target category has a split_config, verify the split prompt appears",
+        "Re-attribute back to Personal and verify analytics revert correctly",
+        "Verify the existing is_transfer flow still works independently"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-012",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Budget profiles \u2014 Business profile type with profit-tracking analytics",
+      "description": "Add a 'Business' profile option with budgeting_style='profit_tracking'. This style presents a P&L view instead of envelope budgeting: revenue streams vs. operating expenses, net profit figure, and a rolling trend chart. The 'Ready to assign' banner is replaced by a 'Net profit' figure (revenue minus expenses). Category groups are pre-seeded for a business context: Revenue, Cost of Goods, Operating Expenses, Owner's Pay.\n\nCreating a Business profile is a paid-tier feature \u2014 enforce at the service layer by checking profile count against the household's subscription tier before allowing creation.\n\nAnalytics differences for profit_tracking style:\n- Primary KPI: net profit = total_income - total_expenses (not 'ready to assign')\n- Trend chart: revenue and expenses plotted over rolling 12 months\n- No envelope progress bars or rollover (rollover_enabled is ignored for this style)\n- Income categories shown as revenue streams with MRR tagging (see budget-013)",
+      "steps": [
+        "Create a new Business profile (paid tier required) \u2014 verify it appears in the profile switcher",
+        "Verify Business profile shows P&L view: revenue vs expenses, net profit figure",
+        "Verify the 'Ready to assign' banner is absent; 'Net profit' shown instead",
+        "Add income transactions and expense transactions \u2014 verify they appear in correct categories",
+        "Verify a rolling 12-month trend chart renders with revenue and expense lines",
+        "Attempt to create a Business profile on a free-tier account \u2014 verify it is blocked with an upgrade prompt",
+        "Verify envelope budgeting (zero_based) still works correctly on Personal and Household profiles"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-013",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Budget profiles \u2014 MRR tracking for profit-tracking profiles",
+      "description": "For Business profiles, allow income transactions and categories to be flagged as recurring revenue (MRR). Add a boolean is_recurring_revenue flag to budget_categories (profit_tracking profiles only). When set, the analytics layer aggregates those transactions separately and reports: actual MRR (sum of recurring income this month), projected ARR (MRR \u00d7 12), and month-over-month MRR growth.\n\nThis pairs with budget-004 (recurring transactions) \u2014 a transaction tagged as monthly recurring in a revenue category is an MRR data point. The MRR figure appears as a headline metric on the Business profile dashboard alongside net profit.\n\nFuture: MRR chart overlaid with churn/expansion data when customer tracking is added.",
+      "steps": [
+        "Open a Business profile income category and enable 'Recurring revenue (MRR)'",
+        "Add monthly recurring income transactions to that category",
+        "Verify the Business profile dashboard shows: actual MRR, projected ARR, MoM growth",
+        "Add a second recurring revenue category and verify MRR totals aggregate correctly",
+        "Navigate to a month with no recurring income \u2014 verify MRR shows $0 not null",
+        "Disable recurring revenue on a category and verify it drops out of MRR aggregate"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-014",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Budget profiles \u2014 profile member access control",
+      "description": "Add explicit per-profile membership with roles, replacing the implicit 'all household members see everything' default. Add a budget_profile_members table: (profile_id, user_id, role ['owner'|'member'|'viewer']). Profiles default to including all household members as 'member' on creation (preserving existing behaviour). Owners can restrict a profile to a subset of household members \u2014 useful for a personal side project one partner wants to keep separate, or a business profile with a non-household collaborator (future: external invites).\n\nRole semantics:\n- owner: can edit profile settings, manage members, delete profile\n- member: can add/edit transactions, categories, targets\n- viewer: read-only access to analytics and transactions\n\nEnforce in the service layer: all budget queries already filter by household_id; add profile membership check on top. Phase 1 scope: household members only. External collaborators (non-household members) are explicitly out of scope and deferred.",
+      "steps": [
+        "Open Business profile settings \u2014 verify both household members are listed as members",
+        "Remove one member from the Business profile",
+        "Log in as the removed member \u2014 verify the Business profile does not appear in their profile switcher",
+        "Add them back as 'viewer' \u2014 verify they can see analytics but cannot create/edit transactions",
+        "Verify Personal and Household profiles still default to all household members",
+        "Verify profile owner cannot remove themselves (must transfer ownership first)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-015",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Transaction search",
+      "description": "Add a search box above the transaction list that filters by description and merchant name (case-insensitive substring match). Also add an 'Uncategorized only' toggle. Both filters work together and reset pagination when changed.",
+      "steps": [
+        "Type a merchant name in the search box — verify only matching transactions appear",
+        "Toggle 'Uncategorized only' — verify only transactions with no category appear",
+        "Combine search + uncategorized — verify both filters apply simultaneously",
+        "Clear search — verify all transactions return",
+        "Navigate pages while filtering — verify pagination resets on filter change"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-016",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Spending trends chart",
+      "description": "Add a spending trends view to the budget analytics section. Shows the last N calendar months as a grouped bar chart: income (green), expenses (red), budgeted (sky). Hovering a month shows detail. Toggled via a TrendingUp button in the analytics view switcher.",
+      "steps": [
+        "Click the TrendingUp button in the analytics view switcher",
+        "Verify the chart shows the last 6 months with income / expense / budgeted bars",
+        "Hover a month bar group — verify the detail tooltip shows correct figures",
+        "Verify months with no data show zero bars (not absent)",
+        "Switch back to pie/list view — verify chart unmounts cleanly"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-017",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Account balance field",
+      "description": "Add a manually-maintained current_balance field to budget_accounts. Users enter the balance from their bank statement. Balance is displayed in the account dropdown list and as a clickable chip below the account selector when a specific account is selected. Clicking the chip shows an inline input to update the balance; saving auto-stamps balance_updated_at.",
+      "steps": [
+        "Select a specific account from the dropdown",
+        "Verify a 'Set balance' chip appears below the account selector",
+        "Click the chip — verify an inline input appears",
+        "Enter a balance value and press Enter — verify the chip updates with the formatted balance and date",
+        "Open the account dropdown — verify the balance appears alongside the account name",
+        "Set a negative balance — verify it displays with a minus sign",
+        "Clear the balance (empty input) — verify the chip reverts to 'Set balance'"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-020",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Income forecasting — assign next month's money before it arrives",
+      "description": "A forward-looking monthly allocation view inspired by YNAB's 'Assign Money' workflow. Unlike the current 'Ready to assign' banner (budget-007), which is reactive (actual income received minus targets), income forecasting is proactive: it shows projected income for an upcoming or current month based on recurring income transactions (budget-004), then lets the user allocate that projected amount to envelope categories before transactions arrive.\n\nCore concepts:\n- Projected income: sum of all recurring income transactions scheduled for the target month (from budget_transactions where recurring IS NOT NULL and the rule fires in that month). Displayed prominently at the top of the view.\n- Allocated: sum of all category budget targets for the target month (same as total_targets in budget-007).\n- Left to allocate: projected income minus allocated. Drives the same zero-based discipline as 'Ready to assign' but against forecast rather than actuals.\n- When the month has passed, projected income is replaced by actual income and the view becomes a post-hoc reconciliation.\n\nUI approach:\n- Add a 'Plan' or 'Forecast' tab/view to the existing budget view switcher (alongside pie/list/envelope/trends).\n- Top section: projected income figure (broken down by recurring income source), allocated total, left-to-allocate delta with positive/zero/negative color states.\n- Bottom section: the category envelope list (same as envelope view) so the user can adjust targets inline while watching the left-to-allocate figure update in real time.\n- Month nav is prominent — this view is most useful looking one month ahead.\n\nAPI: reuse GET /budget/analytics (already returns total_targets) and add a GET /budget/income-forecast?year=&month=&profile_id= endpoint that returns projected_income (from recurring rules) plus breakdown by source category.",
+      "steps": [
+        "Navigate to /budget and select a future or current month",
+        "Click the 'Plan' or 'Forecast' view toggle",
+        "Verify projected income is shown based on recurring income transactions for that month",
+        "Verify 'Left to allocate' = projected income minus sum of category targets",
+        "Adjust a category target inline and verify 'Left to allocate' updates immediately",
+        "Set targets that exactly match projected income and verify a 'Fully allocated ✓' state",
+        "Over-allocate and verify a negative / warning state",
+        "Navigate to a past month and verify projected income is replaced by actual income",
+        "Verify months with no recurring income show $0 projected (not null or error)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "budget-018",
+      "category": "Budget",
+      "priority": 2,
+      "title": "Teller bank linking — connect real bank accounts",
+      "description": "Integrate Teller (teller.io) as the bank connectivity layer for importing transactions and syncing account balances. Teller is developer-friendly with a free tier up to 100 connections, scaling per-connection beyond that — well-suited for self-hosted and early cloud tiers. On the backend, store encrypted Teller enrollment_id and access_token per budget_account. Expose a /budget/accounts/:id/link endpoint that initiates the Teller Connect flow and exchanges the one-time token for a persistent access_token. A background sync job polls Teller for new transactions and upserts them into budget_transactions (deduplicated by teller_transaction_id). Account balances returned by Teller overwrite the manual current_balance field (budget-017) when a sync runs.\n\nTeller supports most US banks and credit unions. Investment accounts (e.g. Vanguard, Fidelity) have variable coverage — verify institution support before surfacing the link option. For unsupported institutions, fall back to CSV import.\n\nThis feature is available on all tiers (free and paid) up to the free connection limit; automated daily sync is a paid-tier feature above the free limit.",
+      "steps": [
+        "Navigate to Budget → Accounts and click 'Link account'",
+        "Verify the Teller Connect modal opens",
+        "Complete the bank auth flow for a supported test institution",
+        "Verify a new budget_account is created with the Teller enrollment linked",
+        "Verify transactions from the past 30 days are imported and categorized",
+        "Verify the account balance chip (budget-017) is populated from Teller's balance response",
+        "Trigger a manual sync — verify new transactions appear and duplicates are not created",
+        "Disconnect the linked account and verify the access_token is revoked and deleted"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-019",
+      "category": "Budget",
+      "priority": 3,
+      "title": "Coinbase crypto portfolio — live asset values (paid tier)",
+      "description": "Allow users to connect a Coinbase account via OAuth and display their crypto holdings with live USD valuations. This is a paid-tier feature — enforce at the service layer before initiating the OAuth flow.\n\nIntegration approach:\n- Auth: Coinbase OAuth 2.0 (coinbase.com/oauth/authorize). Store encrypted access_token + refresh_token per budget_account.\n- Holdings: GET /v2/accounts returns a list of wallets; filter to non-zero balances.\n- Prices: GET /v2/prices/{currency}-USD/spot is a public endpoint (no auth required) — use it to fetch current spot prices for each held asset.\n- Display: Each holding shows as an account row: asset name, amount held (e.g. '2.4 ETH'), and current USD value computed as amount × spot price. A total portfolio value figure aggregates all holdings.\n\nCoinbase accounts live in their own profile (separate from Personal/Household bank accounts) or can be added to an existing Business profile. Prices are refreshed on page load; a manual refresh button re-fetches spot prices without a full sync. Holdings are read-only — no write operations to Coinbase are ever made.\n\nNote: crypto asset values are volatile and displayed as indicative only. Do not include them in zero-based envelope budgeting totals by default; show as a separate 'Crypto' section in the account list.",
+      "steps": [
+        "Attempt to connect Coinbase on a free-tier account — verify it is blocked with an upgrade prompt",
+        "On a paid-tier account, click 'Link Coinbase account' — verify the OAuth flow opens",
+        "Complete OAuth and verify the Coinbase wallets are fetched and stored",
+        "Verify each non-zero wallet appears with: asset name, amount held, current USD value",
+        "Verify the spot price endpoint is called per asset and values are correctly computed",
+        "Verify a total portfolio USD value is displayed across all holdings",
+        "Click the manual refresh button — verify spot prices update",
+        "Verify Coinbase holdings are isolated from envelope budgeting totals",
+        "Revoke Coinbase access and verify tokens are deleted and holdings disappear"
+      ],
+      "passes": false
+    },
+    {
+      "id": "budget-016",
+      "category": "Budget",
+      "priority": 1,
+      "title": "Goal financial linking — spending_cap syncs with budget category",
+      "description": "Goals can be linked to a budget category via financial_link.type=spending_cap. Creating or updating a goal with this link syncs monthly_limit → BudgetCategory.default_monthly_amount. The AI set_category_budget tool syncs back to linked goals. After each Teller sync, check_budget_thresholds fires household notifications at 80% and 100% of any category's monthly target (once per threshold per month).",
+      "steps": [
+        "Create a goal with financial_link={type: spending_cap, category_id: <uuid>, monthly_limit: 500}",
+        "Verify the linked BudgetCategory.default_monthly_amount is set to 500",
+        "Ask the AI agent to change the dining budget to $400",
+        "Verify the goal's financial_link.monthly_limit is updated to 400 and category target matches",
+        "Trigger a Teller sync after spending ≥80% of a category budget",
+        "Verify a budget_threshold_80 notification appears in the notification bell",
+        "Trigger another sync; verify the notification is NOT duplicated",
+        "Spend over 100%; verify a budget_threshold_100 notification fires"
+      ],
+      "passes": true
+    },
+    {
+      "id": "coach-001",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "User profile + bootstrap pass (Phase 1 of AI coach redesign)",
+      "description": "A persistent, per-user markdown profile that captures who the user is — current focuses, values, recurring patterns, what drains/works, things to not bring up. Stored on the existing member_ai_memory.memory_text column (reused rather than introducing a new user_profiles table — the chatbot was already reading it). The new bits: (1) last_bootstrapped_at column on member_ai_memory so we can tell whether the richer bootstrap pass has run; (2) a new user_profile_updates table holding proposed AI changes that the user accepts or rejects — the AI never silently rewrites the profile via this surface. (3) A bootstrap pass (POST /ai/profile/bootstrap) reads the user's notes, documents, active goals/projects/habits, and the last 90 days of completed todos to draft an initial profile. (4) The coach now loads the profile into its system prompt alongside the existing behavioral context; the chatbot already read memory_text so it benefits automatically. (5) A new 'Profile' subsection in Settings → AI: view current profile, edit directly, run bootstrap, review/accept/reject pending proposals. See docs/ai-coach-redesign.md for the full design.",
+      "steps": [
+        "Run alembic upgrade head; verify last_bootstrapped_at exists on member_ai_memory and user_profile_updates table exists with the documented columns",
+        "Navigate to Settings → AI and find the new 'Profile' subsection at the top — for an existing user with empty memory_text it shows 'Your profile is empty' with a 'Build my profile' button",
+        "Click 'Build my profile' — bootstrap pass runs, creates a pending user_profile_update with source=bootstrap; the pending card appears below the empty state",
+        "Review the proposed profile content; accept it",
+        "Verify member_ai_memory.memory_text is populated and last_updated_at advances; the Profile section now renders the accepted content",
+        "Trigger a coach digest (POST /ai/coach/digest/generate) — verify the digest reads naturally as if it knows the user (the system prompt now includes a 'What you know about this person' fragment with the profile content)",
+        "Open the chat surface and start a new conversation — verify the response is grounded in the profile (e.g. references a current focus or stated preference without name-dropping the profile)",
+        "Edit the profile directly via the UI textarea; verify the edit persists (PATCH /ai/profile) and shows in the next coach run",
+        "Bootstrap again to create a second pending proposal, then reject it — verify status flips to rejected (POST /ai/profile/updates/{id}/reject returns 204) and memory_text is unchanged",
+        "Bootstrap a third time, then accept one of two pending proposals — verify the other still-pending one is automatically marked 'superseded' (so the user never accepts a stale-base proposal by mistake)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-001b",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Notes-driven incremental profile proposer (Phase 1.5 of AI coach redesign)",
+      "description": "Closes the 'profile goes stale between bootstrap clicks' gap. After every N net-new notes (default 5) created or updated by a user, a background task runs the same proposer prompt as bootstrap but with a smaller, fresher source bundle (the last 15 notes). It either creates a pending UserProfileUpdate (source='incremental') or returns SKIP silently — the system prompt biases hard toward SKIP. Counter `notes_at_last_proposal` lives on member_ai_memory and advances even when the proposer skips, so each user can never trigger more than one proposer call per N new notes. Skips entirely until bootstrap has run at least once — we never silently populate a profile from scratch via the incremental path. Pending updates from this source appear in the same Settings → AI → Profile accept/reject UI as bootstrap proposals. See docs/ai-coach-redesign.md → Phase 1.5.",
+      "steps": [
+        "Run alembic upgrade head; verify notes_at_last_proposal exists on member_ai_memory",
+        "As a user who has NOT yet run bootstrap, create 6 new notes; verify NO UserProfileUpdate rows are created (incremental skips until bootstrap has run)",
+        "Run bootstrap and accept the proposal; profile is now populated",
+        "Create 4 new notes; verify NO proposer call yet (under threshold)",
+        "Create the 5th new note; verify a background proposer call fires (logs show 'Incremental proposer' messages) and notes_at_last_proposal advances to the new total",
+        "If the proposer found durable signal: a pending UserProfileUpdate with source='incremental' appears in Settings → AI → Profile",
+        "If the proposer returned SKIP: no new pending update appears, but notes_at_last_proposal still advanced — verify by adding 5 more notes and watching for the next proposer run",
+        "Accept the incremental proposal; verify memory_text is replaced and last_updated_at advances",
+        "Verify a note write that fails the proposer call (e.g. AI provider misconfigured) does NOT block the note save — the note commit completes, errors are logged"
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-002",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Journal signal extraction (Phase 2 of AI coach redesign)",
+      "description": "Per-entry structured signal extraction for journal notes. Adds a 'kind' column to collections (kind='journal' identifies journal collections). Migration 0032 backfills via SQL on Postgres. For SQLite (and as a belt-and-suspenders on any backend), an idempotent `backfill_journal_kind` startup hook runs on every API boot (wired into main.py lifespan): tags existing notes-domain collections named 'Journal' or with daily auto_create_rule as kind='journal', and seeds a fresh Journal collection for any household that doesn't have one. `seed_default_journal_collection` is also wired into both signup paths (auth/router.py and setup/router.py) so new households always get one. When a note in a journal-kind collection is saved AND the user has ai_journal_extraction_enabled=true AND a provider is configured, a background asyncio task extracts {sentiment in [-1,+1], self_talk_valence (positive/neutral/harsh/mixed), themes[], notable_phrases[], energy_level, entry_date, extraction_version} and upserts a journal_signals row keyed by note_id. Coach trend helpers (sentiment_trend, harsh_self_talk_streak, dominant_themes_recent) live in journal_signal_service for Phase 3 to use. Opt-out flag added to ai_settings (default true). A POST /ai/journal-signals/backfill endpoint runs synchronous extraction across all existing journal entries — used for first-time bootstraps and after prompt revisions (only_outdated_version=true). UI: new 'Journal signals' subsection in Settings → AI with a toggle and 'Backfill existing entries' button. See docs/ai-coach-redesign.md → Phase 2.",
+      "steps": [
+        "Run alembic upgrade head (Postgres) OR restart the API on SQLite; verify journal_signals table exists, collection.kind exists, ai_settings.ai_journal_extraction_enabled exists (default true)",
+        "Check the boot log for 'Journal-kind backfill: tagged=X, seeded=Y, already-tagged=Z' — verify every existing household ends up with at least one collection where kind='journal' after the startup hook runs",
+        "Sign up a brand-new account; verify the new household gets a Journal collection seeded automatically via the auth/setup flow (separate from the startup backfill)",
+        "In Settings → AI → Journal signals, verify the toggle reads 'On' and the 'Backfill existing entries' button is enabled",
+        "Create a new note inside the Journal collection with a meaningful body; verify a journal_signals row appears with non-null sentiment, valence, entry_date, extraction_version=1",
+        "Edit that note's content_md; verify the signals row is REPLACED (still one row per note_id, extracted_at advances)",
+        "Edit only the title; verify the signals row is NOT re-extracted (title-only changes are skipped)",
+        "Run POST /ai/journal-signals/backfill; verify the response shows scanned/extracted/skipped_empty/skipped_current/errors counts and that older journal entries now have signal rows",
+        "Toggle 'Extract signals on save' off; create another journal entry; verify NO new signals row is created",
+        "Toggle back on; save the same entry again (or create a new one) and verify extraction resumes",
+        "Delete a journal note; verify the journal_signals row cascades and is removed",
+        "Confirm a non-journal-collection note (e.g. in the default Notes view) does NOT trigger extraction",
+        "From a Python shell or test: call journal_signal_service.sentiment_trend / harsh_self_talk_streak / dominant_themes_recent with a recent date; verify the helpers return sensible values",
+        "Restart the API a second time; confirm the backfill log line shows tagged=0 seeded=0 (idempotent — no double-seeding)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-003",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "CBT-aware coach prompt rewrite (Phase 3 of AI coach redesign)",
+      "description": "Coach prompts rewritten to reason across all three context layers (profile, narrative signals, raw recent entries) plus existing behavioral data. New `_fetch_narrative_context` helper in coach_service pulls sentiment trend (7d vs 30d + delta), harsh-self-talk streak, dominant themes (14-day window, top 5), and the last 5 journal entries verbatim (each capped to 1200 chars). New `_COACH_METHOD_PROMPT` system-prompt fragment, layered ABOVE the tone voice, defines the CBT moves: reality-test harsh self-talk against strong-week data, be honest (not flattering) during real dips, 'bird by bird' register during double-negatives, no manufactured lessons during double-positives, no name-dropping the profile, journal quoting capped at one per response. New `_fmt_narrative` formatter emits a structured 'Recent narrative' section in the user message (or nothing when narrative is empty). Morning/evening/weekly user-message builders all updated to accept and render the narrative block before the briefing instructions. `generate_digest` public signature unchanged — scheduler and on-demand endpoint both continue to work without modification. See docs/ai-coach-redesign.md → Phase 3.",
+      "steps": [
+        "Generate a morning digest in a state where: (a) the last week's todos show a strong completion record AND (b) recent journal entries are harshly self-critical. Verify the coach reality-tests the self-criticism against the data — names what the data shows, doesn't pile on",
+        "Generate an evening digest after a real productivity dip + journal entries that sound confident or upbeat. Verify the coach is honest and grounded, not flattering",
+        "Generate a digest in a 'both-negative' state (low completion + run of negative journal entries). Verify the response is brief, stays with the user, and offers at most one next step ('bird by bird' register)",
+        "Generate a digest in a 'both-positive' state (strong week + positive journal). Verify recognition is proportionate — no manufactured lessons, no inflation",
+        "Run digests across all four tones (supportive, stoic, drill_sergeant, gentle_mentor) with the same data. Verify the CBT *method* (reality-testing, gap-noticing) is consistent and only the *voice* changes",
+        "Inspect the assembled prompt sent to the provider (e.g. via the AI provider's debug logs). Verify the system prompt contains: tone voice → '## How to coach' → method prompt → profile fragment (if profile exists)",
+        "Inspect the user message sent to the provider. Verify it contains a '## Recent narrative' section with sentiment numbers, harsh-streak (if ≥1), themes, and the last few journal entries oldest-first",
+        "Verify that when the user has NO journal entries, the narrative section is omitted entirely (no empty header in the prompt)",
+        "Verify the coach never name-drops the profile ('I see from your profile…') across 10 sample runs",
+        "Verify the coach quotes at most one short journal phrase per response across 10 sample runs"
+      ],
+      "passes": false
+    },
+    {
+      "id": "chat-001",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Context-aware chatbot — read the currently open resource",
+      "description": "The sidebar chatbot now knows what resource the user is currently viewing (note, recipe, document, todo, goal, habit) and can answer questions about 'this' without the user pasting content. New optional `context: {type, id}` field on ChatRequest. Server-side `chat_context_resolver` dispatches by type, enforces visibility/ownership the same way the listing endpoints do (silent fail on unauthorized refs — never breaks chat), and produces a 'What the user is currently viewing' markdown block prepended to the system prompt. Frontend: new CurrentResourceProvider mounted in protected layout, `useRegisterCurrentResource` hook called from notes page (selected note), recipes/[id], and documents/[id]. Chat sidebar reads via `useCurrentResource()`, attaches on every send, and renders a 'Discussing: <title>' chip above the textarea so the magic is visible. Per-resource char caps keep the system prompt small; if the AI needs more it can call the existing domain tools (get_note, get_recipe, etc).",
+      "steps": [
+        "Open a note in the Journal collection; verify the chat sidebar shows 'Discussing: <note title>' chip",
+        "Ask the chatbot 'looking at this entry, am I being too hard on myself?' — verify the response is specific to that entry's content (not a generic answer)",
+        "Open a recipe; verify the chip updates to 'Discussing: <recipe name>'",
+        "Ask 'what could I swap for a spicier version?' — verify the response references the recipe's actual ingredients",
+        "Open a document; verify the chip and that the AI knows the document's title/description",
+        "Navigate to /todos or /habits (no [id] page); verify the chip disappears and the chatbot reverts to general behavior",
+        "Try opening another user's note via a manipulated request (or simulate via API): POST /ai/chat with context.id of a personal note the current user doesn't own → verify the response treats it as if no context was attached (silent failure)",
+        "Open a note, navigate to a recipe mid-conversation, then send a new message about 'this' — verify the message resolves to the recipe (current context wins per-message)",
+        "Verify the OpenAPI client regenerates cleanly and the frontend tsc check stays at 0 errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-004",
+      "category": "AI Coach",
+      "priority": 2,
+      "title": "Coach widget free-text focus field",
+      "description": "Lets the user write 1-2 sentences of free-text guidance for what the coach should focus on, persisted per-widget in AiCoachWidgetConfig.focus and threaded through to /ai/coach/digest/generate. Goes beyond the structured pinned-projects/goals/habits selectors: 'I'm preparing for a hard conversation today, help me think through it' or 'I want to recover from a rough weekend, go easy on productivity nudges' — things the checkboxes can't express. Server renders a '## What I want you to focus on right now' section in the user message just before the briefing instructions, with a directive that this guidance weighs above the default structure. Frontend: new textarea in the AI coach widget settings panel with a 1000-char counter.",
+      "steps": [
+        "Open the AI coach widget settings; find the new 'Focus for this coach' textarea below the pinned-habit selectors",
+        "Type a focus string (e.g. 'I have a difficult work conversation today — help me prepare') and trigger Generate / Regenerate",
+        "Verify the digest response acknowledges the focus and shapes its content around it (not just generic morning briefing)",
+        "Clear the focus textarea; trigger a fresh digest; verify the response goes back to default structure",
+        "Test with extreme focus text (>1000 chars): verify the UI caps input at 1000 and the server further trims if needed",
+        "Verify focus persists per-widget: configure two coach widgets with different focuses and confirm each digest reflects its own focus",
+        "Verify backward compat: a widget config without `focus` field (older saved layouts) still works and behaves as 'no focus' (just the default structure)",
+        "Confirm focus is included in the prompt only when non-empty — empty/whitespace-only strings produce no extra prompt section"
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-005",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Silent profile + auto-bootstrap on API key save + key validation",
+      "description": "Three connected UX changes that turn the AI profile from a user-facing surface into a quiet background service. (1) ProfileSubSection removed from Settings → AI; profile is no longer visible or editable to end users (backend /ai/profile/* endpoints remain for debugging). (2) Bootstrap pass and the notes-driven incremental proposer now write directly to member_ai_memory.memory_text instead of queueing pending updates — the user_profile_updates table is kept as an audit log with status='accepted' on insert. (3) AIProvider gains a validate() method; AnthropicProvider implements it via a max_tokens=1 probe call. PATCH /ai/settings calls validate() before persisting a new key — bad keys return 400 with a clear message rather than silently saving and failing the next chat. (4) On a successful new-key save, /ai/settings fires the bootstrap pass in a background asyncio task if the user has no profile yet (memory_text empty OR last_bootstrapped_at NULL). The user adds their key, and by the time they reach the dashboard the coach already knows them.",
+      "steps": [
+        "In Settings → AI, verify there is NO 'Profile' subsection. The previous user-facing profile UI is gone.",
+        "Save a deliberately invalid Anthropic API key (e.g. 'sk-ant-not-a-real-key') — verify the request returns 400 with a clear message ('Invalid API key — Anthropic rejected the credentials') and that ai_settings.api_key_encrypted is NOT updated.",
+        "Save a valid Anthropic API key — verify the request succeeds, the key is persisted, and within a few seconds the API log shows the bootstrap pass running for that user.",
+        "Wait for the bootstrap task to complete; query member_ai_memory.memory_text — verify it now contains a populated H2-sectioned profile (no UI involvement, no clicks).",
+        "Trigger a coach digest — verify the response is grounded in the auto-bootstrapped profile.",
+        "Open the chat sidebar and start a new conversation — verify the assistant clearly references the profile content in its first response.",
+        "Save the SAME key a second time (or rotate to another valid one) when memory_text is already populated — verify no second bootstrap fires (idempotent: memory_text non-empty AND last_bootstrapped_at not NULL).",
+        "Write 5+ new journal entries; verify the incremental proposer auto-applies updates directly to memory_text (no pending entries appear in the database; user_profile_updates rows have status='accepted' on insert).",
+        "Verify that clearing the key via clear_api_key=true does NOT delete memory_text or audit rows — the profile persists across key rotations."
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-006",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Chat-driven profile updates via update_profile tool + coach widget combobox",
+      "description": "Two changes that make the chatbot a first-class profile maintainer and tame the coach widget UI when users have many projects/habits. (1) New `update_profile` chat tool in ai/tools.py: the AI calls it silently (no user prompt) when the user says things like 'focus more on consistency,' 'I've been drinking too much,' 'stop bringing up the old job.' The tool takes a content_md string (full revised profile in the H2-section format) and a diff_summary, writes directly to member_ai_memory.memory_text, and records an audit row. Chat system prompt updated with explicit guidance on when to call (and when NOT — one-off events, transient moods). (2) PinnedSection in the AI coach widget switches to a searchable combobox + chip-list above 8 items per category. Below 8 it keeps the original chip-grid (lowest friction). The combobox is built inline (no Command/Popover primitive in the project) — text input + filtered list popover + outside-click dismiss.",
+      "steps": [
+        "Open the chat sidebar and say 'I want to focus more on consistency and showing up daily moving forward.' Verify the assistant acknowledges in plain language (e.g. 'Got it, I'll keep that in mind') WITHOUT mentioning the tool or the profile.",
+        "Query member_ai_memory.memory_text — verify the profile has been updated to include the new focus, with existing sections preserved.",
+        "Verify a row exists in user_profile_updates with source='manual', status='accepted', and resolved_at set.",
+        "Trigger a fresh coach digest — verify the response reflects the new focus.",
+        "Say something transient like 'I had a bad day at work today.' Verify the assistant responds empathetically but does NOT call update_profile (single-event content shouldn't bloat the profile).",
+        "Configure a coach widget when you have FEW projects/goals/habits (≤8 of each) — verify the settings panel still shows the original chip-grid layout.",
+        "Configure a coach widget when you have MANY projects (>8) — verify the Focus Projects section now shows a combobox with selected chips above and a 'Pick from N' button.",
+        "Click the 'Pick from N' button; verify the popover opens with an autofocused search input and a filtered scrollable list. Type to filter; click an item to add it as a chip. Click again to deselect.",
+        "Click outside the popover; verify it closes. Re-open and confirm state is preserved."
+      ],
+      "passes": false
+    },
+    {
+      "id": "coach-007",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Profile versioning + weekly scheduled refresh + decay (Phase 4)",
+      "description": "Final phase of the AI coach redesign. Three connected pieces. (1) Migration 0034 adds the user_profile_versions append-only history table. A new _apply_profile_update helper in profile_service is the single write path for memory_text — bootstrap, incremental proposer, the update_profile chat tool, direct PATCH /ai/profile, and the new scheduled refresh all flow through it. It snapshots the previous content into user_profile_versions, then overwrites memory_text, then trims rows beyond PROFILE_VERSION_RETENTION (50) for that user. ProfileUpdateSource literal expanded to include 'scheduled' and 'direct_edit'. (2) New run_scheduled_profile_refresh function does two jobs: integrate durable patterns from the last 4 weeks (notes + recent chat user messages) AND decay stale content from the current profile (things that haven't recurred, resolved past situations, fixed-trait language, recent contradictions). The proposer prompt is biased hard toward SKIP — a profile that's currently accurate IS the correct weekly outcome. (3) New APScheduler weekly job at Sunday 03:00 iterates every user with a non-empty profile, resolves their provider, runs the refresh, logs aggregate counts. Each per-user iteration wrapped in its own try/except. (4) New GET /ai/profile/versions?limit=N endpoint for debug — newest-first history, no UI. The profile stops being a write-only blob that grows monotonically — over weeks of use, stale focuses get pruned and stable new patterns get integrated without anyone clicking anything.",
+      "steps": [
+        "Run alembic upgrade head (Postgres) OR restart the API on SQLite; verify user_profile_versions table exists with the documented columns and the (user_id, created_at) index",
+        "Save a new API key to trigger bootstrap; query user_profile_versions — verify NO row was created (snapshotting the empty old content is correctly skipped)",
+        "After bootstrap, edit the profile via PATCH /ai/profile with new content_md; query user_profile_versions — verify ONE row exists with source='direct_edit' and the OLD bootstrap content_md",
+        "Trigger the update_profile chat tool ('focus more on consistency'); verify a SECOND version row appears with source='manual' and the previous direct-edit content",
+        "Add 5 journal entries to trigger the incremental proposer; if it applies (not SKIP), verify a version row appears with source='incremental'",
+        "Call GET /ai/profile/versions?limit=10 — verify it returns the version history newest-first with all the right sources",
+        "Restart the API; verify the boot log shows the scheduler started with 'profile_refresh=Sun 03:00' in the timing line",
+        "Manually invoke run_scheduled_profile_refresh_all() from a Python shell — verify the response shows {users, applied, skip, skipped_no_activity, error} counts, and that users with no profile or no activity are correctly skipped",
+        "Force a scheduled refresh that finds enough new material to land an update; verify (a) the new memory_text is applied, (b) a user_profile_versions row was added with source='scheduled', (c) a user_profile_updates audit row was added with source='scheduled' status='accepted'",
+        "Insert 60 mock version rows for a user; trigger another _apply_profile_update; verify the count is trimmed back to 50 (PROFILE_VERSION_RETENTION) — oldest rows deleted",
+        "Verify PROFILE_UPDATE_SOURCES constant rejects unknown sources: _apply_profile_update(..., source='garbage') should raise ValueError",
+        "Confirm the scheduled refresh prompt biases toward SKIP: run it against a user with a healthy, current profile and minimal new activity → outcome should be 'skip' (no version row, no update row)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "journal-001",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Guided journaling tool — Talk-it-out sessions with personalized openers",
+      "description": "Adds a 'Talk it out' button to today's journal entry that launches a full-screen guided journal session. Adaptive AI register: matches the user's energy — rant mode gets brief acknowledgements and no questions, reflective mode gets focused questions, never starts with a question, never gives advice unsolicited. When the user wrestles with anything interpersonal, the AI gently points at the people in their life (not as a disclaimer, naturally). Role-clarity baked in: 'You are NOT a therapist, NOT a friend, NOT a substitute for the people in this person's life.' Phase B: the AI OPENS the session with a personalized 1-2 sentence message that draws on profile + sentiment trend + harsh-self-talk streak + dominant themes + time of day. Opener never ends with a sharp question — it opens the space without directing it. Static fallback openers cover provider failures. On Finish, the AI synthesizes a first-person summary; user reviews/edits, then saves. Optional 'Save with transcript' toggle appends the full conversation below a `---` divider so the summary leads but the working session is preserved. The saved content appends to today's existing journal entry (preserving any prior Write-mode content) so one day = one journal entry. Backend: AiConversation.kind ('chat'|'journal') + note_id columns (migration 0035); journal-mode system prompt + synthesis prompt + opener prompt in service.py; three new endpoints (POST /ai/journal/start, /ai/journal/{id}/finish, /ai/journal/save). /ai/journal/start now returns opening_message and persists it as the first assistant turn for new sessions. Chat streaming honors conversation.kind — journal sessions use the journal-mode prompt and only the update_profile tool is exposed (no task tools). Frontend: new JournalSession component (~370 lines) renders a full-screen overlay reusing the existing /ai/chat SSE; renders the opener as the first assistant message; new isTodayJournalEntry helper gates the 'Talk it out' button by parsing entry_date from the title with fallback to created_at. NoteResponse gains collection_kind so the frontend can gate cleanly without an extra collection lookup.",
+      "steps": [
+        "Restart the API (SQLite auto-patch) OR run alembic upgrade head (Postgres) — confirm ai_conversations has kind + note_id columns and the (user_id, kind, note_id) index",
+        "Run `npm run codegen` in web/ to regenerate schema.d.ts against the running API (the manual patch I applied is a placeholder)",
+        "Open today's journal entry — verify the 'Talk it out' button appears in the tags row, with a Sparkles icon",
+        "Open YESTERDAY's journal entry (or any past one) — verify the button does NOT appear (strict-today gating)",
+        "Open a non-journal note (regular notes collection) — verify the button does NOT appear (collection_kind gating)",
+        "Click 'Talk it out' on today's entry — full-screen overlay opens and the AI's personalized opener appears as the first assistant message before you type anything",
+        "Phase B opener check (1): with an empty profile and no journal history, verify the opener falls back gracefully (warm + non-directive, e.g. 'I'm here. Take your time.')",
+        "Phase B opener check (2): after a few days of journaling, open a fresh session — verify the opener references something concrete from recent narrative (a dominant theme, a softer tone if there's been harsh self-talk, time-of-day appropriate framing)",
+        "Phase B opener check (3): verify the opener does NOT end with a sharp question — open-ended invitations only ('Take your time', 'I'm here', 'What's on your mind' are OK; 'How was your meeting?' is NOT)",
+        "Phase B opener check (4): verify the opener is persisted as the FIRST assistant message in the conversation — re-open the session (resume path) and confirm subsequent /ai/chat turns build on it",
+        "Send a message; verify the AI streams back a brief, NON-question response (rant-mode register)",
+        "Test rant register: vent for 2-3 messages straight; verify the AI keeps responses short and doesn't pile on questions/advice",
+        "Test reflective register: say something planning-oriented ('I'm trying to think through tomorrow'); verify the AI shifts to focused-question mode",
+        "Test point-at-humans rule: say 'I had a fight with my partner and don't know what to say'; verify the AI mentions talking to the partner (not as a disclaimer, naturally)",
+        "Test update_profile silently: say 'I want to focus more on showing up daily moving forward'; verify the AI acknowledges in plain language ('got it, I'll keep that in mind') and the profile updates (curl /ai/profile to confirm)",
+        "Verify NO other tools are exposed in journal mode — saying 'create a habit for exercise' should NOT trigger a create_habit call (the AI should respond conversationally, possibly point at doing it after the session)",
+        "Click 'Finish' after 3+ exchanges; verify the AI synthesizes a first-person 'I' summary (not third person), and renders it in an editable textarea",
+        "Edit the summary slightly; toggle OFF 'Save with transcript'; click Save → verify the journal note's content_md now has the summary appended (with a `---` divider only if there was prior content)",
+        "Start a fresh session on the same entry (or another day's entry); toggle ON 'Save with transcript'; verify the saved content contains the summary, then `---`, then `## Conversation transcript`, then the full back-and-forth in 'You:' / 'Coach:' format",
+        "Re-open the same day's entry and click 'Talk it out' again — verify the session RESUMES (POST /ai/journal/start returns the existing conversation_id with is_new=false)",
+        "Click 'Don't save this session' from the review phase — verify the modal closes without changing the journal entry",
+        "Confirm the on-save flow triggers the existing signal extractor — query journal_signals after save to verify a row appears for the updated note",
+        "Confirm the saved entry feeds the next coach digest — generate a coach digest after saving and verify the narrative section references the entry's content"
+      ],
+      "passes": false
+    }
+  ,
+    {
+      "id": "security-001",
+      "category": "Security",
+      "priority": 1,
+      "title": "Field-level encryption for sensitive database columns (Phase 1 + 2)",
+      "description": "Fernet-based (AES-128-CBC + HMAC-SHA256) field-level encryption via SQLAlchemy TypeDecorators that transparently encrypt on write and decrypt on read at the ORM boundary. No service-layer changes required. Protects against DB breach and server compromise (Threats 1 & 2). Phase 1 — active credentials: BudgetAccount.teller_access_token (live bank access token), AiSettings.api_key_encrypted (BYOK API key). Phase 2 — sensitive personal data: MemberAiMemory.memory_text (AI psychological profile), AiCoachDigest.content (daily coaching insights), UserProfileUpdate.proposed_content_md, UserProfileVersion.content_md, JournalSignal.notable_phrases (EncryptedJSON, column changed JSON→TEXT). Key managed via FIELD_ENCRYPTION_KEY env var; comma-separated keys supported for zero-downtime rotation via MultiFernet. Graceful degradation when key not set (local dev). Migration 0036 handles the schema change (notable_phrases JSON→TEXT) and encrypts all existing plaintext rows.",
+      "steps": [
+        "Verify FIELD_ENCRYPTION_KEY is set in api/.env",
+        "Run make migrate (or alembic upgrade head on Postgres) — confirm 0036 applies cleanly",
+        "Save a BYOK API key via Settings → AI; confirm AI chat still works (key is encrypted on write, decrypted on read transparently)",
+        "Link a bank account via Teller; confirm sync still works (teller_access_token encrypted in DB, decrypted transparently when used)",
+        "Directly query the DB (e.g. SELECT api_key_encrypted FROM ai_settings) — verify the stored value is a Fernet ciphertext (starts with 'gAAAAA'), not the plaintext key",
+        "Directly query journal_signals.notable_phrases — verify stored values are Fernet ciphertext, not JSON arrays",
+        "Directly query member_ai_memory.memory_text — verify stored value is ciphertext, not plaintext markdown",
+        "Restart the API — verify no errors on boot; encrypted values still decrypt correctly after restart",
+        "Test key rotation: prepend a new Fernet key to FIELD_ENCRYPTION_KEY (comma-separated); restart API; verify existing encrypted values still decrypt correctly with the old key"
+      ],
+      "passes": true
+    },
+    {
+      "id": "security-002",
+      "category": "Security",
+      "priority": 2,
+      "title": "Zero-knowledge / E2EE opt-in for cloud tier",
+      "description": "Opt-in end-to-end encryption for users who want the strongest privacy guarantee. When enabled, the most sensitive fields (AI profile, journal content) are encrypted client-side before upload using a key derived from the user's password (Argon2 → symmetric key). The server stores only ciphertext it cannot read. Trade-offs: (1) password recovery requires saved recovery codes — traditional 'forgot password' email reset is impossible; (2) server-side AI features (coach digest generation, journal signal extraction) cannot operate on E2EE fields without client-side decryption first — user may need to consent to a 'decrypt → send to AI → re-encrypt' flow; (3) household shared data requires a household key encrypted separately with each member's derived key. UX: onboarding step offering 'Standard' vs 'Private mode' with an explainer; also togglable in Settings → Privacy with sufficient warnings. Best set at account creation — toggling on later requires re-encrypting all existing data client-side. Recovery codes generated and downloaded at setup. Cloud-tier only (self-hosted users already control their own keys).",
+      "steps": [
+        "During onboarding, verify a privacy mode selection step appears with clear Standard vs Private mode explanation",
+        "Selecting Private mode triggers recovery code generation and download",
+        "User must confirm they have saved recovery codes before proceeding",
+        "Verify AI coach features show a 'requires decryption' prompt when E2EE is active",
+        "Verify forgot-password flow is replaced by a recovery code flow for E2EE users",
+        "Verify a second household member can read shared data encrypted with the household key",
+        "Verify toggling E2EE on in Settings re-encrypts existing data client-side",
+        "Verify toggling E2EE off decrypts all data and stores plaintext server-side"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ai-access-001",
+      "category": "AI Coach",
+      "priority": 1,
+      "title": "Per-member AI access control",
+      "description": "Households are multi-member by design and parents will eventually add kids. This feature gives household admins a per-member toggle that decides whether each account has access to AI features (coach, chat, journal, profile personalization). Defaults TRUE so existing members are unaffected. Backend: migration 0036 adds ai_features_enabled BOOLEAN NOT NULL DEFAULT TRUE to household_memberships; HouseholdMembership model + MemberResponse + UserResponse all expose it; new require_ai_enabled FastAPI dependency raises 403 with a clear message ('AI features are disabled for your account by your household admin') and is applied to all 22 /ai/* endpoints; new PATCH /households/members/{user_id} endpoint for admins to flip the toggle (admins cannot disable their OWN AI through this endpoint to avoid lockout — guardrail returns 400 with a hint to clear their API key in Settings → AI instead). The flag is attached to current_user in get_current_user and returned on /auth/me so the frontend doesn't need a separate round-trip. Frontend: new MemberRow component in Settings → Household — admins see a real AI toggle per row (their own row is disabled with a tooltip explaining why); non-admins see a read-only 'AI: on/off' status pill. When the current user's ai_features_enabled is false: the AI tab in Settings is hidden, the AI coach widget on the dashboard shows a quiet disabled state ('AI features are disabled for your account'), the sidebar Ask-AI icon is hidden, the ⌘K keyboard shortcut is no-op, the AI chat panel won't open, and the 'Talk it out' button on today's journal entry doesn't render. Existing AI data (profile, journal_signals, audit logs) is NOT wiped when the flag flips — disabling is a posture toggle. Flipping back to TRUE restores the full experience with all prior data intact.",
+      "steps": [
+        "Restart the API (SQLite auto-patch) OR run alembic upgrade head (Postgres); verify household_memberships has ai_features_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "GET /auth/me — verify the response includes ai_features_enabled: true",
+        "GET /households/members — verify each row includes ai_features_enabled: true",
+        "As an admin, PATCH /households/members/{another_user_id} with {\"ai_features_enabled\": false} — verify 200, then GET /households/members and confirm the change persisted",
+        "As an admin, attempt PATCH /households/members/{your_own_user_id} with ai_features_enabled=false — verify 400 with the guardrail message",
+        "As the now-disabled member, GET /ai/profile — verify 403 with the clear detail message ('AI features are disabled for your account by your household admin. Ask an admin to enable them in Settings → Household.')",
+        "As the disabled member, GET /ai/coach/digest — verify 403; POST /ai/journal/start — verify 403; POST /ai/chat — verify 403; all 22 /ai/* endpoints uniformly return 403",
+        "As the disabled member in the web app: verify the AI tab in Settings sidebar is hidden; the AI coach widget on dashboard shows the disabled-state placeholder; the sidebar Ask-AI icon is hidden; pressing ⌘K does nothing; the chat panel can't be opened; today's journal entry shows no 'Talk it out' button",
+        "As an admin, re-enable the member by toggling ai_features_enabled back to true — verify all UI surfaces and endpoints come back fully functional with previously-stored profile/journal_signals/audit history intact",
+        "Verify the toggle on a non-admin's own row in the Household members list is rendered but disabled (with tooltip pointing them to clear their API key for self-disable)",
+        "Verify a non-admin viewing the Household members list sees the AI on/off status as a read-only pill (no toggle they can modify)",
+        "Confirm AI data was NOT deleted during the disable/enable cycle — query member_ai_memory, user_profile_versions, journal_signals, user_profile_updates and verify rows for the disabled member are still present"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-003",
+      "category": "Security",
+      "priority": 3,
+      "title": "Field-level encryption Phase 3 — evaluate notes, messages, transactions, contacts",
+      "description": "Decision point: evaluate whether and how to encrypt the remaining high-volume content fields. Fields in scope: notes.content_md + notes.content_json (journal/note bodies), ai_messages.content (chat history), budget_transactions.description (raw bank descriptions), contacts PII (email, phone, address). The blocker is search: these fields either have active full-text search (notes, messages) or LIKE-based filtering (transactions, contacts), and naive Fernet encryption breaks both. Options to evaluate before implementing: (1) Drop search on encrypted fields — acceptable if users don't rely on it; (2) Blind index — store HMAC(key, normalized_value) alongside ciphertext for exact/prefix search; works well for transactions and contacts, not for full-text; (3) Separate search index table — keep a tsvector index populated at write time, encrypt the content column; attacker sees topics but not full text; (4) Encrypt journal messages only — ai_messages has a kind column ('chat' vs 'journal'); journal conversations are far more sensitive and not searched. Recommended: decide alongside the design of search-001 (global full-text search) so the search architecture and encryption strategy are co-designed rather than retrofitted against each other.",
+      "steps": [
+        "Review search-001 design — determine whether a server-side tsvector or client-side search index is the intended approach",
+        "Decide on blind index vs separate search index vs no-search for each field group",
+        "Encrypt budget_transactions.description and contacts PII (blind index approach, no full-text needed)",
+        "Decide on ai_messages.content strategy — drop search, encrypt journal-kind only, or separate index",
+        "Decide on notes.content_md strategy — this is the highest-impact call since notes are the primary content domain",
+        "Implement chosen approach and verify search still works as designed"
       ],
       "passes": false
     }

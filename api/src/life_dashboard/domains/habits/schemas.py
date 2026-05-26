@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from life_dashboard.core.pydantic_types import CoercedList
 
 HabitStatus = Literal["active", "paused", "archived"]
+# HabitFrequency includes "custom" for backwards compatibility with existing DB rows.
+# Do NOT use it on create/update input — use HabitFrequencyInput instead.
+# "custom" has no backend parser; it was removed but may exist on legacy habits.
 HabitFrequency = Literal["daily", "weekly", "monthly", "custom"]
+HabitFrequencyInput = Literal["daily", "weekly", "monthly"]
 OccurrenceStatus = Literal["pending", "completed", "skipped"]
 
 
@@ -14,7 +18,7 @@ class HabitCreate(BaseModel):
     goal_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=500)
     description: str | None = None
-    frequency: HabitFrequency = "daily"
+    frequency: HabitFrequencyInput = "daily"
     cadence: dict[str, Any] | None = None
     status: HabitStatus = "active"
     visibility: str = "personal"
@@ -25,7 +29,7 @@ class HabitUpdate(BaseModel):
     goal_id: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
-    frequency: HabitFrequency | None = None
+    frequency: HabitFrequencyInput | None = None
     cadence: dict[str, Any] | None = None
     status: HabitStatus | None = None
     visibility: str | None = None

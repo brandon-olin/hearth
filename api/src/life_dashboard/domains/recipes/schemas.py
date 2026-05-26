@@ -98,3 +98,17 @@ class RecipeListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# ── Grocery list integration ───────────────────────────────────────────────────
+
+class AddToGroceryListRequest(BaseModel):
+    """POST /recipes/{recipe_id}/add-to-grocery-list"""
+    list_id: uuid.UUID
+    servings_scale: float = Field(default=1.0, gt=0)
+
+
+class AddToGroceryListResponse(BaseModel):
+    list_id: uuid.UUID
+    added: int    # items appended
+    skipped: int  # already-present ingredient IDs skipped

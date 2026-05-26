@@ -1,6 +1,9 @@
 import logging
+import logging.handlers
 import sys
+import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +41,24 @@ from life_dashboard.core.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def _setup_file_logging() -> None:
+    """Write all WARNING+ logs (plus full tracebacks) to api/api.log.
+    The file rotates at 2 MB, keeping 3 backups — readable by the coding agent."""
+    log_path = Path(__file__).resolve().parents[3] / "api.log"
+    handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    ))
+    logging.getLogger().addHandler(handler)
+    # Also capture uvicorn access/error logs
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+        logging.getLogger(name).addHandler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(
@@ -45,6 +66,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    _setup_file_logging()
 
     logger.info("Starting life_dashboard API  environment=%s", settings.environment)
 
@@ -64,10 +86,207 @@ async def lifespan(app: FastAPI):
         await create_all_tables()
         logger.info("SQLite schema initialised (create_all)")
 
+        # budget-010 data migration: rename old enum values personal→private, household→shared.
+        # Safe to run on every boot — the WHERE clause makes it idempotent.
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE budget_categories SET default_scope = 'private' WHERE default_scope = 'personal'"
+                ))
+                await conn.execute(text(
+                    "UPDATE budget_categories SET default_scope = 'shared' WHERE default_scope = 'household'"
+                ))
+                await conn.execute(text(
+                    "UPDATE budget_transactions SET scope = 'private' WHERE scope = 'personal'"
+                ))
+                await conn.execute(text(
+                    "UPDATE budget_transactions SET scope = 'shared' WHERE scope = 'household'"
+                ))
+            logger.info("budget-010 enum migration complete (personal→private, household→shared)")
+        except Exception as exc:
+            logger.warning("budget-010 enum migration failed (non-fatal): %s", exc)
+
+        # budget-profiles seed: create Personal + Household profiles for any household that
+        # has budget data (categories/groups/accounts) but no profiles yet.
+        # MUST run before budget-009 (which assigns profiles to orphaned rows).
+        # Idempotent — only targets households where budget_profiles is empty.
+        try:
+            import uuid as _uuid_mod
+            async with engine.begin() as conn:
+                hh_rows = await conn.execute(text(
+                    "SELECT h.id, hm.user_id FROM households h "
+                    "JOIN household_memberships hm ON hm.household_id = h.id "
+                    "WHERE NOT EXISTS (SELECT 1 FROM budget_profiles bp WHERE bp.household_id = h.id) "
+                    "GROUP BY h.id"
+                ))
+                for hh_id, user_id in hh_rows.fetchall():
+                    for idx, (prof_name, prof_style) in enumerate([
+                        ("Personal",  "zero_based"),
+                        ("Household", "zero_based"),
+                    ]):
+                        pid = str(_uuid_mod.uuid4())
+                        await conn.execute(text(
+                            "INSERT INTO budget_profiles "
+                            "(id, household_id, name, budgeting_style, currency, sort_order, created_at, updated_at) "
+                            "VALUES (:id, :hh, :name, :style, 'USD', :sort, datetime('now'), datetime('now'))"
+                        ), {"id": pid, "hh": hh_id, "name": prof_name, "style": prof_style, "sort": idx + 1})
+                        # Add user as owner member
+                        mid = str(_uuid_mod.uuid4())
+                        await conn.execute(text(
+                            "INSERT INTO budget_profile_members "
+                            "(id, profile_id, user_id, role, created_at, updated_at) "
+                            "VALUES (:id, :pid, :uid, 'owner', datetime('now'), datetime('now'))"
+                        ), {"id": mid, "pid": pid, "uid": user_id})
+                        logger.info("Seeded budget profile '%s' for household %s", prof_name, hh_id)
+            logger.info("Budget profiles seeding complete")
+        except Exception as exc:
+            logger.warning("Budget profiles seeding failed (non-fatal): %s", exc)
+
+        # budget-009 data migration: re-assign orphaned categories/groups/accounts
+        # (profile_id IS NULL) to the appropriate profile. Rows with null profile_id
+        # cause Pydantic validation errors. Safe to run on every boot — idempotent
+        # via the WHERE clause. Runs after profile seeding above so profiles exist.
+        try:
+            async with engine.begin() as conn:
+                # Categories → Personal profile
+                await conn.execute(text("""
+                    UPDATE budget_categories
+                    SET profile_id = (
+                        SELECT id FROM budget_profiles
+                        WHERE budget_profiles.household_id = budget_categories.household_id
+                          AND budget_profiles.name = 'Personal'
+                        LIMIT 1
+                    )
+                    WHERE profile_id IS NULL
+                """))
+                # Groups → Household profile (preferred) else Personal
+                await conn.execute(text("""
+                    UPDATE budget_category_groups
+                    SET profile_id = (
+                        SELECT id FROM budget_profiles
+                        WHERE budget_profiles.household_id = budget_category_groups.household_id
+                          AND budget_profiles.name IN ('Personal', 'Household')
+                        ORDER BY CASE name WHEN 'Household' THEN 0 ELSE 1 END
+                        LIMIT 1
+                    )
+                    WHERE profile_id IS NULL
+                """))
+                # Accounts → Personal profile
+                await conn.execute(text("""
+                    UPDATE budget_accounts
+                    SET profile_id = (
+                        SELECT id FROM budget_profiles
+                        WHERE budget_profiles.household_id = budget_accounts.household_id
+                          AND budget_profiles.name = 'Personal'
+                        LIMIT 1
+                    )
+                    WHERE profile_id IS NULL
+                """))
+            logger.info("budget-009 profile assignment migration complete")
+        except Exception as exc:
+            logger.warning("budget-009 profile assignment migration failed (non-fatal): %s", exc)
+
+        # Ensure default categories (Household, Gifts) exist for every household.
+        # Runs after profiles are seeded and assigned so profile_id is available.
+        # Idempotent — skips categories that already exist by name.
+        try:
+            import uuid as _uuid_mod2
+            async with engine.begin() as conn:
+                defaults = [
+                    # (name, default_scope, group_name, icon, color)
+                    ("Household", "private", "Irregular / True Expenses", "🛋️", "#b45309"),
+                    ("Gifts",     "private", "Irregular / True Expenses", "🎁", "#db2777"),
+                ]
+                rows = await conn.execute(text(
+                    "SELECT DISTINCT bp.household_id, bp.id AS profile_id "
+                    "FROM budget_profiles bp WHERE bp.name = 'Personal'"
+                ))
+                for hh_id, profile_id in rows.fetchall():
+                    for cat_name, scope, group_name, icon, color in defaults:
+                        exists = await conn.execute(
+                            text("SELECT 1 FROM budget_categories WHERE household_id = :hh AND name = :n LIMIT 1"),
+                            {"hh": hh_id, "n": cat_name},
+                        )
+                        if exists.fetchone():
+                            # Back-fill icon/color using COALESCE — preserves any
+                            # user-set value, only fills in columns that are still NULL.
+                            await conn.execute(
+                                text("UPDATE budget_categories "
+                                     "SET icon = COALESCE(icon, :icon), color = COALESCE(color, :color) "
+                                     "WHERE household_id = :hh AND name = :n"),
+                                {"icon": icon, "color": color, "hh": hh_id, "n": cat_name},
+                            )
+                            continue
+                        new_id = _uuid_mod2.uuid4().hex  # 32-char hex, no hyphens — matches ORM format
+                        grp = await conn.execute(
+                            text("SELECT id FROM budget_category_groups WHERE household_id = :hh AND name = :gn LIMIT 1"),
+                            {"hh": hh_id, "gn": group_name},
+                        )
+                        grp_row = grp.fetchone()
+                        grp_id = grp_row[0] if grp_row else None
+                        await conn.execute(text(
+                            "INSERT INTO budget_categories "
+                            "(id, household_id, profile_id, name, default_scope, icon, color, "
+                            " rollover_enabled, is_recurring_revenue, sort_order, group_id, created_at, updated_at) "
+                            "VALUES (:id, :hh, :pid, :name, :scope, :icon, :color, 0, 0, 99, :gid, datetime('now'), datetime('now'))"
+                        ), {"id": new_id, "hh": hh_id, "pid": profile_id,
+                            "name": cat_name, "scope": scope, "icon": icon, "color": color, "gid": grp_id})
+                        logger.info("Seeded default category '%s' for household %s", cat_name, hh_id)
+            logger.info("Default category seeding complete")
+        except Exception as exc:
+            logger.warning("Default category seeding failed (non-fatal): %s", exc)
+
+        # Normalize any budget_category IDs that were stored as 36-char UUID strings
+        # (with hyphens) instead of 32-char hex.  This can happen when categories were
+        # inserted via raw SQL using str(uuid4()) rather than uuid4().hex.  The analytics
+        # LEFT JOIN on category_id = budget_categories.id silently fails when formats
+        # don't match, causing affected categories to appear as Uncategorized.
+        try:
+            async with engine.begin() as conn:
+                bad_ids = await conn.execute(text(
+                    "SELECT id FROM budget_categories WHERE length(id) = 36"
+                ))
+                rows_fixed = 0
+                for (old_id,) in bad_ids.fetchall():
+                    new_id = old_id.replace("-", "")
+                    # Update the primary key
+                    await conn.execute(
+                        text("UPDATE budget_categories SET id = :new WHERE id = :old"),
+                        {"new": new_id, "old": old_id},
+                    )
+                    # Update any FK references in transactions
+                    await conn.execute(
+                        text("UPDATE budget_transactions SET category_id = :new WHERE category_id = :old"),
+                        {"new": new_id, "old": old_id},
+                    )
+                    rows_fixed += 1
+                if rows_fixed:
+                    logger.info("UUID normalizer: fixed %d hyphenated category ID(s)", rows_fixed)
+        except Exception as exc:
+            logger.warning("UUID normalization failed (non-fatal): %s", exc)
+
     async with AsyncSessionLocal() as db:
         bootstrapped = await run_bootstrap_if_needed(db)
         if bootstrapped:
             logger.info("Bootstrap complete — initial password has been set")
+
+    # AI coach Phase 2: ensure every household has at least one collection
+    # tagged kind='journal' so the coach's narrative fetch and the journal
+    # signal extractor can find journal entries. Runs on every boot —
+    # idempotent (each household is checked + tagged or seeded at most
+    # once per boot). Needed in addition to migration 0032 because the
+    # migration's data backfill is Postgres-only.
+    try:
+        from life_dashboard.domains.collections.service import backfill_journal_kind
+        async with AsyncSessionLocal() as db:
+            counts = await backfill_journal_kind(db)
+        if counts["tagged"] or counts["seeded"]:
+            logger.info(
+                "Journal-kind backfill: tagged=%d, seeded=%d, already-tagged=%d",
+                counts["tagged"], counts["seeded"], counts["skipped"],
+            )
+    except Exception as exc:
+        logger.warning("Journal-kind backfill failed (non-fatal): %s", exc)
 
     # ── AI Coach scheduler ────────────────────────────────────────────────────
     # Generates morning and evening digests for all eligible users.
@@ -109,8 +328,37 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,
         )
 
+        # Phase 4: weekly profile refresh — runs Sunday 3:00 AM (low-traffic
+        # slot, well clear of the morning digest). For each user with a
+        # non-empty profile, integrates durable patterns from the last 4
+        # weeks and decays stale content. Biased toward SKIP — most weeks
+        # are no-ops, which is the correct outcome.
+        async def _run_scheduled_profile_refresh_with_logging():
+            try:
+                from life_dashboard.ai.profile_service import run_scheduled_profile_refresh_all
+                counts = await run_scheduled_profile_refresh_all()
+                logger.info(
+                    "Scheduled profile refresh: users=%d applied=%d skip=%d "
+                    "skipped_no_activity=%d error=%d",
+                    counts["users"], counts["applied"], counts["skip"],
+                    counts["skipped_no_activity"], counts["error"],
+                )
+            except Exception:
+                logger.exception("Scheduled profile refresh job failed")
+
+        scheduler.add_job(
+            _run_scheduled_profile_refresh_with_logging,
+            CronTrigger(day_of_week="sun", hour=3, minute=0),
+            id="profile_scheduled_refresh",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         scheduler.start()
-        logger.info("AI coach scheduler started (morning=07:00, evening=17:30, weekly=Fri 17:00)")
+        logger.info(
+            "AI coach scheduler started (morning=07:00, evening=17:30, "
+            "weekly=Fri 17:00, profile_refresh=Sun 03:00)"
+        )
     except ImportError:
         logger.warning(
             "apscheduler not installed — AI coach background scheduling disabled. "
@@ -136,6 +384,24 @@ app = FastAPI(
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
+
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(Exception)
+async def _log_unhandled_exception(request: Request, exc: Exception):
+    """Catch every unhandled exception, log it with a full traceback, and
+    return a generic 500 so the client still gets a proper JSON response."""
+    tb = traceback.format_exc()
+    logging.getLogger("life_dashboard.errors").error(
+        "Unhandled exception on %s %s\n%s", request.method, request.url.path, tb
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 _cors_origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 # When running as a PyInstaller-compiled desktop binary, always permit the

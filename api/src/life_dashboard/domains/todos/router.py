@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
@@ -28,6 +29,8 @@ router = APIRouter(prefix="/todos", tags=["todos"])
 async def list_todos(
     status: str | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
+    due_date_from: date | None = Query(default=None),
+    due_date_to: date | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -36,6 +39,7 @@ async def list_todos(
     return await service.list_todos(
         db, current_user.household_id, current_user.id,
         status=status, project_id=project_id,
+        due_date_from=due_date_from, due_date_to=due_date_to,
         limit=limit, offset=offset,
     )
 

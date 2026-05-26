@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell/shell";
 import { FocusModeProvider } from "@/lib/focus/context";
 import { FocusOverlay } from "@/components/focus/focus-overlay";
 import { LocaleDetectedBanner } from "@/components/locale-detected-banner";
+import { CurrentResourceProvider } from "@/lib/chat-context/current-resource";
 
 export default function ProtectedLayout({
   children,
@@ -34,14 +35,16 @@ export default function ProtectedLayout({
 
   return (
     <FocusModeProvider>
-      <Shell>{children}</Shell>
-      <FocusOverlay />
-      {localeAutoDetected && (
-        <LocaleDetectedBanner
-          timezone={user.timezone ?? ""}
-          onDismiss={dismissLocaleNotice}
-        />
-      )}
+      <CurrentResourceProvider>
+        <Shell>{children}</Shell>
+        <FocusOverlay />
+        {localeAutoDetected && (
+          <LocaleDetectedBanner
+            timezone={user.timezone ?? ""}
+            onDismiss={dismissLocaleNotice}
+          />
+        )}
+      </CurrentResourceProvider>
     </FocusModeProvider>
   );
 }

@@ -51,6 +51,14 @@ export interface AiCoachWidgetConfig {
   pinned_project_ids: string[];
   pinned_goal_ids: string[];
   pinned_habit_ids: string[];
+  /**
+   * coach-004: optional free-text "what should the coach focus on" guidance.
+   * Surfaced as a "## What I want you to focus on right now" section in the
+   * digest user message, weighted above the default briefing structure.
+   * Persisted per-widget so different coach widgets can have different
+   * focuses (e.g. a "work" coach vs a "family" coach).
+   */
+  focus?: string;
 }
 
 export interface CalendarTodayWidgetConfig {
@@ -59,6 +67,11 @@ export interface CalendarTodayWidgetConfig {
 
 export interface CalendarWeekWidgetConfig {
   // No config — always shows the current Mon–Sun week
+}
+
+export interface BudgetWidgetConfig {
+  /** Optional monthly spending cap — renders a progress bar when set */
+  monthly_target: number | null;
 }
 
 // ── Widget instance ────────────────────────────────────────────────────────────
@@ -70,7 +83,8 @@ export type WidgetType =
   | "project_progress"
   | "ai_coach"
   | "calendar_today"
-  | "calendar_week";
+  | "calendar_week"
+  | "budget";
 
 export type WidgetConfig =
   | TodosWidgetConfig
@@ -79,7 +93,8 @@ export type WidgetConfig =
   | ProjectProgressConfig
   | AiCoachWidgetConfig
   | CalendarTodayWidgetConfig
-  | CalendarWeekWidgetConfig;
+  | CalendarWeekWidgetConfig
+  | BudgetWidgetConfig;
 
 export interface WidgetInstance {
   /** Stable random ID — used as dnd-kit sort key and React key */
@@ -220,6 +235,7 @@ export const WIDGET_META: Record<WidgetType, WidgetMeta> = {
       pinned_project_ids: [],
       pinned_goal_ids: [],
       pinned_habit_ids: [],
+      focus: "",
     } satisfies AiCoachWidgetConfig,
   },
   calendar_today: {
@@ -233,5 +249,11 @@ export const WIDGET_META: Record<WidgetType, WidgetMeta> = {
     description: "Mon–Sun overview of the current week's events (best at full width)",
     needsConfig: false,
     defaultConfig: {} satisfies CalendarWeekWidgetConfig,
+  },
+  budget: {
+    label: "Budget",
+    description: "This month's spending with an optional target progress bar",
+    needsConfig: false,
+    defaultConfig: { monthly_target: null } satisfies BudgetWidgetConfig,
   },
 };

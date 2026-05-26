@@ -1489,6 +1489,204 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["habit_id"],
         },
     },
+    # ── Budget tools ─────────────────────────────────────────────────────────
+    {
+        "name": "get_budget_summary",
+        "description": (
+            "Return a high-level income / expense / net summary for a date range. "
+            "Use for questions like 'how much did I spend last month?', 'what's my net "
+            "for Q1?', or 'am I over or under budget this month?'. "
+            "Excludes transfers. Returns totals broken out by income vs expense, "
+            "plus the transaction count and date range actually covered."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {
+                    "type": "string",
+                    "description": "Start of the period, inclusive (YYYY-MM-DD).",
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End of the period, inclusive (YYYY-MM-DD).",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional UUID — restrict to one account.",
+                },
+            },
+            "required": ["date_from", "date_to"],
+        },
+    },
+    {
+        "name": "list_budget_transactions",
+        "description": (
+            "List individual transactions with optional filters. "
+            "Use when the user asks about specific purchases, wants to see what "
+            "they spent at a merchant, or needs raw transaction data to answer "
+            "a follow-up question. Returns date, amount, description, merchant, "
+            "category name, and account name for each transaction. "
+            "Default limit is 50; max 200."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {
+                    "type": "string",
+                    "description": "Start date inclusive (YYYY-MM-DD). Defaults to 30 days ago.",
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End date inclusive (YYYY-MM-DD). Defaults to today.",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional UUID — restrict to one account.",
+                },
+                "category_id": {
+                    "type": "string",
+                    "description": "Optional UUID — restrict to one category.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Optional text filter applied to description and merchant name.",
+                },
+                "include_transfers": {
+                    "type": "boolean",
+                    "description": "Include transfer transactions (default false).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (default 50, max 200).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_spending_by_category",
+        "description": (
+            "Break down spending by category for a date range. "
+            "Use for questions like 'what are my biggest spending categories?', "
+            "'how much did I spend on groceries vs restaurants?', or "
+            "'show me my spending breakdown for March'. "
+            "Returns each category with its total spend, transaction count, and "
+            "percentage of total spending. Expenses only (income excluded)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {
+                    "type": "string",
+                    "description": "Start of the period, inclusive (YYYY-MM-DD).",
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End of the period, inclusive (YYYY-MM-DD).",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional UUID — restrict to one account.",
+                },
+            },
+            "required": ["date_from", "date_to"],
+        },
+    },
+    {
+        "name": "get_account_balances",
+        "description": (
+            "List all budget accounts with their current balances. "
+            "Use when the user asks about their current balance, net worth across "
+            "accounts, or which accounts are linked to Teller. "
+            "Returns account name, type, current balance, and when the balance "
+            "was last updated."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "set_category_budget",
+        "description": (
+            "Set the ongoing monthly spending target for a budget category. "
+            "Use when the user asks to update, set, or change a budget target or "
+            "spending limit — e.g. 'set my dining budget to $500', 'change groceries "
+            "to $300 a month', 'update my transport budget'. "
+            "Matches the category by name (case-insensitive). Always confirm the "
+            "category name and amount with the user before calling. "
+            "Sets the default monthly amount that applies to every future month. "
+            "Returns the updated category name and new target."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category_name": {
+                    "type": "string",
+                    "description": "Name of the budget category to update (case-insensitive match).",
+                },
+                "amount": {
+                    "type": "number",
+                    "description": "New monthly spending target in the household currency. Must be a positive number.",
+                },
+            },
+            "required": ["category_name", "amount"],
+        },
+    },
+    {
+        "name": "update_profile",
+        "description": (
+            "Silently update the user's long-term profile that the coach and "
+            "chatbot read on every interaction. Call this WITHOUT asking the "
+            "user for permission whenever they tell you what they want you to "
+            "focus on, mention a habit or topic they want recurring attention "
+            "to, share a stable value or preference, or describe something "
+            "they've decided about themselves. Examples that should trigger a "
+            "call: 'I want to focus more on consistency moving forward,' "
+            "'I've been drinking too much lately, please help me with that,' "
+            "'I'm working on being kinder to myself,' 'stop bringing up the "
+            "old job, I'm done with that chapter.' "
+            ""
+            "How to use: read the user's current profile carefully (it is in "
+            "the system prompt under 'What you know about this person'). "
+            "Produce a REVISED profile, in the SAME H2-section format, that "
+            "integrates the new fact. Add to or modify existing sections "
+            "rather than starting from scratch. Do NOT remove unrelated "
+            "content. Keep the total under ~3000 characters. Output the FULL "
+            "revised profile in content_md (not a diff). "
+            ""
+            "Do NOT use this tool for: one-off events, today's mood, a single "
+            "bad day, transient details. Profile updates are for durable, "
+            "ongoing things. After calling, briefly acknowledge to the user "
+            "in plain language ('Got it, I'll keep that in mind') without "
+            "mentioning the tool or the profile."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content_md": {
+                    "type": "string",
+                    "description": (
+                        "The FULL revised profile as markdown, sectioned by H2 "
+                        "headers (## Current focuses, ## Values & non-negotiables, "
+                        "## Recurring patterns, ## What drains me, ## What works "
+                        "for me, ## Things to not bring up unless I do). Use the "
+                        "same structure as the existing profile."
+                    ),
+                },
+                "diff_summary": {
+                    "type": "string",
+                    "description": (
+                        "Optional one-line description of what changed and why "
+                        "(e.g. 'Added focus on drinking less'). For audit only — "
+                        "the user never sees this."
+                    ),
+                },
+            },
+            "required": ["content_md"],
+        },
+    },
 ]
 
 
@@ -1965,6 +2163,91 @@ class _UpdateHabitInput(BaseModel):
             raise ValueError(f"Expected YYYY-MM-DD, got {v!r}")
 
 
+# ── Budget input schemas ──────────────────────────────────────────────────────
+
+def _parse_date_field(v: Any, field: str) -> date:
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except (ValueError, TypeError):
+        raise ValueError(f"{field}: expected YYYY-MM-DD, got {v!r}")
+
+
+class _GetBudgetSummaryInput(BaseModel):
+    date_from: date
+    date_to: date
+    account_id: uuid.UUID | None = None
+
+    @field_validator("date_from", "date_to", mode="before")
+    @classmethod
+    def parse_dates(cls, v: Any) -> date:
+        return _parse_date_field(v, "date")
+
+    @field_validator("account_id", mode="before")
+    @classmethod
+    def parse_account_id(cls, v: Any) -> uuid.UUID | None:
+        if v is None:
+            return None
+        try:
+            return uuid.UUID(str(v))
+        except ValueError:
+            raise ValueError(f"account_id must be a valid UUID, got {v!r}")
+
+
+class _ListBudgetTransactionsInput(BaseModel):
+    date_from: date | None = None
+    date_to: date | None = None
+    account_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    search: str | None = None
+    include_transfers: bool = False
+    limit: int = Field(default=50, ge=1, le=200)
+
+    @field_validator("date_from", "date_to", mode="before")
+    @classmethod
+    def parse_dates(cls, v: Any) -> date | None:
+        if v is None:
+            return None
+        return _parse_date_field(v, "date")
+
+    @field_validator("account_id", "category_id", mode="before")
+    @classmethod
+    def parse_uuids(cls, v: Any) -> uuid.UUID | None:
+        if v is None:
+            return None
+        try:
+            return uuid.UUID(str(v))
+        except ValueError:
+            raise ValueError(f"Expected a valid UUID, got {v!r}")
+
+
+class _GetSpendingByCategoryInput(BaseModel):
+    date_from: date
+    date_to: date
+    account_id: uuid.UUID | None = None
+
+    @field_validator("date_from", "date_to", mode="before")
+    @classmethod
+    def parse_dates(cls, v: Any) -> date:
+        return _parse_date_field(v, "date")
+
+    @field_validator("account_id", mode="before")
+    @classmethod
+    def parse_account_id(cls, v: Any) -> uuid.UUID | None:
+        if v is None:
+            return None
+        try:
+            return uuid.UUID(str(v))
+        except ValueError:
+            raise ValueError(f"account_id must be a valid UUID, got {v!r}")
+
+
+class _SetCategoryBudgetInput(BaseModel):
+    category_name: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+
+
 # ── Tool execution ────────────────────────────────────────────────────────────
 
 async def execute_tool(
@@ -2112,6 +2395,19 @@ async def execute_tool(
             return await _update_habit(db, tool_input, household_id)
         if tool_name == "delete_habit":
             return await _delete_habit(db, tool_input, household_id)
+        # ── Budget ────────────────────────────────────────────────────────────
+        if tool_name == "get_budget_summary":
+            return await _get_budget_summary(db, tool_input, household_id)
+        if tool_name == "list_budget_transactions":
+            return await _list_budget_transactions(db, tool_input, household_id)
+        if tool_name == "get_spending_by_category":
+            return await _get_spending_by_category(db, tool_input, household_id)
+        if tool_name == "get_account_balances":
+            return await _get_account_balances(db, household_id)
+        if tool_name == "set_category_budget":
+            return await _set_category_budget(db, tool_input, household_id)
+        if tool_name == "update_profile":
+            return await _update_profile(db, tool_input, user_id)
         return {
             "error": f"Unknown tool: {tool_name!r}",
             "hint": "Only call tools that are listed in the tools array.",
@@ -4283,3 +4579,390 @@ async def _delete_project(
     if err == "system_protected":
         return {"error": "System projects cannot be deleted."}
     return {"deleted": True, "project_id": str(project_id)}
+
+
+# ── Budget tool handlers ──────────────────────────────────────────────────────
+
+async def _get_budget_summary(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from sqlalchemy import select, func as sa_func
+    from life_dashboard.domains.budget.models import BudgetTransaction
+
+    validated = _GetBudgetSummaryInput.model_validate(inp)
+
+    filters = [
+        BudgetTransaction.household_id == household_id,
+        BudgetTransaction.date >= validated.date_from,
+        BudgetTransaction.date <= validated.date_to,
+        BudgetTransaction.archived_at.is_(None),
+        BudgetTransaction.is_transfer.is_(False),
+    ]
+    if validated.account_id:
+        filters.append(BudgetTransaction.account_id == validated.account_id)
+
+    stmt = select(
+        sa_func.sum(BudgetTransaction.amount).label("net"),
+        sa_func.count(BudgetTransaction.id).label("count"),
+    ).where(*filters)
+
+    # Income = positive amounts; expenses = negative amounts
+    income_stmt = select(
+        sa_func.coalesce(sa_func.sum(BudgetTransaction.amount), 0).label("total")
+    ).where(*filters, BudgetTransaction.amount > 0)
+
+    expense_stmt = select(
+        sa_func.coalesce(sa_func.sum(BudgetTransaction.amount), 0).label("total")
+    ).where(*filters, BudgetTransaction.amount < 0)
+
+    summary_row = (await db.execute(stmt)).one()
+    income_row = (await db.execute(income_stmt)).one()
+    expense_row = (await db.execute(expense_stmt)).one()
+
+    total_income = float(income_row.total or 0)
+    total_expenses = float(expense_row.total or 0)  # negative number
+    net = float(summary_row.net or 0)
+
+    return {
+        "date_from": validated.date_from.isoformat(),
+        "date_to": validated.date_to.isoformat(),
+        "total_income": round(total_income, 2),
+        "total_expenses": round(total_expenses, 2),          # negative = money out
+        "total_expenses_abs": round(abs(total_expenses), 2), # positive for readability
+        "net": round(net, 2),
+        "transaction_count": summary_row.count or 0,
+    }
+
+
+async def _list_budget_transactions(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from datetime import timedelta
+    from sqlalchemy import select, or_
+    from life_dashboard.domains.budget.models import (
+        BudgetTransaction, BudgetCategory, BudgetAccount,
+    )
+
+    validated = _ListBudgetTransactionsInput.model_validate(inp)
+
+    today = date.today()
+    date_from = validated.date_from or (today - timedelta(days=30))
+    date_to = validated.date_to or today
+
+    filters = [
+        BudgetTransaction.household_id == household_id,
+        BudgetTransaction.date >= date_from,
+        BudgetTransaction.date <= date_to,
+        BudgetTransaction.archived_at.is_(None),
+    ]
+    if not validated.include_transfers:
+        filters.append(BudgetTransaction.is_transfer.is_(False))
+    if validated.account_id:
+        filters.append(BudgetTransaction.account_id == validated.account_id)
+    if validated.category_id:
+        filters.append(BudgetTransaction.category_id == validated.category_id)
+    if validated.search:
+        q = f"%{validated.search.lower()}%"
+        filters.append(
+            or_(
+                BudgetTransaction.description.ilike(q),
+                BudgetTransaction.merchant_name.ilike(q),
+            )
+        )
+
+    stmt = (
+        select(
+            BudgetTransaction.id,
+            BudgetTransaction.date,
+            BudgetTransaction.amount,
+            BudgetTransaction.description,
+            BudgetTransaction.merchant_name,
+            BudgetTransaction.is_transfer,
+            BudgetTransaction.category_id,
+            BudgetTransaction.account_id,
+        )
+        .where(*filters)
+        .order_by(BudgetTransaction.date.desc(), BudgetTransaction.created_at.desc())
+        .limit(validated.limit)
+    )
+
+    rows = (await db.execute(stmt)).all()
+
+    # Batch-fetch category and account names to avoid N+1
+    cat_ids = {r.category_id for r in rows if r.category_id}
+    acct_ids = {r.account_id for r in rows}
+
+    cat_names: dict[uuid.UUID, str] = {}
+    if cat_ids:
+        cat_rows = (await db.execute(
+            select(BudgetCategory.id, BudgetCategory.name).where(
+                BudgetCategory.id.in_(cat_ids)
+            )
+        )).all()
+        cat_names = {r.id: r.name for r in cat_rows}
+
+    acct_names: dict[uuid.UUID, str] = {}
+    if acct_ids:
+        acct_rows = (await db.execute(
+            select(BudgetAccount.id, BudgetAccount.name).where(
+                BudgetAccount.id.in_(acct_ids)
+            )
+        )).all()
+        acct_names = {r.id: r.name for r in acct_rows}
+
+    transactions = [
+        {
+            "id": str(r.id),
+            "date": r.date.isoformat(),
+            "amount": float(r.amount),
+            "description": r.description,
+            "merchant": r.merchant_name,
+            "category": cat_names.get(r.category_id) if r.category_id else None,
+            "account": acct_names.get(r.account_id),
+            "is_transfer": r.is_transfer,
+        }
+        for r in rows
+    ]
+
+    return {
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "count": len(transactions),
+        "transactions": transactions,
+    }
+
+
+async def _get_spending_by_category(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from sqlalchemy import select, func as sa_func
+    from life_dashboard.domains.budget.models import BudgetTransaction, BudgetCategory
+
+    validated = _GetSpendingByCategoryInput.model_validate(inp)
+
+    filters = [
+        BudgetTransaction.household_id == household_id,
+        BudgetTransaction.date >= validated.date_from,
+        BudgetTransaction.date <= validated.date_to,
+        BudgetTransaction.archived_at.is_(None),
+        BudgetTransaction.is_transfer.is_(False),
+        BudgetTransaction.amount < 0,  # expenses only
+    ]
+    if validated.account_id:
+        filters.append(BudgetTransaction.account_id == validated.account_id)
+
+    stmt = (
+        select(
+            BudgetTransaction.category_id,
+            sa_func.sum(BudgetTransaction.amount).label("total"),
+            sa_func.count(BudgetTransaction.id).label("count"),
+        )
+        .where(*filters)
+        .group_by(BudgetTransaction.category_id)
+        .order_by(sa_func.sum(BudgetTransaction.amount))  # most negative first = biggest spend
+    )
+
+    rows = (await db.execute(stmt)).all()
+
+    # Fetch category names
+    cat_ids = {r.category_id for r in rows if r.category_id}
+    cat_names: dict[uuid.UUID, str] = {}
+    if cat_ids:
+        cat_rows = (await db.execute(
+            select(BudgetCategory.id, BudgetCategory.name).where(
+                BudgetCategory.id.in_(cat_ids)
+            )
+        )).all()
+        cat_names = {r.id: r.name for r in cat_rows}
+
+    grand_total_abs = sum(abs(float(r.total)) for r in rows) or 1.0
+
+    categories = [
+        {
+            "category_id": str(r.category_id) if r.category_id else None,
+            "category": cat_names.get(r.category_id, "Uncategorized") if r.category_id else "Uncategorized",
+            "total": round(float(r.total), 2),           # negative
+            "total_abs": round(abs(float(r.total)), 2),  # positive for readability
+            "transaction_count": r.count,
+            "percentage": round(abs(float(r.total)) / grand_total_abs * 100, 1),
+        }
+        for r in rows
+    ]
+
+    return {
+        "date_from": validated.date_from.isoformat(),
+        "date_to": validated.date_to.isoformat(),
+        "total_spending_abs": round(grand_total_abs, 2),
+        "categories": categories,
+    }
+
+
+async def _get_account_balances(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+) -> dict:
+    from sqlalchemy import select
+    from life_dashboard.domains.budget.models import BudgetAccount
+
+    stmt = select(BudgetAccount).where(
+        BudgetAccount.household_id == household_id,
+        BudgetAccount.archived_at.is_(None),
+    ).order_by(BudgetAccount.name)
+
+    rows = (await db.execute(stmt)).scalars().all()
+
+    accounts = [
+        {
+            "id": str(a.id),
+            "name": a.name,
+            "type": a.account_type,
+            "scope": a.scope,
+            "current_balance": float(a.current_balance) if a.current_balance is not None else None,
+            "balance_updated_at": a.balance_updated_at.isoformat() if a.balance_updated_at else None,
+            "teller_linked": bool(a.teller_account_id),
+            "teller_institution": a.teller_institution_name,
+            "teller_last_synced_at": a.teller_last_synced_at.isoformat() if a.teller_last_synced_at else None,
+        }
+        for a in rows
+    ]
+
+    total_balance = sum(
+        a["current_balance"] for a in accounts if a["current_balance"] is not None
+    )
+
+    return {
+        "accounts": accounts,
+        "total_balance": round(total_balance, 2),
+    }
+
+
+async def _set_category_budget(
+    db: AsyncSession,
+    inp: dict,
+    household_id: uuid.UUID,
+) -> dict:
+    from sqlalchemy import select
+    from life_dashboard.domains.budget.models import BudgetCategory
+
+    validated = _SetCategoryBudgetInput.model_validate(inp)
+
+    # Case-insensitive name match within this household
+    stmt = select(BudgetCategory).where(
+        BudgetCategory.household_id == household_id,
+        BudgetCategory.archived_at.is_(None),
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    search = validated.category_name.strip().lower()
+    matches = [c for c in rows if c.name.lower() == search]
+
+    if not matches:
+        # Fuzzy fallback: partial match
+        matches = [c for c in rows if search in c.name.lower()]
+
+    if not matches:
+        available = sorted(c.name for c in rows)
+        return {
+            "error": f"No category found matching '{validated.category_name}'.",
+            "hint": "Use one of the exact category names.",
+            "available_categories": available,
+        }
+
+    if len(matches) > 1:
+        return {
+            "error": f"'{validated.category_name}' matched multiple categories.",
+            "hint": "Use the exact category name from the list.",
+            "matches": [c.name for c in matches],
+        }
+
+    category = matches[0]
+    old_amount = float(category.default_monthly_amount) if category.default_monthly_amount is not None else None
+    category.default_monthly_amount = validated.amount
+    category.updated_at = datetime.now(timezone.utc)
+
+    # Keep any spending_cap goals linked to this category in sync
+    from life_dashboard.domains.goals.models import Goal
+    goals_stmt = select(Goal).where(
+        Goal.household_id == household_id,
+        Goal.financial_link.isnot(None),
+    )
+    linked_goals = (await db.execute(goals_stmt)).scalars().all()
+    category_id_str = str(category.id)
+    for goal in linked_goals:
+        link = goal.financial_link or {}
+        if link.get("type") == "spending_cap" and link.get("category_id") == category_id_str:
+            updated_link = dict(link)
+            updated_link["monthly_limit"] = validated.amount
+            goal.financial_link = updated_link
+
+    await db.commit()
+
+    return {
+        "updated": True,
+        "category_id": str(category.id),
+        "category_name": category.name,
+        "previous_target": old_amount,
+        "new_target": validated.amount,
+    }
+
+
+async def _update_profile(
+    db: AsyncSession,
+    tool_input: dict,
+    user_id: uuid.UUID,
+) -> dict:
+    """Apply a chat-driven profile revision.
+
+    Mirrors the silent-learning path used by the bootstrap pass and the
+    notes-driven proposer: write directly to member_ai_memory.memory_text
+    and record an audit row (status='accepted'). The user never sees a
+    pending-updates queue.
+    """
+    from life_dashboard.ai.models import UserProfileUpdate
+    from life_dashboard.ai.profile_service import (
+        PROFILE_HARD_CAP_CHARS,
+        get_or_create_memory,
+        _apply_profile_update,
+    )
+
+    content_md = (tool_input.get("content_md") or "").strip()
+    if not content_md:
+        return {
+            "error": "content_md is required and must be non-empty.",
+            "hint": (
+                "Pass the FULL revised profile as markdown sectioned by H2 "
+                "headers. See the tool description for the expected sections."
+            ),
+        }
+    if len(content_md) > PROFILE_HARD_CAP_CHARS:
+        # Trim defensively rather than rejecting — the model often slightly
+        # overshoots when integrating a change.
+        content_md = content_md[:PROFILE_HARD_CAP_CHARS]
+
+    diff_summary = (tool_input.get("diff_summary") or "").strip() or None
+
+    memory = await get_or_create_memory(db, user_id)
+    # Phase 4: snapshots previous content into user_profile_versions.
+    now = await _apply_profile_update(db, memory, content_md, source="manual")
+
+    audit = UserProfileUpdate(
+        user_id=user_id,
+        proposed_content_md=content_md,
+        diff_summary=diff_summary or "Chat-driven profile revision",
+        source="manual",
+        status="accepted",
+        resolved_at=now,
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "updated": True,
+        "applied_at": now.isoformat(),
+        "summary": diff_summary,
+    }

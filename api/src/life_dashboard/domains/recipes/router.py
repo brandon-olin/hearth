@@ -14,12 +14,15 @@ from life_dashboard.core.permissions import (
 )
 from life_dashboard.domains.recipes.models import Recipe
 from life_dashboard.domains.recipes.schemas import (
+    AddToGroceryListRequest,
+    AddToGroceryListResponse,
     RecipeCreate,
     RecipeListResponse,
     RecipeResponse,
     RecipeUpdate,
 )
 from life_dashboard.domains.recipes import service
+from life_dashboard.domains.grocery_lists import service as grocery_service
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -166,3 +169,38 @@ async def remove_tag(
     ok = await service.remove_tag(db, recipe_id, tag_id, current_user.household_id)
     if not ok:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+
+# ── Grocery list integration ───────────────────────────────────────────────────
+
+@router.post(
+    "/{recipe_id}/add-to-grocery-list",
+    response_model=AddToGroceryListResponse,
+    status_code=http_status.HTTP_200_OK,
+)
+async def add_to_grocery_list(
+    recipe_id: uuid.UUID,
+    data: AddToGroceryListRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AddToGroceryListResponse:
+    """
+    Append all ingredients from a recipe to an existing grocery list.
+    Ingredients already present (matched by recipe_ingredient_id) are skipped.
+    """
+    try:
+        result = await grocery_service.add_recipe_ingredients_to_list(
+            db,
+            recipe_id=recipe_id,
+            list_id=data.list_id,
+            household_id=current_user.household_id,
+            servings_scale=data.servings_scale,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return AddToGroceryListResponse(
+        list_id=data.list_id,
+        added=result["added"],
+        skipped=result["skipped"],
+    )

@@ -14,6 +14,33 @@ from life_dashboard.domains.goals.schemas import (
 )
 
 
+async def _sync_financial_link(
+    db: AsyncSession,
+    financial_link: dict | None,
+) -> None:
+    """
+    If a spending_cap link is set, keep BudgetCategory.default_monthly_amount
+    in sync with the goal's monthly_limit.
+    """
+    if not financial_link or financial_link.get("type") != "spending_cap":
+        return
+    category_id_str = financial_link.get("category_id")
+    monthly_limit = financial_link.get("monthly_limit")
+    if not category_id_str or monthly_limit is None:
+        return
+
+    try:
+        category_id = uuid.UUID(category_id_str)
+    except (ValueError, AttributeError):
+        return
+
+    from life_dashboard.domains.budget.models import BudgetCategory
+    result = await db.execute(select(BudgetCategory).where(BudgetCategory.id == category_id))
+    category = result.scalar_one_or_none()
+    if category is not None:
+        category.default_monthly_amount = float(monthly_limit)
+
+
 def _to_response(goal: Goal) -> GoalResponse:
     return GoalResponse.model_validate(goal)
 
@@ -38,8 +65,10 @@ async def create_goal(
         due_date=data.due_date,
         visibility=data.visibility,
         shared_with_user_ids=data.shared_with_user_ids or [],
+        financial_link=data.financial_link,
     )
     db.add(goal)
+    await _sync_financial_link(db, data.financial_link)
     await db.commit()
     await db.refresh(goal)
     return _to_response(goal)
@@ -96,8 +125,6 @@ async def update_goal(
     data: GoalUpdate,
 ) -> GoalResponse | None:
     query = select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
-    if user_id is not None:
-        query = apply_visibility_filter(query, Goal, user_id)
     result = await db.execute(query)
     goal = result.scalar_one_or_none()
     if goal is None:
@@ -105,6 +132,10 @@ async def update_goal(
 
     for field in data.model_fields_set:
         setattr(goal, field, getattr(data, field))
+
+    # Sync spending_cap to budget category if financial_link was updated
+    if "financial_link" in data.model_fields_set:
+        await _sync_financial_link(db, data.financial_link)
 
     await db.commit()
     await db.refresh(goal)
@@ -117,8 +148,6 @@ async def delete_goal(
     household_id: uuid.UUID,
 ) -> bool:
     query = select(Goal).where(Goal.id == goal_id, Goal.household_id == household_id)
-    if user_id is not None:
-        query = apply_visibility_filter(query, Goal, user_id)
     result = await db.execute(query)
     goal = result.scalar_one_or_none()
     if goal is None:

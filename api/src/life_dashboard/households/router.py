@@ -32,6 +32,18 @@ class MemberResponse(BaseModel):
     email: str
     role: str
     joined_at: datetime
+    # ai-access-001: admin-controlled per-member gate for AI features.
+    # True by default; admins can flip via PATCH /households/members/{user_id}.
+    ai_features_enabled: bool = True
+
+
+class UpdateMemberRequest(BaseModel):
+    """Admin-only PATCH for member-level toggles.
+
+    ai_features_enabled: gates the member's access to AI surfaces.
+    Future room for role changes etc. — kept as a small open shape.
+    """
+    ai_features_enabled: bool | None = None
 
 
 class UpdateHouseholdNameRequest(BaseModel):
@@ -83,7 +95,12 @@ async def list_members(
 ) -> list[MemberResponse]:
     """Return all active members of the current user's household."""
     result = await db.execute(
-        select(User, HouseholdMembership.role, HouseholdMembership.joined_at)
+        select(
+            User,
+            HouseholdMembership.role,
+            HouseholdMembership.joined_at,
+            HouseholdMembership.ai_features_enabled,
+        )
         .join(HouseholdMembership, User.id == HouseholdMembership.user_id)
         .where(
             HouseholdMembership.household_id == current_user.household_id,
@@ -98,9 +115,83 @@ async def list_members(
             email=user.email,
             role=role.value,
             joined_at=joined_at,
+            ai_features_enabled=ai_features_enabled,
         )
-        for user, role, joined_at in result.all()
+        for user, role, joined_at, ai_features_enabled in result.all()
     ]
+
+
+@router.patch("/members/{user_id}", response_model=MemberResponse)
+async def update_member(
+    user_id: uuid.UUID,
+    body: UpdateMemberRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MemberResponse:
+    """ai-access-001: admin-only PATCH for member-level toggles.
+
+    Currently only ai_features_enabled is settable; future toggles
+    can slot in. The admin cannot disable their OWN AI access through
+    this endpoint to avoid lockouts (they'd need another admin to
+    re-enable). Members managing their own AI off-switch can do so
+    by clearing their API key in Settings → AI.
+    """
+    # Authorize: must be an owner or admin in the current household.
+    actor_membership = (await db.execute(
+        select(HouseholdMembership).where(
+            HouseholdMembership.user_id == current_user.id,
+            HouseholdMembership.household_id == current_user.household_id,
+        )
+    )).scalar_one_or_none()
+    if actor_membership is None or actor_membership.role not in _ADMIN_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can modify household members.",
+        )
+
+    # Target membership must exist in this household.
+    target_membership = (await db.execute(
+        select(HouseholdMembership).where(
+            HouseholdMembership.user_id == user_id,
+            HouseholdMembership.household_id == current_user.household_id,
+        )
+    )).scalar_one_or_none()
+    if target_membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found in this household.",
+        )
+
+    sent = body.model_fields_set
+
+    if "ai_features_enabled" in sent and body.ai_features_enabled is not None:
+        # Guardrail: an admin can't lock themselves out of AI via this
+        # endpoint. If they want to disable for themselves they can
+        # clear their API key in Settings → AI; otherwise they'd be
+        # stuck unable to re-enable until another admin intervenes.
+        if user_id == current_user.id and body.ai_features_enabled is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "You can't disable your own AI features through admin "
+                    "controls. Clear your API key in Settings → AI instead."
+                ),
+            )
+        target_membership.ai_features_enabled = body.ai_features_enabled
+
+    await db.commit()
+    await db.refresh(target_membership)
+
+    # Re-fetch the User row to assemble the full response shape.
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+    return MemberResponse(
+        user_id=user.id,
+        display_name=user.display_name,
+        email=user.email,
+        role=target_membership.role.value,
+        joined_at=target_membership.joined_at,
+        ai_features_enabled=target_membership.ai_features_enabled,
+    )
 
 
 @router.patch("/name", response_model=HouseholdNameResponse)

@@ -72,12 +72,11 @@ def get_provider(user_settings: AiSettings) -> AIProvider | None:
       2. System-level ANTHROPIC_API_KEY env var.
       3. None — caller should return 503.
 
-    TODO: decrypt api_key_encrypted (currently stored as plain text).
     """
     api_key: str | None = None
 
     if user_settings.api_key_encrypted:
-        api_key = user_settings.api_key_encrypted  # TODO: Fernet decrypt
+        api_key = user_settings.api_key_encrypted  # decrypted transparently by EncryptedText
     elif app_settings.anthropic_api_key:
         api_key = app_settings.anthropic_api_key
 
@@ -112,6 +111,7 @@ def _settings_to_response(s: AiSettings) -> AiSettingsResponse:
         provider=s.provider.value,
         retention_days=s.retention_days,
         has_custom_key=s.api_key_encrypted is not None,
+        ai_journal_extraction_enabled=s.ai_journal_extraction_enabled,
     )
 
 
@@ -138,8 +138,10 @@ async def update_settings(
     if data.clear_api_key:
         s.api_key_encrypted = None
     elif data.api_key is not None:
-        # TODO: encrypt before storing
-        s.api_key_encrypted = data.api_key
+        s.api_key_encrypted = data.api_key  # encrypted transparently by EncryptedText
+
+    if "ai_journal_extraction_enabled" in sent and data.ai_journal_extraction_enabled is not None:
+        s.ai_journal_extraction_enabled = data.ai_journal_extraction_enabled
 
     await db.commit()
     await db.refresh(s)
@@ -620,6 +622,17 @@ def _build_system_prompt(user: User, memory_text: str) -> str:
         "- Before creating data, briefly state what you're about to save "
         "(date, name, entry count) and wait for the user to confirm. "
         "For bulk imports, show a short plan first — e.g. '23 workouts from Jan–Dec 2026'.",
+        "- **Before suggesting that the user CREATE or SET UP a habit, "
+        "goal, project, recipe, or any other tracked entity, FIRST call "
+        "the relevant list_* tool (list_habits, list_goals, list_projects, "
+        "list_recipes, etc.) to see what already exists.** If something "
+        "related is already there, REFERENCE it instead of suggesting a "
+        "duplicate. Phrase it as 'I see you already have an X — want to "
+        "talk about how that's been going?' rather than 'Want to set up X?' "
+        "Only suggest creating something new when nothing related exists. "
+        "This rule applies even when the user's message contains language "
+        "that suggests new setup (e.g. 'I want to focus on drinking less' "
+        "should trigger list_habits/list_goals before any setup suggestion).",
         "- When migrating data from a document, process in batches of 3 items. "
         "After each batch report what was saved (e.g. '✓ 2026-03-14 Upper A, ✓ 2026-03-16 Lower B, ✓ 2026-03-18 Upper A') "
         "and confirm with the user before continuing. Stop immediately if anything looks wrong.",
@@ -632,12 +645,378 @@ def _build_system_prompt(user: User, memory_text: str) -> str:
         f"- 'me', 'my', 'I', or no person specified → {name} (the current user).",
         "- 'my todos' / 'the inbox' / no project specified → the default To-dos project.",
         "- When creating a todo, omit project_id and assigned_to — the tool assigns them automatically.",
+        "",
+        "Profile maintenance:",
+        "- You have access to an `update_profile` tool that updates the "
+        "user's long-term profile (the same one in '## What you know about "
+        f"{name}' below, if any). Call it SILENTLY — do not ask permission, "
+        "do not mention the tool or the profile — whenever the user tells "
+        "you what they want you to focus on, mentions a habit or topic they "
+        "want ongoing attention to, shares a stable value or preference, "
+        "or makes a durable decision about themselves. Examples: 'focus "
+        "more on consistency,' 'I've been drinking too much, help me with "
+        "that,' 'stop bringing up the old job.' "
+        "After calling, acknowledge in plain language ('Got it, I'll keep "
+        "that in mind') without revealing that anything was saved.",
+        "- Do NOT use update_profile for one-off events, today's mood, a "
+        "single bad day, or transient details.",
     ]
 
     if memory_text.strip():
         parts += ["", f"## What you know about {name}", memory_text.strip()]
 
     return "\n".join(parts)
+
+
+def _build_journal_system_prompt(user: User, memory_text: str) -> str:
+    """journal-001: system prompt for guided journal sessions.
+
+    Differs from the regular chat prompt in:
+      - Adaptive register (rant mode vs reflective mode — read user's energy)
+      - Never start with a question; open warmly
+      - Never give advice unsolicited
+      - Point at humans when the topic is interpersonal
+      - Explicit role-clarity: not a therapist, not a friend, not a substitute
+      - Only the update_profile tool is available (no read/write tools —
+        this is a working space, not a task interface)
+      - Short responses (1-3 sentences usually) — user does most of the talking
+    """
+    name = user.display_name or user.email
+    today = date.today().strftime("%B %d, %Y")
+
+    parts = [
+        f"You are a journaling companion for {name}. Today is {today}.",
+        "",
+        "## What you are (and what you are not)",
+        f"You are a tool that helps {name} think and feel. You are NOT a "
+        "therapist, NOT a friend, and NOT a substitute for the people in "
+        f"{name}'s life. {name} has friends, family, and relationships of "
+        "their own — your job is to help them reflect, not to be company. "
+        "Behave that way without ever needing to say it.",
+        "",
+        "## How to be",
+        "- Open warmly, WITHOUT a question. Examples: 'How's today landing?', "
+        "'I'm here — what's up?', 'Take your time.' Never lead with an interrogation.",
+        f"- After the opening, READ {name}'s energy and MATCH it:",
+        "  * If they're VENTING or RANTING — match them. Brief acknowledgements "
+        "('yeah, that sounds rough', 'I hear you'). NO questions unless they "
+        "ask. NO advice. NO reframes. Just hold space. They keep going until "
+        "they wind down naturally — that IS the point.",
+        "  * If they're REFLECTIVE or PLANNING — match them too. One focused "
+        "question at a time. Help them stay on the thread. Don't pile on; let "
+        f"{name} lead.",
+        "- NEVER give advice unsolicited. If they ask for input, give it; "
+        "otherwise stay out of the steering.",
+        "- Keep responses SHORT — 1-3 sentences most of the time. You are not "
+        f"the main voice here, {name} is.",
+        "- Notice the wind-down (messages get shorter, less heated, they start "
+        "summarising for themselves). When that happens, OFFER to wrap — don't "
+        "push: 'Want me to pull together what came out of this? Or keep going?'",
+        "",
+        "## When humans are the answer, point at humans",
+        f"If {name} is wrestling with anything interpersonal — a hard "
+        "conversation that's pending, a relationship strain, missing someone, "
+        "feeling like they hurt someone, feeling isolated — gently mention that "
+        "talking to the person (or someone trusted in their life) is what "
+        "actually moves the needle, not talking to you. Phrase it naturally, "
+        "NOT as a disclaimer. Examples:",
+        "- 'That sounds like something to talk to them about directly when "
+        "you're ready.'",
+        "- 'Worth bringing this to someone who knows you in real life.'",
+        "- 'You don't have to figure this out alone — is there someone you "
+        "could call?'",
+        "Do this lightly. Once per session is plenty. Don't lecture.",
+        "",
+        "## Tools",
+        "- You have ONE tool: update_profile. Use it SILENTLY (no permission "
+        f"asks, no mention of the tool or profile) when {name} makes a "
+        "durable statement about themselves they want carried forward — "
+        "'I want to focus more on X moving forward', 'I'm done apologising for "
+        "Y', etc. After calling, just acknowledge in plain language ('got it, "
+        "I'll keep that in mind'). Do NOT use it for transient moods or "
+        "one-off events.",
+        "- You do NOT have access to read/write tools for tasks, habits, "
+        "goals, recipes, etc. This is not the place to track things. If "
+        f"{name} wants to set something up, suggest they do it after the "
+        "session.",
+    ]
+
+    if memory_text.strip():
+        parts += [
+            "",
+            f"## What you know about {name}",
+            memory_text.strip(),
+            "",
+            "Let this profile inform your tone and what you reference. "
+            "Do NOT name-drop it ('I see from your profile that...'). "
+            f"If the profile mentions valuing relationships, family, or "
+            "specific people, naturally surface that where it fits the "
+            "moment.",
+        ]
+
+    return "\n".join(parts)
+
+
+# journal-001: synthesis prompt used by POST /ai/journal/finish to produce
+# the first-person summary that's saved as the journal entry.
+_JOURNAL_SYNTHESIS_PROMPT = """You are synthesizing a journal session into a first-person summary the
+user will save as their journal entry for today.
+
+Read the transcript and write a markdown summary in 'I' voice that captures:
+- The emotional arc of the session (where they started, where they landed)
+- The main things they worked through
+- Any decisions or commitments they came to
+- Things they want to remember about today
+
+Rules:
+- First person ('I felt X', 'I noticed', 'I want to remember'). NEVER
+  third person ('the user', 'they').
+- 1-2 paragraphs. Dense. No filler. This is THEIR voice, distilled.
+- Do NOT add what they did not say. If they didn't reach a conclusion,
+  don't manufacture one — capture the unresolved-ness honestly.
+- Do NOT summarize what YOU said in the session. The summary is about
+  THEIR experience, not the back-and-forth.
+- If there's a clear thing to carry into tomorrow (a phrase, an
+  intention, a thing to remember), end on it. Otherwise end on the
+  emotional truth of where they landed.
+- Output ONLY the summary markdown. NO preamble like 'Here is your
+  summary' or 'Today you...'."""
+
+
+# journal-001 Phase B: opener prompt. Kept separate from the in-session
+# journal prompt because openers have different constraints — must be
+# short, must NOT end with a sharp question, must NOT direct the user.
+_JOURNAL_OPENER_PROMPT = """You are writing the OPENING MESSAGE for a journaling session. The user
+just opened the journal and hasn't said anything yet. Your job is to
+greet them warmly and OPEN THE SPACE without directing it.
+
+Rules:
+- 1-2 sentences. Brief. Warm. Unhurried.
+- DO NOT end with a sharp question that demands a specific answer.
+  Open-ended invitations are fine ("Take your time", "I'm here") but
+  not interrogations ("How was your meeting?").
+- DO NOT name-drop the profile. Never say 'I see from your profile…'.
+- If the recent narrative shows they've been struggling (harsh self-talk
+  streak, low sentiment), be gentler ("Hey. How are you holding up?",
+  "I'm here — no rush."). If it's neutral or positive, be neutral
+  ("How's today landing?", "What's on your mind?").
+- If a dominant recent theme stands out AND it feels natural to
+  reference (without sounding like a homework checkpoint), you may.
+  Examples: "You've been chewing on consistency lately — anything come
+  up there?" but NOT "Did you exercise today like you said you would?"
+- Honor the time of day. Morning openers feel like setting up;
+  afternoon feels like checking in mid-stream; evening feels like
+  winding down.
+- Output ONLY the message text. No preamble. No 'Here is your opener'.
+- DO NOT include the user's name. The chrome already shows whose
+  journal this is."""
+
+
+def _resolve_time_of_day_label(now_local: datetime | None = None) -> str:
+    """Categorical bucket — 'morning' (4-11), 'afternoon' (11-17),
+    'evening' (17-22), or 'late night' (22-4). Used in opener prompts.
+
+    Falls back to the server's UTC clock when now_local is None — caller
+    can pass the user's locale-adjusted time when we want to be precise.
+    """
+    if now_local is None:
+        now_local = datetime.now(tz=timezone.utc)
+    hour = now_local.hour
+    if 4 <= hour < 11:
+        return "morning"
+    if 11 <= hour < 17:
+        return "afternoon"
+    if 17 <= hour < 22:
+        return "evening"
+    return "late night"
+
+
+async def generate_journal_opener(
+    db: AsyncSession,
+    provider: AIProvider,
+    user_id: uuid.UUID,
+    household_id: uuid.UUID,
+    display_name: str,
+) -> str:
+    """journal-001 Phase B: write the AI's opening message for a brand-new
+    journal session, personalized by profile + recent narrative + time
+    of day.
+
+    Always returns a usable string — on failure, falls back to a generic
+    'I'm here. Take your time.' so the UI never has a blank opener.
+    Caller is responsible for persisting the message as the first
+    assistant turn.
+    """
+    try:
+        from life_dashboard.ai.profile_service import load_profile_context
+        from life_dashboard.ai.journal_signal_service import (
+            sentiment_trend,
+            harsh_self_talk_streak,
+            dominant_themes_recent,
+        )
+
+        today = date.today()
+        profile = await load_profile_context(db, user_id)
+
+        sentiment: dict = {"avg_7d": None, "avg_30d": None, "delta": None}
+        try:
+            sentiment = await sentiment_trend(db, user_id, today)
+        except Exception:
+            pass
+
+        harsh_streak = 0
+        try:
+            harsh_streak = await harsh_self_talk_streak(db, user_id, today)
+        except Exception:
+            pass
+
+        themes: list[tuple[str, int]] = []
+        try:
+            themes = await dominant_themes_recent(
+                db, user_id, today, window_days=14, top_n=3
+            )
+        except Exception:
+            pass
+
+        time_label = _resolve_time_of_day_label()
+
+        # Compose a compact user message for the opener prompt.
+        bits: list[str] = [f"Time of day: {time_label}."]
+        if sentiment.get("avg_7d") is not None:
+            bits.append(
+                f"Recent journal sentiment (7d avg): {sentiment['avg_7d']:+.2f} "
+                f"on a [-1,+1] scale."
+            )
+        if harsh_streak >= 2:
+            bits.append(
+                f"Self-talk: {harsh_streak} consecutive days of harsh self-talk "
+                f"in their journal."
+            )
+        if themes:
+            bits.append(
+                "Dominant journal themes (last 14 days): "
+                + ", ".join(f"{t} (×{c})" for t, c in themes)
+            )
+        if not profile:
+            bits.append("Profile: empty (new user).")
+
+        user_msg_lines = [
+            "Compose the opening message for this user's journal session.",
+            "",
+            *bits,
+        ]
+        if profile:
+            user_msg_lines += ["", profile]
+
+        text, input_tok, output_tok, model = await provider.complete(
+            messages=[{"role": "user", "content": "\n".join(user_msg_lines)}],
+            system=_JOURNAL_OPENER_PROMPT,
+            max_tokens=120,
+        )
+
+        if input_tok > 0 or output_tok > 0:
+            try:
+                await record_usage(
+                    db,
+                    user_id=user_id,
+                    conversation_id=None,
+                    input_tokens=input_tok,
+                    output_tokens=output_tok,
+                    model=model,
+                    turn_kind="journal_opener",
+                )
+            except Exception:
+                logger.exception("Usage recording failed for journal opener")
+
+        cleaned = text.strip().strip('"').strip("'")
+        # Defence: never return empty. Fall back to a known-good opener if
+        # the model returned something unusable.
+        if not cleaned or len(cleaned) > 400:
+            return _fallback_opener(time_label, harsh_streak)
+        return cleaned
+
+    except Exception:
+        logger.exception("generate_journal_opener failed — using fallback")
+        return _fallback_opener(_resolve_time_of_day_label(), 0)
+
+
+def _fallback_opener(time_label: str, harsh_streak: int) -> str:
+    """Static fallback openers — used when the model call fails or returns
+    something unusable. Kept warm + open, never a sharp question."""
+    if harsh_streak >= 3:
+        return "Hey. No rush — I'm here when you're ready."
+    if time_label == "morning":
+        return "Good morning. Take your time."
+    if time_label == "evening":
+        return "Welcome back. How's today landing?"
+    if time_label == "late night":
+        return "I'm here. Whatever's on your mind."
+    return "I'm here. Take your time."
+
+
+async def synthesize_journal_summary(
+    db: AsyncSession,
+    provider: AIProvider,
+    conversation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    display_name: str,
+) -> tuple[str, str]:
+    """Generate the first-person summary for a finished journal session.
+
+    Returns (summary_md, transcript_md). The transcript is formatted for
+    optional inclusion in the saved entry when the user toggles
+    'Save with transcript'.
+    """
+    recent = await get_recent_messages(
+        db, conversation_id, limit=_CONTEXT_MESSAGE_LIMIT * 4
+    )
+    if not recent:
+        return "", ""
+
+    # Build a readable transcript (the working artifact, only persisted
+    # when the user opts in).
+    transcript_lines: list[str] = []
+    role_label = {
+        AiMessageRole.user: "You",
+        AiMessageRole.assistant: "Coach",
+    }
+    for msg in recent:
+        label = role_label.get(msg.role, str(msg.role.value).title())
+        transcript_lines.append(f"**{label}:** {msg.content.strip()}")
+        transcript_lines.append("")
+    transcript_md = "\n".join(transcript_lines).strip()
+
+    # Build a flat textual rendering of the transcript for the model.
+    flat = "\n".join(
+        f"{role_label.get(m.role, str(m.role.value).title())}: {m.content.strip()}"
+        for m in recent
+    )
+    user_msg = (
+        f"Display name: {display_name}\n\n"
+        f"Transcript of today's journal session:\n\n{flat}"
+    )
+
+    text, input_tok, output_tok, model = await provider.complete(
+        messages=[{"role": "user", "content": user_msg}],
+        system=_JOURNAL_SYNTHESIS_PROMPT,
+        max_tokens=1024,
+    )
+
+    if input_tok > 0 or output_tok > 0:
+        try:
+            await record_usage(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                model=model,
+                turn_kind="journal_synthesis",
+            )
+        except Exception:
+            logger.exception("Usage recording failed for journal synthesis")
+
+    return text.strip(), transcript_md
 
 
 async def build_chat_context(
@@ -650,8 +1029,22 @@ async def build_chat_context(
 
     messages is a list of {"role": ..., "content": ...} dicts containing the
     last _CONTEXT_MESSAGE_LIMIT turns from this conversation, oldest first.
+
+    journal-001: when the conversation's kind is 'journal', uses the
+    journal-mode system prompt instead of the regular chat prompt. Caller
+    (the /ai/chat endpoint) also restricts the tools array to update_profile
+    in that case — see generate_stream's `tools` parameter.
     """
-    system = _build_system_prompt(user, memory.memory_text)
+    # Branch by conversation kind. We look it up here rather than threading
+    # it through every caller — the lookup is cheap and lives next to the
+    # prompt selection it informs.
+    conv = await db.get(AiConversation, conversation_id)
+    is_journal = conv is not None and getattr(conv, "kind", "chat") == "journal"
+
+    if is_journal:
+        system = _build_journal_system_prompt(user, memory.memory_text)
+    else:
+        system = _build_system_prompt(user, memory.memory_text)
 
     recent = await get_recent_messages(db, conversation_id, limit=_CONTEXT_MESSAGE_LIMIT)
     messages = [{"role": msg.role.value, "content": msg.content} for msg in recent]
@@ -670,6 +1063,7 @@ async def generate_stream(
     display_name: str,
     system: str,
     messages: list[dict],
+    tools: list[dict] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Async generator that streams SSE events to the client.
 
@@ -691,6 +1085,10 @@ async def generate_stream(
     # Only the final user-visible text is saved to DB / used for memory.
     final_text_parts: list[str] = []
 
+    # journal-001: callers can restrict the available tools (journal-mode
+    # passes [update_profile_def] only). Default = full toolset.
+    active_tools: list[dict] = tools if tools is not None else TOOL_DEFINITIONS
+
     # Accumulated token counts across all rounds (each round is one API call).
     total_input_tokens: int = 0
     total_output_tokens: int = 0
@@ -705,7 +1103,7 @@ async def generate_stream(
             called_tools = False
 
             async for event_type, payload in provider.stream_chat(
-                turn_messages, system, tools=TOOL_DEFINITIONS
+                turn_messages, system, tools=active_tools
             ):
                 if event_type == "text":
                     round_text.append(payload)

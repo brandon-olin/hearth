@@ -127,7 +127,7 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
   return (
     <tr
       className={cn(
-        "border-b border-border/50 hover:bg-muted/30 transition-colors",
+        "border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer",
         !isActive && "opacity-50"
       )}
       onClick={() => onEdit(habit)}

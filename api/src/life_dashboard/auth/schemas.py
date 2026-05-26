@@ -32,6 +32,10 @@ class UserResponse(BaseModel):
     date_format: str | None = None
     week_start: str | None = None
     created_at: datetime
+    # ai-access-001: per-membership AI gate. True for accounts created
+    # before this feature shipped (the server default backfills them).
+    # Frontend hides AI surfaces when False.
+    ai_features_enabled: bool = True
 
 
 class UpdateMeRequest(BaseModel):

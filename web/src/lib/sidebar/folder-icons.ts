@@ -27,7 +27,7 @@ import {
   // Travel
   Map, Plane, Car, Train, Compass,
   // Learning
-  Book, BookOpen, GraduationCap, Pencil, Brain, Lightbulb,
+  Book, BookOpen, BookOpenText, GraduationCap, Pencil, Brain, Lightbulb,
   // Creative
   Music, Film, Gamepad2, Palette, Camera,
   // General
@@ -51,7 +51,7 @@ export const FOLDER_ICONS: Record<string, LucideIcon> = {
   // Travel
   Map, Plane, Car, Train, Compass,
   // Learning
-  Book, BookOpen, GraduationCap, Pencil, Brain, Lightbulb,
+  Book, BookOpen, BookOpenText, GraduationCap, Pencil, Brain, Lightbulb,
   // Creative
   Music, Film, Gamepad2, Palette, Camera,
   // General
@@ -91,7 +91,7 @@ export const FOLDER_ICON_GROUPS: { label: string; icons: string[] }[] = [
   },
   {
     label: "Learning",
-    icons: ["Book", "BookOpen", "GraduationCap", "Pencil", "Brain", "Lightbulb"],
+    icons: ["Book", "BookOpen", "BookOpenText", "GraduationCap", "Pencil", "Brain", "Lightbulb"],
   },
   {
     label: "Creative",
@@ -107,9 +107,15 @@ export const FOLDER_ICON_GROUPS: { label: string; icons: string[] }[] = [
  * Resolve a stored icon string to a Lucide component.
  * Returns null if the string is an emoji or any unknown key — callers should
  * fall back to rendering it as text.
+ *
+ * Accepts both PascalCase ("BookOpen") and kebab-case ("book-open") — the
+ * latter can appear in data created before the picker normalised to PascalCase.
  */
 export function resolveFolderIcon(name: string): LucideIcon | null {
-  return FOLDER_ICONS[name] ?? null;
+  if (FOLDER_ICONS[name]) return FOLDER_ICONS[name];
+  // Normalise kebab-case → PascalCase ("book-open" → "BookOpen") and retry.
+  const pascal = name.replace(/(^|-)([a-z])/g, (_, __, c: string) => c.toUpperCase());
+  return FOLDER_ICONS[pascal] ?? null;
 }
 
 /** The default icon name for new folders. */

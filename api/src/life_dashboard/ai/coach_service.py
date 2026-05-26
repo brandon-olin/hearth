@@ -158,10 +158,14 @@ async def _fetch_context(
         all_pinned_ids = []
 
     # ── Todos completed yesterday ─────────────────────────────────────────────
+    # Per-user scoping (privacy-001): the coach digest must reflect THIS
+    # user's behavior only, not the whole household. Otherwise a partner's
+    # completed chores show up in your "Completed yesterday" list.
     rows = (await db.execute(
         select(Todo.title)
         .where(
             Todo.household_id == household_id,
+            Todo.assigned_to_user_id == user_id,
             Todo.status == "done",
             func.date(Todo.completed_at) == yesterday,
         )
@@ -176,6 +180,7 @@ async def _fetch_context(
             select(Todo.title)
             .where(
                 Todo.household_id == household_id,
+                Todo.assigned_to_user_id == user_id,
                 Todo.status == "done",
                 func.date(Todo.completed_at) == yesterday,
                 Todo.project_id.in_(all_pinned_ids),
@@ -192,6 +197,7 @@ async def _fetch_context(
         select(Todo.title, Todo.due_date, Todo.priority)
         .where(
             Todo.household_id == household_id,
+            Todo.assigned_to_user_id == user_id,
             Todo.status != "done",
             Todo.due_date.isnot(None),
             Todo.due_date <= for_date,
@@ -212,6 +218,7 @@ async def _fetch_context(
         select(Todo.title)
         .where(
             Todo.household_id == household_id,
+            Todo.assigned_to_user_id == user_id,
             Todo.status == "done",
             func.date(Todo.completed_at) == for_date,
         )
@@ -226,6 +233,7 @@ async def _fetch_context(
             select(Todo.title)
             .where(
                 Todo.household_id == household_id,
+                Todo.assigned_to_user_id == user_id,
                 Todo.status == "done",
                 func.date(Todo.completed_at) == for_date,
                 Todo.project_id.in_(all_pinned_ids),
@@ -238,8 +246,12 @@ async def _fetch_context(
         ctx["todos_completed_today_pinned"] = []
 
     # ── Habits ────────────────────────────────────────────────────────────────
+    # privacy-001: scope to this user's habits only. Old habits with
+    # NULL created_by_user_id will be excluded — that's correct (we
+    # can't attribute them to any user).
     habit_q = select(Habit.id, Habit.name).where(
         Habit.household_id == household_id,
+        Habit.created_by_user_id == user_id,
         Habit.status != "archived",
     )
     if pinned_habit_ids:
@@ -278,10 +290,14 @@ async def _fetch_context(
     ]
 
     # ── Goals ─────────────────────────────────────────────────────────────────
+    # privacy-001: scope to this user's goals only. Goals don't have an
+    # explicit "shared participants" concept yet; a partner's goal
+    # appearing in your digest would be a leak.
     goal_q = (
         select(Goal.id, Goal.title, Goal.current_value, Goal.target_value, Goal.unit, Goal.status)
         .where(
             Goal.household_id == household_id,
+            Goal.created_by_user_id == user_id,
             Goal.status.in_(["active", "paused"]),
         )
         .order_by(Goal.updated_at.desc())
@@ -302,10 +318,17 @@ async def _fetch_context(
         })
 
     # ── Projects ──────────────────────────────────────────────────────────────
+    # privacy-001: scope to this user's projects only. The descendant
+    # tree walk (_get_descendant_project_ids) above still traverses
+    # household-wide structure — that's deliberate, because a user might
+    # pin a parent project that has subprojects created by a partner
+    # and we want to count THAT user's todos under those subprojects.
+    # The Todo queries above already filter by assigned_to_user_id.
     proj_q = (
         select(Project.id, Project.name, Project.status)
         .where(
             Project.household_id == household_id,
+            Project.created_by_user_id == user_id,
             Project.status.notin_(["complete", "archived"]),
             Project.is_system == False,
         )
@@ -330,6 +353,7 @@ async def _fetch_context(
 async def _fetch_history(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID,
     for_date: date,
     pinned_project_ids: list[str],
     pinned_habit_ids: list[str],
@@ -339,6 +363,9 @@ async def _fetch_history(
 
     Fetches the past 6 weeks of todo completion counts (by week) and habit
     completion rates, scoped to pinned projects/habits when set.
+
+    privacy-001: all queries here are filtered to this user's data only.
+    The 6-week completion history is the user's, not the household's.
     """
     from sqlalchemy import func, case
     from life_dashboard.domains.todos.models import Todo
@@ -356,6 +383,7 @@ async def _fetch_history(
         )
         .where(
             Todo.household_id == household_id,
+            Todo.assigned_to_user_id == user_id,
             Todo.status == "done",
             func.date(Todo.completed_at) >= six_weeks_ago,
             func.date(Todo.completed_at) < for_date,  # exclude today (in progress)
@@ -375,6 +403,7 @@ async def _fetch_history(
     # ── Habit completion rates (7d vs 30d) ────────────────────────────────────
     habit_q = select(Habit.id, Habit.name).where(
         Habit.household_id == household_id,
+        Habit.created_by_user_id == user_id,
         Habit.status != "archived",
     )
     if pinned_habit_ids:
@@ -424,6 +453,167 @@ async def _fetch_history(
         history["habit_trends"] = []
 
     return history
+
+
+# ── Narrative context (Phase 3 of AI coach redesign) ──────────────────────────
+
+# How many recent journal entries to pass to the model verbatim. Capped to
+# keep prompts predictable; the structured trend numbers carry the broader
+# story.
+_NARRATIVE_RECENT_ENTRY_LIMIT = 5
+_NARRATIVE_RECENT_ENTRY_CHAR_BUDGET = 1200  # per entry; trim outliers
+
+
+async def _fetch_narrative_context(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    for_date: date,
+) -> dict[str, Any]:
+    """Pull the user's recent journal narrative for CBT-aware coaching.
+
+    Returns a dict with three keys:
+      sentiment       — {avg_7d, avg_30d, delta} or {Nones} when no signals.
+      harsh_streak    — int (consecutive days of harsh self-talk back from for_date).
+      themes          — list[(theme, count)] from the last 14 days.
+      recent_entries  — list[{date, title, body}] for the last N journal notes
+                        the user has written (any journal-kind collection in
+                        this household), oldest first within the list.
+
+    All fields are safe defaults when the user has no journal entries yet
+    or signal extraction is off — the coach falls back to behavior-only
+    reasoning rather than hallucinating a narrative.
+    """
+    from life_dashboard.ai.journal_signal_service import (
+        sentiment_trend,
+        harsh_self_talk_streak,
+        dominant_themes_recent,
+    )
+    from life_dashboard.domains.collections.models import Collection
+    from life_dashboard.domains.notes.models import Note
+
+    narrative: dict[str, Any] = {
+        "sentiment": {"avg_7d": None, "avg_30d": None, "delta": None},
+        "harsh_streak": 0,
+        "themes": [],
+        "recent_entries": [],
+    }
+
+    try:
+        narrative["sentiment"] = await sentiment_trend(db, user_id, for_date)
+    except Exception:
+        logger.exception("sentiment_trend failed — proceeding without it")
+
+    try:
+        narrative["harsh_streak"] = await harsh_self_talk_streak(db, user_id, for_date)
+    except Exception:
+        logger.exception("harsh_self_talk_streak failed — proceeding without it")
+
+    try:
+        narrative["themes"] = await dominant_themes_recent(
+            db, user_id, for_date, window_days=14, top_n=5
+        )
+    except Exception:
+        logger.exception("dominant_themes_recent failed — proceeding without it")
+
+    # Recent raw entries — looked up by the household's journal-kind
+    # collections, restricted to this user's notes, sorted newest first
+    # then reversed in the prompt builder to read oldest-first.
+    try:
+        journal_collection_ids = [
+            cid for (cid,) in (await db.execute(
+                select(Collection.id).where(
+                    Collection.household_id == household_id,
+                    Collection.kind == "journal",
+                )
+            )).all()
+        ]
+        if journal_collection_ids:
+            rows = (await db.execute(
+                select(Note.title, Note.content_md, Note.created_at)
+                .where(
+                    Note.household_id == household_id,
+                    Note.created_by_user_id == user_id,
+                    Note.collection_id.in_(journal_collection_ids),
+                    Note.archived_at.is_(None),
+                )
+                .order_by(Note.updated_at.desc())
+                .limit(_NARRATIVE_RECENT_ENTRY_LIMIT)
+            )).all()
+            entries = []
+            for n in rows:
+                body = (n.content_md or "").strip()
+                if not body:
+                    continue
+                if len(body) > _NARRATIVE_RECENT_ENTRY_CHAR_BUDGET:
+                    body = body[:_NARRATIVE_RECENT_ENTRY_CHAR_BUDGET] + " […]"
+                entries.append({
+                    "title": (n.title or "Untitled").strip(),
+                    "body": body,
+                    "created_at": n.created_at,
+                })
+            narrative["recent_entries"] = entries
+    except Exception:
+        logger.exception("recent journal entry fetch failed — proceeding without it")
+
+    return narrative
+
+
+# ── Phase 3: CBT method-layer system prompt ───────────────────────────────────
+
+# Stable system-prompt fragment loaded on every coach run, regardless of tone.
+# Tones describe the *voice* (warm vs stoic vs drill sergeant vs gentle
+# mentor). This fragment describes the *method* shared across all tones.
+#
+# Intentional design choices:
+# - The model is given three named context streams and a *job* (notice the
+#   gap between narrative and behavior), not a long list of rules.
+# - Every move is paired with what to do when both signals point the same
+#   way (positive or negative) so the model never has to invent a "lesson"
+#   from a clean run.
+# - The profile is opaque to the user-facing response: name-dropping it
+#   feels like surveillance, even when it's accurate.
+# - Journal quoting is bounded sharply because the loss landscape is
+#   asymmetric — a great quote helps a little; a bad one feels invasive.
+_COACH_METHOD_PROMPT = """You have three sources of context about this person, listed in the
+prompt below:
+
+1. Their PROFILE — long-term memory of who they are, what they're working
+   on, what they value, what tends to drain them, recurring patterns they
+   themselves have noticed.
+2. Their RECENT NARRATIVE — how they've been talking about their
+   experience in their journal lately. You receive structured signals
+   (sentiment trend, harsh self-talk streak, dominant themes) AND the
+   last few entries verbatim.
+3. Their BEHAVIORAL DATA — what they actually completed, their habit
+   consistency, their goal progress, and how recent activity compares
+   to prior weeks.
+
+Your job is not to summarize any one of these. It is to notice when they
+*diverge*, and respond to the gap. Concretely:
+
+- If the writer sounds harsh on themselves but the data shows a normal or
+  strong week → gently reality-test. Name what the data actually shows.
+  Do not be preachy. One sentence is plenty.
+- If the writer sounds confident but the data shows a real dip → be
+  honest, not flattering. Honesty is the kindness here.
+- If both narrative and data are negative → name it briefly, normalize
+  it ("happens to everyone"), and stay with them. Bird-by-bird register.
+  Do NOT pile on advice. One next step at most.
+- If both are positive → notice it without inflating it. Do not
+  manufacture a lesson from a clean run.
+- Reference the profile to make the response feel like it's for *this*
+  person, not for anyone. But do NOT name-drop the profile — never say
+  "I see from your profile that…" or "you've told me before that…".
+- Quote the writer's own journal language at most once per response, and
+  only when the quote lands as *seen* rather than *surveilled*. When in
+  doubt, paraphrase instead.
+- If the profile is empty or the narrative stream is empty, do not
+  invent one. Fall back to grounded reflection on the behavioral data
+  alone.
+
+You are not a therapist and you do not diagnose. You are a coach who has
+been watching this person for a while and responds to the whole picture."""
 
 
 # ── Prompt building ───────────────────────────────────────────────────────────
@@ -516,12 +706,105 @@ def _fmt_habit_trends(trends: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _fmt_narrative(narrative: dict[str, Any]) -> str:
+    """Format the narrative-context block for inclusion in user messages.
+
+    Returns "" when there's no narrative to surface — the prompt builders
+    omit the whole section in that case rather than render an empty header.
+    """
+    if not narrative:
+        return ""
+
+    has_signals = (
+        narrative.get("sentiment", {}).get("avg_30d") is not None
+        or narrative.get("harsh_streak", 0) > 0
+        or bool(narrative.get("themes"))
+    )
+    has_entries = bool(narrative.get("recent_entries"))
+    if not (has_signals or has_entries):
+        return ""
+
+    lines: list[str] = ["## Recent narrative", ""]
+
+    # Structured trend numbers — small, dense, easy for the coach to
+    # reason about without re-reading text.
+    sent = narrative.get("sentiment", {})
+    avg_7 = sent.get("avg_7d")
+    avg_30 = sent.get("avg_30d")
+    delta = sent.get("delta")
+    if avg_7 is not None or avg_30 is not None:
+        a7 = f"{avg_7:+.2f}" if avg_7 is not None else "—"
+        a30 = f"{avg_30:+.2f}" if avg_30 is not None else "—"
+        d = f"{delta:+.2f}" if delta is not None else "—"
+        lines.append(
+            f"**Journal sentiment:** 7d avg {a7} vs 30d avg {a30} (delta {d}). "
+            f"Range is -1.00 (very negative) to +1.00 (very positive)."
+        )
+
+    streak = narrative.get("harsh_streak", 0)
+    if streak >= 1:
+        lines.append(
+            f"**Self-talk:** {streak} consecutive day(s) of harsh self-talk "
+            f"in the journal (anchored at today, going back)."
+        )
+
+    themes = narrative.get("themes") or []
+    if themes:
+        joined = ", ".join(f"{t} (×{c})" for t, c in themes)
+        lines.append(f"**Dominant themes (last 14 days):** {joined}")
+
+    # Raw recent entries — oldest first so the coach reads them
+    # chronologically. Bounded by _NARRATIVE_RECENT_ENTRY_LIMIT and
+    # per-entry char budget in the fetcher.
+    if has_entries:
+        lines.append("")
+        lines.append("**Last few journal entries (oldest first):**")
+        # The fetcher returns newest-first; reverse for chronological read.
+        for e in reversed(narrative["recent_entries"]):
+            created = e["created_at"]
+            try:
+                date_str = created.date().isoformat()
+            except AttributeError:
+                date_str = str(created)[:10]
+            lines.append("")
+            lines.append(f"#### {date_str} — {e['title']}")
+            lines.append(e["body"])
+
+    return "\n".join(lines)
+
+
+def _fmt_focus(focus: str | None) -> str:
+    """Format the user-supplied 'focus' text into a labelled section.
+
+    Used by all three digest builders. Returns "" when focus is missing or
+    blank, so callers can append unconditionally.
+    """
+    if not focus:
+        return ""
+    cleaned = focus.strip()
+    if not cleaned:
+        return ""
+    # Cap to keep prompt size predictable. Users will write 1-2 sentences;
+    # longer free-text gets trimmed rather than blowing the prompt budget.
+    if len(cleaned) > 1000:
+        cleaned = cleaned[:1000] + " […]"
+    return (
+        "## What I want you to focus on right now\n\n"
+        + cleaned
+        + "\n\n"
+        + "Weight this above the standard briefing structure. If it "
+        + "conflicts with the default sections, follow this guidance."
+    )
+
+
 def _build_morning_user_message(
     display_name: str,
     for_date: date,
     ctx: dict[str, Any],
     include_goals: bool,
     include_projects: bool,
+    narrative: dict[str, Any] | None = None,
+    focus: str | None = None,
 ) -> str:
     yesterday = date.fromordinal(for_date.toordinal() - 1)
     pinned_names = ctx.get("pinned_project_names", [])
@@ -576,6 +859,22 @@ def _build_morning_user_message(
         "",
         "**Tasks due today (including overdue):**",
         _fmt_todo_list(ctx["todos_due_today"], overdue_label=True),
+    ]
+
+    # Phase 3: narrative section, inserted before the briefing instructions
+    # so the model has the full picture when it starts composing.
+    narrative_block = _fmt_narrative(narrative or {})
+    if narrative_block:
+        parts += ["", narrative_block]
+
+    # coach-004: user-supplied focus text. Rendered last (right before the
+    # briefing instructions) so it's the freshest thing in the prompt when
+    # the model starts composing.
+    focus_block = _fmt_focus(focus)
+    if focus_block:
+        parts += ["", focus_block]
+
+    parts += [
         "",
         "Please give me a morning briefing covering:",
     ]
@@ -609,6 +908,8 @@ def _build_weekly_user_message(
     history: dict[str, Any],
     include_goals: bool,
     include_projects: bool,
+    narrative: dict[str, Any] | None = None,
+    focus: str | None = None,
 ) -> str:
     """Weekly Friday review prompt — trajectory and higher-level reflection."""
     pinned_names = ctx.get("pinned_project_names", [])
@@ -664,6 +965,16 @@ def _build_weekly_user_message(
 
     parts += ["", "**Habits this week:**", _fmt_habit_list(ctx["habits_today"])]
 
+    # Phase 3: narrative section before the review instructions.
+    narrative_block = _fmt_narrative(narrative or {})
+    if narrative_block:
+        parts += ["", narrative_block]
+
+    # coach-004: user-supplied focus text.
+    focus_block = _fmt_focus(focus)
+    if focus_block:
+        parts += ["", focus_block]
+
     parts += [
         "",
         "Please give me a weekly Friday review covering:",
@@ -698,6 +1009,8 @@ def _build_evening_user_message(
     include_goals: bool,
     include_projects: bool,
     history: dict[str, Any] | None = None,
+    narrative: dict[str, Any] | None = None,
+    focus: str | None = None,
 ) -> str:
     pinned_names = ctx.get("pinned_project_names", [])
     pinned_today = ctx.get("todos_completed_today_pinned", [])
@@ -758,6 +1071,16 @@ def _build_evening_user_message(
         if habit_trends:
             parts += ["", "**Habit trends (7-day vs 30-day):**", _fmt_habit_trends(habit_trends)]
 
+    # Phase 3: narrative section.
+    narrative_block = _fmt_narrative(narrative or {})
+    if narrative_block:
+        parts += ["", narrative_block]
+
+    # coach-004: user-supplied focus text.
+    focus_block = _fmt_focus(focus)
+    if focus_block:
+        parts += ["", focus_block]
+
     parts += [
         "",
         "Please give me an evening wind-down summary covering:",
@@ -806,6 +1129,7 @@ async def generate_digest(
     pinned_project_ids: list[str],
     pinned_goal_ids: list[str],
     pinned_habit_ids: list[str],
+    focus: str | None = None,
 ) -> AiCoachDigest:
     """Generate (or regenerate) a coach digest and persist it.
 
@@ -834,27 +1158,62 @@ async def generate_digest(
     if is_evening or is_weekly:
         try:
             history = await _fetch_history(
-                db, household_id, for_date,
+                db, household_id, user_id, for_date,
                 pinned_project_ids, pinned_habit_ids, all_pinned_ids,
             )
         except Exception:
             logger.exception("History fetch failed — proceeding without historical context")
 
+    # Phase 3: narrative-context fetch (sentiment trend, harsh-self-talk
+    # streak, dominant themes, last few raw journal entries). All-safe
+    # defaults when the user has no journal entries yet — the prompt
+    # builder omits the section entirely in that case.
+    narrative: dict[str, Any] = {}
+    try:
+        narrative = await _fetch_narrative_context(db, household_id, user_id, for_date)
+    except Exception:
+        logger.exception(
+            "Narrative context fetch failed — proceeding without narrative"
+        )
+
     if kind == CoachDigestKind.morning or kind == "morning":
-        system = tone_def["morning_voice"]
+        tone_voice = tone_def["morning_voice"]
         user_msg = _build_morning_user_message(
-            display_name, for_date, ctx, include_goals, include_projects
+            display_name, for_date, ctx, include_goals, include_projects,
+            narrative=narrative, focus=focus,
         )
     elif is_weekly:
-        system = tone_def["evening_voice"]  # weekly uses the same reflective voice
+        tone_voice = tone_def["evening_voice"]  # weekly uses the same reflective voice
         user_msg = _build_weekly_user_message(
-            display_name, for_date, ctx, history, include_goals, include_projects
+            display_name, for_date, ctx, history, include_goals, include_projects,
+            narrative=narrative, focus=focus,
         )
     else:
-        system = tone_def["evening_voice"]
+        tone_voice = tone_def["evening_voice"]
         user_msg = _build_evening_user_message(
-            display_name, for_date, ctx, include_goals, include_projects, history
+            display_name, for_date, ctx, include_goals, include_projects, history,
+            narrative=narrative, focus=focus,
         )
+
+    # Phase 3: layer the system prompt as
+    #   [tone voice]
+    #   ## How to coach
+    #   [_COACH_METHOD_PROMPT]
+    #   [profile fragment, if any]
+    #
+    # Tones describe *voice* (warm vs stoic vs drill sergeant vs gentle
+    # mentor); the method describes the CBT-style moves that are shared
+    # across all tones. Profile is added last so it reads as concrete
+    # context, not as a rule.
+    system = tone_voice + "\n\n## How to coach\n\n" + _COACH_METHOD_PROMPT
+
+    try:
+        from life_dashboard.ai.profile_service import load_profile_context
+        profile_fragment = await load_profile_context(db, user_id)
+        if profile_fragment:
+            system = system + "\n\n" + profile_fragment
+    except Exception:
+        logger.exception("Profile load failed for coach digest — proceeding without profile")
 
     content, input_tokens, output_tokens, model = await provider.complete(
         messages=[{"role": "user", "content": user_msg}],

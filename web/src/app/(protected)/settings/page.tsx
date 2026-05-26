@@ -3018,6 +3018,134 @@ const ROLE_BADGE: Record<string, string> = {
   agent:  "badge-neutral badge-faded",
 };
 
+// ── ai-access-001: per-member AI features toggle ──────────────────────────────
+
+function MemberRow({
+  m,
+  isCurrentUser,
+  viewerIsAdmin,
+}: {
+  m: {
+    user_id: string;
+    display_name: string | null;
+    email: string;
+    role: string;
+    ai_features_enabled?: boolean;
+  };
+  isCurrentUser: boolean;
+  viewerIsAdmin: boolean;
+}) {
+  const qc = useQueryClient();
+  // Treat undefined (older API response) as enabled, matching the
+  // server-side default and the migration backfill.
+  const [enabled, setEnabled] = useState<boolean>(m.ai_features_enabled ?? true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Admins see a real toggle for OTHER members. For their own row, the
+  // toggle is shown but disabled — admins can't lock themselves out via
+  // this control. Non-admins see a read-only status pill so they know
+  // the state without being able to change it.
+  const canToggle = viewerIsAdmin && !isCurrentUser;
+
+  async function toggleAi(next: boolean) {
+    if (!canToggle || saving) return;
+    setSaving(true);
+    setError(null);
+    const previous = enabled;
+    setEnabled(next); // optimistic
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${apiBaseUrl}/households/members/${m.user_id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ai_features_enabled: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail ?? "Failed to update");
+      }
+      await qc.invalidateQueries({ queryKey: ["get", "/households/members"] });
+    } catch (e) {
+      setEnabled(previous); // rollback optimistic
+      setError(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const initials = (m.display_name ?? m.email)
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background">
+      {/* Avatar */}
+      <div className="h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center shrink-0">
+        {initials}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{m.display_name ?? m.email}</p>
+        {m.display_name && (
+          <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+        )}
+        {error && (
+          <p className="text-[11px] text-destructive mt-0.5 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3 shrink-0" />
+            {error}
+          </p>
+        )}
+      </div>
+      <span className={cn("badge", ROLE_BADGE[m.role] ?? "badge-neutral")}>
+        {ROLE_LABEL[m.role] ?? m.role}
+      </span>
+
+      {/* AI features toggle / status */}
+      {viewerIsAdmin ? (
+        <label
+          className={cn(
+            "flex items-center gap-1.5 text-xs whitespace-nowrap",
+            canToggle ? "cursor-pointer text-muted-foreground" : "cursor-default text-muted-foreground/60",
+          )}
+          title={
+            isCurrentUser
+              ? "You can't change your own AI access from here. Clear your API key in Settings → AI to disable for yourself."
+              : enabled
+              ? "AI features ON for this member. Click to disable."
+              : "AI features OFF for this member. Click to enable."
+          }
+        >
+          <span>AI</span>
+          <input
+            type="checkbox"
+            className="checkbox-themed h-4 w-4"
+            checked={enabled}
+            disabled={!canToggle || saving}
+            onChange={(e) => toggleAi(e.target.checked)}
+          />
+        </label>
+      ) : (
+        <span
+          className={cn(
+            "text-[11px] uppercase tracking-wide font-medium",
+            enabled ? "text-muted-foreground" : "text-muted-foreground/60",
+          )}
+          title={enabled ? "AI features are enabled for this member" : "AI features are disabled for this member"}
+        >
+          AI: {enabled ? "on" : "off"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+
 function HouseholdSection() {
   const qc = useQueryClient();
 
@@ -3148,29 +3276,12 @@ function HouseholdSection() {
         ) : (
           <div className="space-y-2">
             {(members ?? []).map((m) => (
-              <div
+              <MemberRow
                 key={m.user_id}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md border bg-background"
-              >
-                {/* Avatar */}
-                <div className="h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center shrink-0">
-                  {(m.display_name ?? m.email)
-                    .trim()
-                    .split(/\s+/)
-                    .slice(0, 2)
-                    .map((w) => w[0]?.toUpperCase() ?? "")
-                    .join("")}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{m.display_name ?? m.email}</p>
-                  {m.display_name && (
-                    <p className="text-xs text-muted-foreground truncate">{m.email}</p>
-                  )}
-                </div>
-                <span className={cn("badge", ROLE_BADGE[m.role] ?? "badge-neutral")}>
-                  {ROLE_LABEL[m.role] ?? m.role}
-                </span>
-              </div>
+                m={m}
+                isCurrentUser={m.user_id === user?.id}
+                viewerIsAdmin={ADMIN_ROLES.has(user?.role ?? "")}
+              />
             ))}
 
             {/* Add member button / form */}
@@ -3252,6 +3363,18 @@ type AiSettings = {
   provider: "anthropic" | "openai" | "ollama";
   retention_days: number | null;
   has_custom_key: boolean;
+  // Phase 2 of AI coach redesign — per-user opt-out for journal signal
+  // extraction. Server defaults this to true; we treat undefined as true
+  // for backward-compat with older API responses.
+  ai_journal_extraction_enabled?: boolean;
+};
+
+type JournalSignalsBackfillResponse = {
+  scanned: number;
+  extracted: number;
+  skipped_empty: number;
+  skipped_current: number;
+  errors: number;
 };
 
 const PROVIDER_OPTIONS: { value: AiSettings["provider"]; label: string; placeholder: string }[] = [
@@ -3294,6 +3417,389 @@ async function patchAiSettings(patch: Record<string, unknown>): Promise<AiSettin
   }
   return res.json() as Promise<AiSettings>;
 }
+
+// ── AI profile (Phase 1 of AI coach redesign) ────────────────────────────────
+
+type AiProfile = {
+  content_md: string;
+  last_updated_at: string;
+  last_bootstrapped_at: string | null;
+};
+
+type AiProfileUpdate = {
+  id: string;
+  proposed_content_md: string;
+  diff_summary: string | null;
+  source: "bootstrap" | "incremental" | "manual";
+  status: "pending" | "accepted" | "rejected" | "superseded";
+  created_at: string;
+  resolved_at: string | null;
+};
+
+type AiBootstrapResponse = {
+  update: AiProfileUpdate | null;
+  bootstrap_skipped: boolean;
+  reason: string | null;
+};
+
+async function aiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAccessToken();
+  const res = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+function ProfileSubSection() {
+  const qc = useQueryClient();
+  const { data: profile, isLoading: profileLoading, isError: profileError } =
+    useQuery<AiProfile>({
+      queryKey: ["ai", "profile"],
+      queryFn: () => aiFetch<AiProfile>("/ai/profile"),
+    });
+
+  const { data: updatesData } = useQuery<{ items: AiProfileUpdate[] }>({
+    queryKey: ["ai", "profile", "updates"],
+    queryFn: () => aiFetch<{ items: AiProfileUpdate[] }>("/ai/profile/updates"),
+  });
+  const pendingUpdates = updatesData?.items ?? [];
+
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const editing = draft !== null;
+  const liveValue = draft ?? profile?.content_md ?? "";
+
+  async function startEdit() {
+    setDraft(profile?.content_md ?? "");
+    setSaveError(null);
+  }
+
+  async function cancelEdit() {
+    setDraft(null);
+    setSaveError(null);
+  }
+
+  async function saveDraft() {
+    if (draft === null) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await aiFetch<AiProfile>("/ai/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ content_md: draft }),
+      });
+      await qc.invalidateQueries({ queryKey: ["ai", "profile"] });
+      setDraft(null);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runBootstrap() {
+    setBootstrapping(true);
+    setBootstrapMsg(null);
+    try {
+      const resp = await aiFetch<AiBootstrapResponse>("/ai/profile/bootstrap", {
+        method: "POST",
+      });
+      if (resp.bootstrap_skipped) {
+        setBootstrapMsg(resp.reason ?? "Bootstrap produced no proposal.");
+      } else {
+        setBootstrapMsg("New proposal ready for review below.");
+      }
+      await qc.invalidateQueries({ queryKey: ["ai", "profile"] });
+      await qc.invalidateQueries({ queryKey: ["ai", "profile", "updates"] });
+    } catch (e) {
+      setBootstrapMsg(e instanceof Error ? e.message : "Bootstrap failed");
+    } finally {
+      setBootstrapping(false);
+    }
+  }
+
+  async function acceptUpdate(id: string) {
+    setResolvingId(id);
+    try {
+      await aiFetch<AiProfile>(`/ai/profile/updates/${id}/accept`, { method: "POST" });
+      await qc.invalidateQueries({ queryKey: ["ai", "profile"] });
+      await qc.invalidateQueries({ queryKey: ["ai", "profile", "updates"] });
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  async function rejectUpdate(id: string) {
+    setResolvingId(id);
+    try {
+      await aiFetch<void>(`/ai/profile/updates/${id}/reject`, { method: "POST" });
+      await qc.invalidateQueries({ queryKey: ["ai", "profile", "updates"] });
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  if (profileLoading) {
+    return (
+      <SubSection title="Profile">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+        </div>
+      </SubSection>
+    );
+  }
+
+  if (profileError || !profile) {
+    return (
+      <SubSection title="Profile">
+        <div className="flex items-center gap-2 text-sm text-destructive py-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          Failed to load profile. Reload the page to try again.
+        </div>
+      </SubSection>
+    );
+  }
+
+  const hasProfile = (profile.content_md ?? "").trim().length > 0;
+
+  return (
+    <SubSection title="Profile">
+      <p className="text-xs text-muted-foreground mb-4">
+        Long-term memory the coach and chatbot both read. The AI proposes
+        changes — you accept or reject. You can also edit it directly any time.
+      </p>
+
+      {/* Current profile / editor */}
+      {editing ? (
+        <div className="space-y-3">
+          <textarea
+            value={liveValue}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={14}
+            spellCheck={false}
+            className="w-full text-sm font-mono bg-background border border-border rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            placeholder="## Current focuses&#10;&#10;## Values & non-negotiables&#10;…"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={saveDraft}
+              className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={cancelEdit}
+              className="px-3 py-2 text-sm rounded-md border border-border hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {liveValue.length} / 8000
+            </span>
+          </div>
+          {saveError && (
+            <p className="text-xs text-destructive flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {saveError}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {hasProfile ? (
+            <pre className="text-sm whitespace-pre-wrap font-sans bg-muted/30 border border-border rounded-md p-4 max-h-[28rem] overflow-y-auto">
+              {profile.content_md}
+            </pre>
+          ) : (
+            <div className="text-sm text-muted-foreground bg-muted/30 border border-dashed border-border rounded-md p-4">
+              {profile.last_bootstrapped_at
+                ? "Your profile is empty. Edit it directly, or run the bootstrap pass again after journaling more."
+                : "Your profile is empty. Click “Build my profile” to draft one from your existing notes, documents, and recent activity."}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={startEdit}
+              className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted transition-colors cursor-pointer"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              disabled={bootstrapping}
+              onClick={runBootstrap}
+              className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {bootstrapping && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {hasProfile ? "Propose updates from my data" : "Build my profile"}
+            </button>
+            {profile.last_bootstrapped_at && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                Last bootstrapped {new Date(profile.last_bootstrapped_at).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          {bootstrapMsg && (
+            <p className="text-xs text-muted-foreground">{bootstrapMsg}</p>
+          )}
+        </div>
+      )}
+
+      {/* Pending updates */}
+      {pendingUpdates.length > 0 && (
+        <div className="mt-5 space-y-3">
+          <Label>Pending proposed updates</Label>
+          {pendingUpdates.map((u) => (
+            <div key={u.id} className="border border-border rounded-md bg-muted/20">
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+                <span className="badge badge-warning">{u.source}</span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(u.created_at).toLocaleString()}
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={resolvingId === u.id}
+                    onClick={() => acceptUpdate(u.id)}
+                    className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer disabled:cursor-default inline-flex items-center gap-1"
+                  >
+                    {resolvingId === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resolvingId === u.id}
+                    onClick={() => rejectUpdate(u.id)}
+                    className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+              {u.diff_summary && (
+                <p className="px-4 pt-3 text-xs text-muted-foreground italic">
+                  {u.diff_summary}
+                </p>
+              )}
+              <pre className="px-4 pb-3 pt-2 text-sm whitespace-pre-wrap font-sans max-h-72 overflow-y-auto">
+                {u.proposed_content_md}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </SubSection>
+  );
+}
+
+function JournalSignalsSubSection({
+  enabled,
+  onToggle,
+  disabled,
+}: {
+  enabled: boolean;
+  onToggle: (next: boolean) => void;
+  disabled: boolean;
+}) {
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<JournalSignalsBackfillResponse | null>(null);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
+
+  async function runBackfill() {
+    setBackfilling(true);
+    setBackfillError(null);
+    setBackfillResult(null);
+    try {
+      const resp = await aiFetch<JournalSignalsBackfillResponse>(
+        "/ai/journal-signals/backfill",
+        { method: "POST" },
+      );
+      setBackfillResult(resp);
+    } catch (e) {
+      setBackfillError(e instanceof Error ? e.message : "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
+  return (
+    <SubSection title="Journal signals">
+      <p className="text-xs text-muted-foreground mb-4">
+        When enabled, each journal entry you save is read by a small AI pass
+        that extracts sentiment, themes, self-talk valence, and energy level.
+        The coach uses these signals to spot patterns across days and weeks —
+        not to quote you. Stored locally; opting out skips extraction entirely.
+      </p>
+
+      {/* Toggle */}
+      <label className="flex items-center justify-between gap-4 px-4 py-3 rounded-md border border-border bg-card cursor-pointer">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">Extract signals on save</span>
+          <span className="text-xs text-muted-foreground">
+            {enabled ? "On — new journal entries are processed in the background." : "Off — no extraction runs."}
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          className="checkbox-themed h-5 w-5 shrink-0"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+      </label>
+
+      {/* Backfill */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={!enabled || backfilling}
+          onClick={runBackfill}
+          className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+        >
+          {backfilling && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Backfill existing entries
+        </button>
+        <p className="text-xs text-muted-foreground">
+          Runs extraction across every journal entry you've already written. Safe to run repeatedly.
+        </p>
+      </div>
+      {backfillResult && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Backfill complete: <strong>{backfillResult.extracted}</strong> extracted,{" "}
+          {backfillResult.skipped_empty} empty, {backfillResult.skipped_current} already current
+          {backfillResult.errors > 0 && (
+            <>, <span className="text-destructive">{backfillResult.errors} errored</span></>
+          )}.
+        </p>
+      )}
+      {backfillError && (
+        <p className="mt-3 text-xs text-destructive flex items-center gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {backfillError}
+        </p>
+      )}
+    </SubSection>
+  );
+}
+
 
 function AiSection() {
   const qc = useQueryClient();
@@ -3386,6 +3892,11 @@ function AiSection() {
   return (
     <div className="space-y-5">
       <SectionTitle>AI</SectionTitle>
+
+      {/* Profile is intentionally hidden from end users — it's built
+          automatically in the background once an API key is configured,
+          and updated silently from journal activity. The backend
+          /ai/profile/* endpoints remain available for debugging. */}
 
       {/* ── Provider ── */}
       <SubSection title="Provider">
@@ -3520,6 +4031,13 @@ function AiSection() {
           </div>
         )}
       </SubSection>
+
+      {/* ── Journal signals (Phase 2 of AI coach redesign) ── */}
+      <JournalSignalsSubSection
+        enabled={settings.ai_journal_extraction_enabled ?? true}
+        onToggle={(next) => save({ ai_journal_extraction_enabled: next })}
+        disabled={saving}
+      />
 
       {/* ── Conversation history ── */}
       <SubSection title="Conversation history">
@@ -3888,13 +4406,21 @@ function TemplatesSection() {
 export default function SettingsPage() {
   const { user } = useAuth();
   const isAdmin = ADMIN_ROLES.has(user?.role ?? "");
+  // ai-access-001: hide the AI settings section entirely when the current
+  // member's AI features are disabled by their household admin.
+  const aiEnabled = user?.ai_features_enabled !== false;
 
   // Non-admins skip the Household tab entirely; start them on Account instead.
   const [active, setActive] = useState<Section>(isAdmin ? "household" : "account");
 
   const ADMIN_ONLY_SECTIONS = new Set<Section>(["household", "visibility"]);
   const visibleSections = new Set<Section>(
-    SECTIONS.map((s) => s.id).filter((id) => !ADMIN_ONLY_SECTIONS.has(id) || isAdmin),
+    SECTIONS.map((s) => s.id).filter(
+      (id) =>
+        (!ADMIN_ONLY_SECTIONS.has(id) || isAdmin) &&
+        // Hide the AI tab when this member has AI disabled.
+        (id !== "ai" || aiEnabled),
+    ),
   );
 
   return (
@@ -3913,7 +4439,7 @@ export default function SettingsPage() {
         {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}
         {active === "templates"   && <TemplatesSection />}
         {active === "collections" && <PagesSection />}
-        {active === "ai"          && <AiSection />}
+        {active === "ai"          && aiEnabled && <AiSection />}
       </div>
     </div>
   );

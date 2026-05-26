@@ -1,17 +1,22 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSegmentId } from "@/lib/hooks/use-segment-id";
 import { $api } from "@/lib/api/query";
+import { apiBaseUrl } from "@/lib/api/client";
+import { fetchWithAuth } from "@/lib/api/fetch-with-auth";
 import { Button } from "@/components/ui/button";
-import { Loader2, ChevronLeft, ExternalLink, Clock, Users, Edit, ChefHat, Sun, SunDim } from "lucide-react";
+import { Loader2, ChevronLeft, ExternalLink, Clock, Users, Edit, ChefHat, Sun, SunDim, ShoppingCart, Check, Plus, ArrowRight } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 import { resolveMediaUrl } from "@/lib/api/client";
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth/context";
 import { usePermissions } from "@/lib/hooks/use-permissions";
+import { cn } from "@/lib/utils";
+import { useRegisterCurrentResource } from "@/lib/chat-context/current-resource";
 
 type Recipe = components["schemas"]["RecipeResponse"];
 
@@ -123,6 +128,155 @@ function RecipeHeader({ recipe }: { recipe: Recipe }) {
   );
 }
 
+// ── Add to grocery list ───────────────────────────────────────────────────────
+
+type GroceryList = components["schemas"]["GroceryListResponse"];
+
+function AddToGroceryList({ recipeId, recipeName, hasIngredients }: {
+  recipeId: string;
+  recipeName: string;
+  hasIngredients: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [result, setResult] = useState<{ listId: string; listName: string; added: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Fetch active lists when the picker opens
+  const { data: listsData, isLoading: listsLoading } = $api.useQuery(
+    "get",
+    "/grocery-lists",
+    { params: { query: { status: "active", limit: 50 } } },
+    { enabled: open && !result }
+  );
+  const activeLists: GroceryList[] = listsData?.items ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const doAdd = async (listId: string, listName: string) => {
+    setAdding(true);
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl}/recipes/${recipeId}/add-to-grocery-list`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ list_id: listId }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json() as { added: number; skipped: number };
+      setResult({ listId, listName, added: data.added });
+      setOpen(false);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const doCreateAndAdd = async () => {
+    setCreating(true);
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl}/grocery-lists`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: recipeName, status: "active", items: [], visibility: "household" }),
+      });
+      if (!res.ok) throw new Error("Failed to create list");
+      const newList = await res.json() as GroceryList;
+      await doAdd(newList.id, newList.name);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (!hasIngredients) return null;
+
+  // Success state — show confirmation chip
+  if (result) {
+    return (
+      <div className="flex items-center gap-2 mt-4">
+        <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+          <Check className="h-3.5 w-3.5" />
+          {result.added > 0 ? `${result.added} item${result.added === 1 ? "" : "s"} added` : "Already in list"}
+        </span>
+        <button
+          onClick={() => router.push("/grocery-lists")}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Open list <ArrowRight className="h-3 w-3" />
+        </button>
+        <button onClick={() => setResult(null)} className="text-xs text-muted-foreground/60 hover:text-muted-foreground ml-auto">
+          ✕
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative mt-4">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        disabled={adding || creating}
+        className="gap-1.5"
+      >
+        {(adding || creating) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShoppingCart className="h-3.5 w-3.5" />}
+        Add to grocery list
+      </Button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full mt-1 z-20 bg-background border rounded-lg shadow-lg py-1 min-w-[220px]">
+            {listsLoading ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading lists…
+              </div>
+            ) : activeLists.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No active grocery lists</p>
+            ) : (
+              <>
+                <p className="px-3 pt-1.5 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Add to list
+                </p>
+                {activeLists.map((list) => (
+                  <button
+                    key={list.id}
+                    onClick={() => void doAdd(list.id, list.name)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate">{list.name}</span>
+                    {list.store && <span className="text-xs text-muted-foreground shrink-0">· {list.store}</span>}
+                  </button>
+                ))}
+                <div className="border-t mt-1 pt-1" />
+              </>
+            )}
+            <button
+              onClick={() => void doCreateAndAdd()}
+              className={cn(
+                "w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2",
+                creating && "opacity-50 pointer-events-none"
+              )}
+            >
+              <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              New list for this recipe
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function IngredientsList({ recipe }: { recipe: Recipe }) {
   if (!recipe.ingredients.length) return null;
   return (
@@ -140,6 +294,11 @@ function IngredientsList({ recipe }: { recipe: Recipe }) {
           </li>
         ))}
       </ul>
+      <AddToGroceryList
+        recipeId={recipe.id}
+        recipeName={recipe.name}
+        hasIngredients={recipe.ingredients.length > 0}
+      />
     </div>
   );
 }
@@ -177,6 +336,13 @@ export default function RecipeDetailPage() {
     "get",
     "/recipes/{recipe_id}",
     { params: { path: { recipe_id: id } } }
+  );
+
+  // chat-001: publish this recipe so the chat sidebar can show
+  // 'Discussing: <recipe name>' and the AI can answer questions about
+  // 'this recipe' without the user pasting any content.
+  useRegisterCurrentResource(
+    recipe ? { type: "recipe", id, title: recipe.name ?? "" } : null,
   );
 
   if (isLoading) {

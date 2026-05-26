@@ -20,7 +20,12 @@ until "$PG_ISREADY" -h 127.0.0.1 -p 5432 -U {{PG_SUPERUSER}} -q; do
     waited=$((waited + 1))
 done
 
+# Run any pending Alembic migrations before starting the server.
+# No-op on SQLite; applies pending migrations on Postgres.
+cd "{{APP_DIR}}/api" && .venv/bin/alembic upgrade head
+
 exec "{{APP_DIR}}/api/.venv/bin/uvicorn" life_dashboard.main:app \
     --host 0.0.0.0 \
     --port 1338 \
-    --workers 2
+    --reload \
+    --reload-dir "{{APP_DIR}}/api/src"

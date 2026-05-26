@@ -207,3 +207,80 @@ async def update_grocery_item(
     await db.commit()
     await db.refresh(item)
     return GroceryItemResponse.model_validate(item)
+
+
+# ── Recipe → grocery list ─────────────────────────────────────────────────────
+
+async def add_recipe_ingredients_to_list(
+    db: AsyncSession,
+    *,
+    recipe_id: uuid.UUID,
+    list_id: uuid.UUID,
+    household_id: uuid.UUID,
+    servings_scale: float = 1.0,
+) -> dict[str, int]:
+    """
+    Append recipe ingredients to an existing grocery list.
+    Ingredients whose recipe_ingredient_id is already in the list are skipped
+    (idempotent — safe to call again if the user hits the button twice).
+    Returns {"added": n, "skipped": m}.
+    """
+    from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient  # local to avoid circular import
+
+    # Verify the recipe belongs to this household
+    recipe = (await db.execute(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
+    )).scalar_one_or_none()
+    if recipe is None:
+        raise ValueError("Recipe not found")
+
+    # Verify the target grocery list belongs to this household
+    grocery_list = (await db.execute(
+        select(GroceryList).where(GroceryList.id == list_id, GroceryList.household_id == household_id)
+    )).scalar_one_or_none()
+    if grocery_list is None:
+        raise ValueError("Grocery list not found")
+
+    # Load recipe ingredients
+    ingredients = list((await db.execute(
+        select(RecipeIngredient)
+        .where(RecipeIngredient.recipe_id == recipe_id)
+        .order_by(RecipeIngredient.sort_order)
+    )).scalars().all())
+
+    if not ingredients:
+        return {"added": 0, "skipped": 0}
+
+    # Find ingredient IDs already in this list
+    existing_ids: set[uuid.UUID] = set(
+        (await db.execute(
+            select(GroceryItem.recipe_ingredient_id)
+            .where(
+                GroceryItem.list_id == list_id,
+                GroceryItem.recipe_ingredient_id.in_([i.id for i in ingredients]),
+            )
+        )).scalars().all()
+    )
+
+    added = 0
+    skipped = 0
+    for ing in ingredients:
+        if ing.id in existing_ids:
+            skipped += 1
+            continue
+        qty = ing.quantity
+        if qty is not None and servings_scale != 1.0:
+            qty = float(qty) * servings_scale
+        db.add(GroceryItem(
+            list_id=list_id,
+            name=ing.name,
+            quantity=qty,
+            unit=ing.unit,
+            notes=ing.notes,
+            recipe_id=recipe_id,
+            recipe_ingredient_id=ing.id,
+        ))
+        added += 1
+
+    await db.commit()
+    return {"added": added, "skipped": skipped}

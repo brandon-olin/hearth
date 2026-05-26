@@ -69,6 +69,11 @@ class NoteResponse(BaseModel):
     content_md: str | None
     content_json: dict[str, Any] | None
     collection_id: uuid.UUID | None
+    # journal-001: the parent collection's `kind` if any (e.g. 'journal').
+    # NULL when the note isn't in a collection, when the collection has
+    # no kind, or when the lookup fails (handled gracefully).
+    # Frontend uses this to gate the 'Talk it out' button to journal notes.
+    collection_kind: str | None = None
     visibility: str
     shared_with_user_ids: CoercedList
     archived_at: datetime | None

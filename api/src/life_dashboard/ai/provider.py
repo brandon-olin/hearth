@@ -53,6 +53,20 @@ class AIProvider(Protocol):
         """
         ...
 
+    async def validate(self) -> tuple[bool, str | None]:
+        """Confirm the configured credentials work against the provider.
+
+        Returns (ok, error_message). ok=True means an authenticated request
+        succeeded; the message is None in that case. ok=False is paired with
+        a short user-facing string suitable for surfacing in the UI (e.g.
+        "Invalid API key" or "Could not reach the server").
+
+        Implementations should keep the test call as cheap as possible —
+        max_tokens=1, single trivial prompt — to avoid burning credits or
+        rate-limit budget just to confirm credentials.
+        """
+        ...
+
 
 class AnthropicProvider:
     """Anthropic Claude backend.
@@ -141,3 +155,39 @@ class AnthropicProvider:
         input_tokens = getattr(response.usage, "input_tokens", 0) if response.usage else 0
         output_tokens = getattr(response.usage, "output_tokens", 0) if response.usage else 0
         return text, input_tokens, output_tokens, response.model or self.FAST_MODEL
+
+    async def validate(self) -> tuple[bool, str | None]:
+        """Make a minimal authenticated call to confirm the key works.
+
+        Uses FAST_MODEL with max_tokens=1 — the cheapest possible probe.
+        Anthropic SDK raises AuthenticationError (401) on bad keys and
+        APIConnectionError / APITimeoutError on network failures; everything
+        else is bucketed as a generic "could not reach Anthropic".
+        """
+        try:
+            from anthropic import (
+                AuthenticationError,
+                APIConnectionError,
+                APITimeoutError,
+                RateLimitError,
+            )
+        except ImportError:
+            return False, "Anthropic SDK is not installed on the server."
+
+        try:
+            await self._client.messages.create(
+                model=self.FAST_MODEL,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            return True, None
+        except AuthenticationError:
+            return False, "Invalid API key — Anthropic rejected the credentials."
+        except RateLimitError:
+            # Rate-limited but the key is structurally valid. Treat as OK
+            # so the user isn't blocked from saving.
+            return True, None
+        except (APIConnectionError, APITimeoutError):
+            return False, "Could not reach Anthropic. Check your network and try again."
+        except Exception as exc:
+            return False, f"Unexpected error contacting Anthropic: {exc}"

@@ -20,6 +20,7 @@ import {
   Check,
   CalendarDays,
   CalendarRange,
+  Wallet,
 } from "lucide-react";
 import {
   WIDGET_META,
@@ -40,6 +41,7 @@ const WIDGET_ICONS: Record<WidgetType, React.ElementType> = {
   ai_coach: Sparkles,
   calendar_today: CalendarDays,
   calendar_week: CalendarRange,
+  budget: Wallet,
 };
 
 // ── Step 1: pick widget type ───────────────────────────────────────────────────

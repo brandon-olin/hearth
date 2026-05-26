@@ -89,6 +89,22 @@
   --badge-success-fg:  oklch(0.508 0.118 167);
   --badge-error-bg:    oklch(0.936 0.032 18);
   --badge-error-fg:    oklch(0.505 0.213 28);
+  /* Budget semantic colors — positive = income/surplus, negative = expense/deficit */
+  --budget-positive:        oklch(0.47 0.12 163);
+  --budget-positive-muted:  oklch(0.57 0.13 163);
+  --budget-positive-faint:  oklch(0.47 0.12 163 / 0.8);
+  --budget-positive-bg:     oklch(0.96 0.03 163);
+  --budget-positive-border: oklch(0.87 0.07 163);
+  --budget-positive-dot:    oklch(0.57 0.15 163 / 0.8);
+  --budget-negative:        oklch(0.58 0.22 25);
+  --budget-negative-strong: oklch(0.52 0.23 25);
+  --budget-negative-faint:  oklch(0.58 0.22 25 / 0.8);
+  --budget-negative-bg:     oklch(0.96 0.02 25);
+  --budget-negative-border: oklch(0.88 0.04 25);
+  --budget-negative-dot:    oklch(0.65 0.19 25 / 0.8);
+  /* General warning (inline banners, not badges) */
+  --warning-text: var(--badge-warning-fg);
+  --warning-bg:   var(--badge-warning-bg);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -140,6 +156,19 @@
   --badge-success-fg:  oklch(0.845 0.143 165);
   --badge-error-bg:    oklch(0.299 0.136 26 / 0.4);
   --badge-error-fg:    oklch(0.808 0.114 20);
+  /* Budget semantic colors — dark overrides */
+  --budget-positive:        oklch(0.73 0.15 163);
+  --budget-positive-muted:  oklch(0.73 0.15 163);
+  --budget-positive-faint:  oklch(0.73 0.15 163 / 0.8);
+  --budget-positive-bg:     oklch(0.26 0.07 163 / 0.35);
+  --budget-positive-border: oklch(0.38 0.09 163);
+  --budget-positive-dot:    oklch(0.57 0.15 163 / 0.8);
+  --budget-negative:        oklch(0.70 0.16 25);
+  --budget-negative-strong: oklch(0.70 0.16 25);
+  --budget-negative-faint:  oklch(0.70 0.16 25 / 0.8);
+  --budget-negative-bg:     oklch(0.24 0.06 25 / 0.3);
+  --budget-negative-border: oklch(0.36 0.08 25);
+  --budget-negative-dot:    oklch(0.65 0.19 25 / 0.8);
 }
 
 @layer base {
@@ -292,6 +321,37 @@ html.theme-switching *::after {
 
   .badge-faded {
     @apply opacity-60;
+  }
+
+  /* Budget financial indicator utilities — positive = income/surplus, negative = expense/deficit.
+     Dark mode is handled by CSS variable overrides in .dark — no dark: prefix needed in JSX. */
+  .text-budget-positive        { color: var(--budget-positive); }
+  .text-budget-positive-muted  { color: var(--budget-positive-muted); }
+  .text-budget-positive-faint  { color: var(--budget-positive-faint); }
+  .bg-budget-positive          { background-color: var(--budget-positive-bg); }
+  .border-budget-positive      { border-color: var(--budget-positive-border); }
+  .dot-budget-positive         { background-color: var(--budget-positive-dot); }
+
+  .text-budget-negative        { color: var(--budget-negative); }
+  .text-budget-negative-strong { color: var(--budget-negative-strong); }
+  .text-budget-negative-faint  { color: var(--budget-negative-faint); }
+  .bg-budget-negative          { background-color: var(--budget-negative-bg); }
+  .border-budget-negative      { border-color: var(--budget-negative-border); }
+  .dot-budget-negative         { background-color: var(--budget-negative-dot); }
+
+  /* Inline warning banners (not badge-sized) — reuses badge-warning palette */
+  .text-warning { color: var(--warning-text); }
+  .bg-warning   { background-color: var(--warning-bg); }
+
+  /* Calendar domain chips — reuse badge colour variables for consistent theming */
+  .cal-chip-todo {
+    background-color: var(--badge-warning-bg);
+    color: var(--badge-warning-fg);
+  }
+
+  .cal-chip-habit {
+    background-color: var(--badge-success-bg);
+    color: var(--badge-success-fg);
   }
 }
 

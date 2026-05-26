@@ -21,13 +21,19 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @router.get("", response_model=TagListResponse)
 async def list_tags(
     search: str | None = Query(default=None, max_length=100),
+    entity_type: str | None = Query(
+        default=None,
+        max_length=100,
+        description="When supplied, only tags applied to at least one entity of this type are returned.",
+    ),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TagListResponse:
     return await service.list_tags(
-        db, current_user.household_id, search=search, limit=limit, offset=offset
+        db, current_user.household_id,
+        search=search, entity_type=entity_type, limit=limit, offset=offset,
     )
 
 

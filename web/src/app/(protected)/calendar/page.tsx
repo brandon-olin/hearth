@@ -4,6 +4,8 @@ import { useState, useMemo } from "react";
 import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
 import { EventSheet } from "@/components/calendar/event-sheet";
+import { TodoSheet } from "@/components/todos/todo-sheet";
+import { HabitSheet } from "@/components/habits/habit-sheet";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft,
@@ -16,6 +18,8 @@ import { usePermissions } from "@/lib/hooks/use-permissions";
 import type { components } from "@/lib/api/schema";
 
 type CalendarEvent = components["schemas"]["CalendarEventResponse"];
+type Todo = components["schemas"]["TodoResponse"];
+type Habit = components["schemas"]["HabitWithStats"];
 type ViewMode = "month" | "week" | "day";
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -107,6 +111,44 @@ function sortEvents(evs: CalendarEvent[]): CalendarEvent[] {
   });
 }
 
+// ── Habit scheduling helpers ──────────────────────────────────────────────────
+
+/**
+ * Convert a JS Date's getDay() (Sun=0…Sat=6) to Python weekday (Mon=0…Sun=6).
+ * This matches the backend's cadence.days_of_week storage format.
+ */
+function jsDayToPythonWeekday(jsDay: number): number {
+  return (jsDay + 6) % 7;
+}
+
+/**
+ * Returns true if the habit is scheduled on the given date.
+ * Handles daily, weekly (days_of_week), and monthly (day-of-month from start_date).
+ */
+function habitScheduledOn(habit: Habit, date: Date): boolean {
+  const cadence = (habit.cadence ?? {}) as Record<string, unknown>;
+  const frequency = habit.frequency;
+
+  if (frequency === "daily") return true;
+
+  if (frequency === "weekly") {
+    const daysOfWeek = (cadence.days_of_week as number[] | null) ?? null;
+    if (!daysOfWeek || daysOfWeek.length === 0) return true; // default: every day
+    const pyWeekday = jsDayToPythonWeekday(date.getDay());
+    return daysOfWeek.includes(pyWeekday);
+  }
+
+  if (frequency === "monthly") {
+    const startDate = cadence.start_date as string | null;
+    if (!startDate) return false;
+    // Repeat on the same day-of-month as start_date
+    const startDay = new Date(startDate + "T00:00:00").getDate();
+    return date.getDate() === startDay;
+  }
+
+  return false;
+}
+
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
 function EventListItem({
@@ -149,6 +191,47 @@ function EventListItem({
   );
 }
 
+function TodoListItem({ todo, onClick }: { todo: Todo; onClick: () => void }) {
+  const isDone = todo.status === "done";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent transition-colors"
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-1.5 h-2 w-2 rounded-full cal-chip-todo shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-sm font-medium truncate", isDone && "line-through text-muted-foreground")}>
+            {todo.title}
+          </p>
+          {todo.priority && (
+            <p className="text-xs text-muted-foreground mt-0.5 capitalize">{todo.priority}</p>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function HabitListItem({ habit, onClick }: { habit: Habit; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent transition-colors"
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-1.5 h-2 w-2 rounded-full cal-chip-habit shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{habit.name}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 capitalize">{habit.frequency}</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 // ── Month view ────────────────────────────────────────────────────────────────
 
 function DayCell({
@@ -157,6 +240,8 @@ function DayCell({
   isToday,
   isSelected,
   events,
+  todos,
+  habits,
   onClick,
 }: {
   day: Date;
@@ -164,10 +249,29 @@ function DayCell({
   isToday: boolean;
   isSelected: boolean;
   events: CalendarEvent[];
+  todos: Todo[];
+  habits: Habit[];
   onClick: () => void;
 }) {
-  const shown = events.slice(0, 3);
-  const overflow = events.length - 3;
+  // Budget the 3 visible slots across events, todos, habits in order
+  const allItems: Array<{ kind: "event" | "todo" | "habit"; label: string; isDone?: boolean }> = [
+    ...events.map((ev) => ({
+      kind: "event" as const,
+      label: ev.all_day ? ev.title : `${formatTime(ev.starts_at)} ${ev.title}`,
+    })),
+    ...todos.map((t) => ({
+      kind: "todo" as const,
+      label: t.title,
+      isDone: t.status === "done",
+    })),
+    ...habits.map((h) => ({
+      kind: "habit" as const,
+      label: h.name,
+    })),
+  ];
+
+  const shown = allItems.slice(0, 3);
+  const overflow = allItems.length - 3;
 
   return (
     <button
@@ -192,12 +296,18 @@ function DayCell({
       </span>
 
       <div className="mt-1 space-y-0.5">
-        {shown.map((ev) => (
+        {shown.map((item, i) => (
           <div
-            key={ev.id}
-            className="truncate rounded px-1 py-0.5 text-[10px] font-medium bg-primary/15 text-primary leading-tight"
+            key={i}
+            className={cn(
+              "truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight",
+              item.kind === "event" && "bg-primary/15 text-primary",
+              item.kind === "todo" && "cal-chip-todo opacity-90",
+              item.kind === "habit" && "cal-chip-habit opacity-90",
+              item.isDone && "line-through opacity-50",
+            )}
           >
-            {ev.all_day ? ev.title : `${formatTime(ev.starts_at)} ${ev.title}`}
+            {item.label}
           </div>
         ))}
         {overflow > 0 && (
@@ -214,10 +324,14 @@ function MonthView({
   todayStr,
   selectedDate,
   eventsByDate,
+  todosByDate,
+  habitsByDate,
   isLoading,
   onSelectDate,
   onEditEvent,
   onCreateEvent,
+  onEditTodo,
+  onEditHabit,
   canCreate,
 }: {
   year: number;
@@ -225,10 +339,14 @@ function MonthView({
   todayStr: string;
   selectedDate: string;
   eventsByDate: Map<string, CalendarEvent[]>;
+  todosByDate: Map<string, Todo[]>;
+  habitsByDate: Map<string, Habit[]>;
   isLoading: boolean;
   onSelectDate: (d: string) => void;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
+  onEditTodo: (todo: Todo) => void;
+  onEditHabit: (habit: Habit) => void;
   canCreate: boolean;
 }) {
   const grid = useMemo(() => buildGrid(year, month), [year, month]);
@@ -236,10 +354,20 @@ function MonthView({
     () => sortEvents(eventsByDate.get(selectedDate) ?? []),
     [eventsByDate, selectedDate]
   );
+  const selectedTodos = useMemo(
+    () => todosByDate.get(selectedDate) ?? [],
+    [todosByDate, selectedDate]
+  );
+  const selectedHabits = useMemo(
+    () => habitsByDate.get(selectedDate) ?? [],
+    [habitsByDate, selectedDate]
+  );
 
   const selectedDateLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "long", month: "long", day: "numeric",
   });
+
+  const totalSelected = selectedEvents.length + selectedTodos.length + selectedHabits.length;
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -266,6 +394,8 @@ function MonthView({
                 isToday={dateStr === todayStr}
                 isSelected={dateStr === selectedDate}
                 events={eventsByDate.get(dateStr) ?? []}
+                todos={todosByDate.get(dateStr) ?? []}
+                habits={habitsByDate.get(dateStr) ?? []}
                 onClick={() => onSelectDate(dateStr)}
               />
             );
@@ -294,7 +424,7 @@ function MonthView({
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
-          {selectedEvents.length === 0 ? (
+          {totalSelected === 0 ? (
             <div className="py-8 text-center">
               <p className="text-xs text-muted-foreground">No events</p>
               {canCreate && (
@@ -314,6 +444,12 @@ function MonthView({
               {selectedEvents.map((ev) => (
                 <EventListItem key={ev.id} event={ev} onClick={() => onEditEvent(ev)} />
               ))}
+              {selectedTodos.map((t) => (
+                <TodoListItem key={t.id} todo={t} onClick={() => onEditTodo(t)} />
+              ))}
+              {selectedHabits.map((h) => (
+                <HabitListItem key={h.id} habit={h} onClick={() => onEditHabit(h)} />
+              ))}
             </div>
           )}
         </div>
@@ -328,17 +464,25 @@ function WeekView({
   weekStart,
   todayStr,
   eventsByDate,
+  todosByDate,
+  habitsByDate,
   isLoading,
   onEditEvent,
   onCreateEvent,
+  onEditTodo,
+  onEditHabit,
   canCreate,
 }: {
   weekStart: Date;
   todayStr: string;
   eventsByDate: Map<string, CalendarEvent[]>;
+  todosByDate: Map<string, Todo[]>;
+  habitsByDate: Map<string, Habit[]>;
   isLoading: boolean;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
+  onEditTodo: (todo: Todo) => void;
+  onEditHabit: (habit: Habit) => void;
   canCreate: boolean;
 }) {
   const days = useMemo(() => {
@@ -360,6 +504,8 @@ function WeekView({
           const isToday = dateStr === todayStr;
           const isPast = dateStr < todayStr;
           const dayEvents = sortEvents(eventsByDate.get(dateStr) ?? []);
+          const dayTodos = todosByDate.get(dateStr) ?? [];
+          const dayHabits = habitsByDate.get(dateStr) ?? [];
 
           return (
             <div key={dateStr} className="flex flex-col min-h-[200px]">
@@ -392,7 +538,7 @@ function WeekView({
                 </span>
               </div>
 
-              {/* Events */}
+              {/* Items */}
               <div className="flex flex-col gap-1 flex-1">
                 {dayEvents.map((ev) => (
                   <button
@@ -411,6 +557,32 @@ function WeekView({
                     {ev.all_day && (
                       <div className="opacity-70 text-[10px]">All day</div>
                     )}
+                  </button>
+                ))}
+
+                {dayTodos.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => onEditTodo(t)}
+                    className="w-full text-left rounded-md px-2 py-1.5 cal-chip-todo opacity-90 hover:opacity-100 transition-opacity text-[11px] leading-snug"
+                  >
+                    <div className={cn("font-medium truncate", t.status === "done" && "line-through opacity-60")}>
+                      {t.title}
+                    </div>
+                    <div className="opacity-70 text-[10px]">Todo</div>
+                  </button>
+                ))}
+
+                {dayHabits.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => onEditHabit(h)}
+                    className="w-full text-left rounded-md px-2 py-1.5 cal-chip-habit opacity-90 hover:opacity-100 transition-opacity text-[11px] leading-snug"
+                  >
+                    <div className="font-medium truncate">{h.name}</div>
+                    <div className="opacity-70 text-[10px] capitalize">{h.frequency}</div>
                   </button>
                 ))}
 
@@ -439,23 +611,34 @@ function DayView({
   selectedDate,
   todayStr,
   eventsByDate,
+  todosByDate,
+  habitsByDate,
   isLoading,
   onEditEvent,
   onCreateEvent,
+  onEditTodo,
+  onEditHabit,
   canCreate,
 }: {
   selectedDate: string;
   todayStr: string;
   eventsByDate: Map<string, CalendarEvent[]>;
+  todosByDate: Map<string, Todo[]>;
+  habitsByDate: Map<string, Habit[]>;
   isLoading: boolean;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
+  onEditTodo: (todo: Todo) => void;
+  onEditHabit: (habit: Habit) => void;
   canCreate: boolean;
 }) {
   const dayEvents = useMemo(
     () => sortEvents(eventsByDate.get(selectedDate) ?? []),
     [eventsByDate, selectedDate]
   );
+  const dayTodos = todosByDate.get(selectedDate) ?? [];
+  const dayHabits = habitsByDate.get(selectedDate) ?? [];
+  const total = dayEvents.length + dayTodos.length + dayHabits.length;
 
   return (
     <div className="flex-1 overflow-auto p-6 max-w-2xl mx-auto w-full">
@@ -463,7 +646,7 @@ function DayView({
         <p className="text-center text-xs text-muted-foreground mb-4">Loading…</p>
       )}
 
-      {dayEvents.length === 0 ? (
+      {total === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <p className="text-sm text-muted-foreground">No events this day.</p>
           {canCreate && (
@@ -502,11 +685,7 @@ function DayView({
                   </div>
                 )}
               </div>
-
-              {/* Colour strip */}
               <div className="w-1 self-stretch rounded-full bg-primary shrink-0" />
-
-              {/* Content */}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold">{ev.title}</p>
                 {ev.location && (
@@ -519,6 +698,54 @@ function DayView({
                   <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                     {ev.description}
                   </p>
+                )}
+              </div>
+            </button>
+          ))}
+
+          {dayTodos.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onEditTodo(t)}
+              className="w-full text-left flex items-start gap-4 rounded-xl border bg-card px-5 py-4 hover:bg-accent transition-colors"
+            >
+              <div className="w-20 shrink-0 text-right">
+                <span className="text-xs text-muted-foreground">Todo</span>
+              </div>
+              <div className="w-1 self-stretch rounded-full cal-chip-todo shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className={cn(
+                  "text-sm font-semibold",
+                  t.status === "done" && "line-through text-muted-foreground"
+                )}>
+                  {t.title}
+                </p>
+                {t.description && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{t.description}</p>
+                )}
+                {t.priority && (
+                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">{t.priority} priority</p>
+                )}
+              </div>
+            </button>
+          ))}
+
+          {dayHabits.map((h) => (
+            <button
+              key={h.id}
+              type="button"
+              onClick={() => onEditHabit(h)}
+              className="w-full text-left flex items-start gap-4 rounded-xl border bg-card px-5 py-4 hover:bg-accent transition-colors"
+            >
+              <div className="w-20 shrink-0 text-right">
+                <span className="text-xs text-muted-foreground capitalize">{h.frequency}</span>
+              </div>
+              <div className="w-1 self-stretch rounded-full cal-chip-habit shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">{h.name}</p>
+                {h.description && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{h.description}</p>
                 )}
               </div>
             </button>
@@ -543,6 +770,10 @@ export default function CalendarPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [newEventDate, setNewEventDate] = useState<string | undefined>(undefined);
+  const [todoSheetOpen, setTodoSheetOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
+  const [habitSheetOpen, setHabitSheetOpen] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
 
   // Compute the current week start based on selectedDate (for week/day nav)
   const weekStart = useMemo(() => getWeekStart(new Date(selectedDate + "T00:00:00")), [selectedDate]);
@@ -553,20 +784,13 @@ export default function CalendarPage() {
   }, [weekStart]);
 
   // Fetch window: padded for the current view.
-  // The API stores datetimes as UTC but returns them without a timezone indicator,
-  // so a bare date string like "2026-05-14" is parsed as UTC midnight by FastAPI.
-  // An event at 10 PM UTC (= 6 PM EDT) would fail `starts_before = "2026-05-14"`
-  // because 22:00 UTC > 00:00 UTC. We widen the window by ±1–2 days and rely on
-  // client-side date bucketing (eventDateStr → normalizeIso → local date) instead.
   const fetchFrom = useMemo(() => {
     if (view === "month") return toDateStr(new Date(year, month, -6));
     if (view === "week") {
-      // 1 day before week start covers UTC+n timezones where local Monday is UTC Sunday
       const d = new Date(weekStart);
       d.setDate(d.getDate() - 1);
       return toDateStr(d);
     }
-    // Day view: 1 day before catches events stored on the prior UTC day that are local-today
     const d = new Date(selectedDate + "T00:00:00");
     d.setDate(d.getDate() - 1);
     return toDateStr(d);
@@ -575,23 +799,41 @@ export default function CalendarPage() {
   const fetchTo = useMemo(() => {
     if (view === "month") return toDateStr(new Date(year, month + 1, 7));
     if (view === "week") {
-      // 2 days after week end covers UTC-n timezones (e.g. EDT) where 10 PM Sunday = next UTC day
       const d = new Date(weekEnd);
       d.setDate(d.getDate() + 2);
       return toDateStr(d);
     }
-    // Day view: 2 days ahead — e.g. 10 PM EDT is stored as the next UTC day,
-    // and midnight EDT is stored 4 hours into the next UTC day.
     const d = new Date(selectedDate + "T00:00:00");
     d.setDate(d.getDate() + 2);
     return toDateStr(d);
   }, [view, year, month, weekEnd, selectedDate]);
 
-  const { data, isLoading } = $api.useQuery("get", "/events", {
+  // ── Fetch events ────────────────────────────────────────────────────────────
+  const { data: eventsData, isLoading: eventsLoading } = $api.useQuery("get", "/events", {
     params: { query: { starts_after: fetchFrom, starts_before: fetchTo, limit: 200 } },
   });
 
-  const events = data?.items ?? [];
+  // ── Fetch todos with due dates in the visible window ────────────────────────
+  const { data: todosData } = $api.useQuery("get", "/todos", {
+    params: {
+      query: {
+        due_date_from: fetchFrom,
+        due_date_to: fetchTo,
+        limit: 500,
+      },
+    },
+  });
+
+  // ── Fetch active habits ─────────────────────────────────────────────────────
+  const { data: habitsData } = $api.useQuery("get", "/habits", {
+    params: { query: { limit: 200 } },
+  });
+
+  const events = eventsData?.items ?? [];
+  const todos = (todosData?.items ?? []).filter((t) => t.due_date != null);
+  const activeHabits = (habitsData?.items ?? []).filter((h) => h.status === "active");
+
+  // ── Build lookup maps ───────────────────────────────────────────────────────
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -603,6 +845,35 @@ export default function CalendarPage() {
     }
     return map;
   }, [events]);
+
+  const todosByDate = useMemo(() => {
+    const map = new Map<string, Todo[]>();
+    for (const t of todos) {
+      if (!t.due_date) continue;
+      const list = map.get(t.due_date) ?? [];
+      list.push(t);
+      map.set(t.due_date, list);
+    }
+    return map;
+  }, [todos]);
+
+  /**
+   * For habits: iterate every date in the visible window and check which
+   * habits are scheduled on that day. This is purely client-side — no extra API calls.
+   */
+  const habitsByDate = useMemo(() => {
+    const map = new Map<string, Habit[]>();
+    const from = new Date(fetchFrom + "T00:00:00");
+    const to = new Date(fetchTo + "T00:00:00");
+    const cursor = new Date(from);
+    while (cursor <= to) {
+      const dateStr = toDateStr(cursor);
+      const scheduled = activeHabits.filter((h) => habitScheduledOn(h, cursor));
+      if (scheduled.length > 0) map.set(dateStr, scheduled);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return map;
+  }, [activeHabits, fetchFrom, fetchTo]);
 
   // ── Navigation ──────────────────────────────────────────────────────────────
 
@@ -649,14 +920,36 @@ export default function CalendarPage() {
     setNewEventDate(date ?? selectedDate);
     setSheetOpen(true);
   }
-  function openEdit(ev: CalendarEvent) {
+  function openEditEvent(ev: CalendarEvent) {
     setEditingEvent(ev);
     setNewEventDate(undefined);
     setSheetOpen(true);
   }
-  function handleClose() {
+  function handleEventClose() {
     setSheetOpen(false);
     setTimeout(() => { setEditingEvent(null); setNewEventDate(undefined); }, 300);
+  }
+
+  // ── Todo sheet helpers ──────────────────────────────────────────────────────
+
+  function openEditTodo(todo: Todo) {
+    setEditingTodo(todo);
+    setTodoSheetOpen(true);
+  }
+  function handleTodoClose() {
+    setTodoSheetOpen(false);
+    setTimeout(() => setEditingTodo(null), 300);
+  }
+
+  // ── Habit sheet helpers ─────────────────────────────────────────────────────
+
+  function openEditHabit(habit: Habit) {
+    setEditingHabit(habit);
+    setHabitSheetOpen(true);
+  }
+  function handleHabitClose() {
+    setHabitSheetOpen(false);
+    setTimeout(() => setEditingHabit(null), 300);
   }
 
   // ── Period label ────────────────────────────────────────────────────────────
@@ -674,23 +967,19 @@ export default function CalendarPage() {
       }
       return `${SHORT_MONTHS[s.getMonth()]} ${s.getDate()} – ${SHORT_MONTHS[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;
     }
-    // day view
     return new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, {
       weekday: "long", month: "long", day: "numeric", year: "numeric",
     });
   }, [view, month, year, weekStart, weekEnd, selectedDate]);
 
-  // When switching to week view while on month view, sync selectedDate into the visible month.
   function handleViewChange(v: ViewMode) {
     if (v === "week" || v === "day") {
-      // If the selectedDate is not in the current month view, reset to today
       const sel = new Date(selectedDate + "T00:00:00");
       if (view === "month" && (sel.getFullYear() !== year || sel.getMonth() !== month)) {
         setSelectedDate(todayStr);
       }
     }
     if (v === "month") {
-      // Sync the month/year to the currently selected date
       const sel = new Date(selectedDate + "T00:00:00");
       setYear(sel.getFullYear());
       setMonth(sel.getMonth());
@@ -704,6 +993,8 @@ export default function CalendarPage() {
       : view === "week"
       ? toDateStr(weekStart) !== toDateStr(getWeekStart(today))
       : selectedDate !== todayStr;
+
+  const isLoading = eventsLoading;
 
   return (
     <div className="flex flex-col h-full">
@@ -764,18 +1055,21 @@ export default function CalendarPage() {
             todayStr={todayStr}
             selectedDate={selectedDate}
             eventsByDate={eventsByDate}
+            todosByDate={todosByDate}
+            habitsByDate={habitsByDate}
             isLoading={isLoading}
             onSelectDate={(d) => {
               setSelectedDate(d);
-              // Clicking a date in the overflow area navigates the month
               const clicked = new Date(d + "T00:00:00");
               if (clicked.getMonth() !== month) {
                 setYear(clicked.getFullYear());
                 setMonth(clicked.getMonth());
               }
             }}
-            onEditEvent={openEdit}
+            onEditEvent={openEditEvent}
             onCreateEvent={openCreate}
+            onEditTodo={openEditTodo}
+            onEditHabit={openEditHabit}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -785,9 +1079,13 @@ export default function CalendarPage() {
             weekStart={weekStart}
             todayStr={todayStr}
             eventsByDate={eventsByDate}
+            todosByDate={todosByDate}
+            habitsByDate={habitsByDate}
             isLoading={isLoading}
-            onEditEvent={openEdit}
+            onEditEvent={openEditEvent}
             onCreateEvent={openCreate}
+            onEditTodo={openEditTodo}
+            onEditHabit={openEditHabit}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -797,9 +1095,13 @@ export default function CalendarPage() {
             selectedDate={selectedDate}
             todayStr={todayStr}
             eventsByDate={eventsByDate}
+            todosByDate={todosByDate}
+            habitsByDate={habitsByDate}
             isLoading={isLoading}
-            onEditEvent={openEdit}
+            onEditEvent={openEditEvent}
             onCreateEvent={openCreate}
+            onEditTodo={openEditTodo}
+            onEditHabit={openEditHabit}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -809,7 +1111,19 @@ export default function CalendarPage() {
         open={sheetOpen}
         event={editingEvent}
         defaultDate={newEventDate}
-        onClose={handleClose}
+        onClose={handleEventClose}
+      />
+
+      <TodoSheet
+        open={todoSheetOpen}
+        todo={editingTodo}
+        onClose={handleTodoClose}
+      />
+
+      <HabitSheet
+        open={habitSheetOpen}
+        habit={editingHabit}
+        onClose={handleHabitClose}
       />
     </div>
   );

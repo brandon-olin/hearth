@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import { isThemeDark } from "@/lib/theme/presets";
 import { $api } from "@/lib/api/query";
+import { useRegisterCurrentResource } from "@/lib/chat-context/current-resource";
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -132,6 +133,15 @@ function EditorInner({ documentId }: { documentId: string }) {
     "get",
     "/documents/{doc_id}",
     { params: { path: { doc_id: documentId } } },
+  );
+
+  // chat-001: publish this document so the chat sidebar can show
+  // 'Discussing: <title>' and the backend can include the doc title +
+  // description in the system prompt.
+  useRegisterCurrentResource(
+    data
+      ? { type: "document", id: documentId, title: data.title ?? "" }
+      : null,
   );
 
   const { mutateAsync: patchDocument } = $api.useMutation("patch", "/documents/{doc_id}");

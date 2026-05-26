@@ -152,6 +152,13 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
   const [creatingGhostId, setCreatingGhostId] = useState<string | null>(null);
   const qc = useQueryClient();
 
+  // Simulation gravity centre — updated on resize without restarting the sim.
+  // The loop reads this ref directly so it always uses the current canvas centre.
+  const simCenter = useRef({ cx: 400, cy: 300 });
+  // Debounce timer for ResizeObserver — prevents rapid dimension changes from
+  // repeatedly calling startSimulation (which resets node positions each time).
+  const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Data fetching ────────────────────────────────────────────────────────────
 
   // Always fetch all notes across every collection so wikilinks are resolved globally.
@@ -236,10 +243,23 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     if (!el) return;
     const obs = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0) setDimensions({ w: width, h: height });
+      if (width <= 0 || height <= 0) return;
+      // Always update the gravity centre immediately so any running simulation
+      // stays centred without restarting.
+      simCenter.current = { cx: width / 2, cy: height / 2 };
+      // Debounce the SVG size state update — it's only needed for correct SVG
+      // dimensions and does NOT restart the simulation (dimensions is no longer
+      // in the auto-start effect dep array).
+      if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      resizeTimer.current = setTimeout(() => {
+        setDimensions({ w: width, h: height });
+      }, 150);
     });
     obs.observe(el);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      if (resizeTimer.current) clearTimeout(resizeTimer.current);
+    };
   }, []);
 
   // ── Build and run simulation when data changes ───────────────────────────
@@ -300,7 +320,9 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     }
 
     const { w, h } = dimensions;
-    const cx = w / 2, cy = h / 2;
+    // Sync simCenter ref with current canvas size so the loop always has the
+    // right gravity centre even if a resize fires mid-simulation.
+    simCenter.current = { cx: w / 2, cy: h / 2 };
 
     const realNodes: GraphNode[] = notes.map((n) => ({
       id:      n.id,
@@ -318,7 +340,7 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
 
     const allNodes: GraphNode[] = [...realNodes, ...ghostNodes.values()];
 
-    initPositions(allNodes, cx, cy, Math.min(w, h) * 0.32);
+    initPositions(allNodes, simCenter.current.cx, simCenter.current.cy, Math.min(w, h) * 0.32);
     simNodes.current = allNodes;
     simEdges.current = edges;
 
@@ -327,6 +349,8 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
 
     let tick = 0;
     function loop() {
+      // Read simCenter each tick so gravity follows resize without restarting.
+      const { cx, cy } = simCenter.current;
       const avgV = tickSimulation(simNodes.current, simEdges.current, cx, cy);
       tick++;
       // Refresh render every 3 ticks
@@ -346,13 +370,16 @@ export function NoteGraph({ selectedId, onSelect }: NoteGraphProps) {
     animFrame.current = requestAnimationFrame(loop);
   }, [notesData, dimensions]);
 
-  // Auto-start when data is ready
+  // Auto-start when note data is ready or changes.
+  // Intentionally excludes `dimensions` — resize is handled by updating
+  // simCenter.current in the ResizeObserver, which shifts gravity without
+  // restarting the simulation (and resetting node positions).
   useEffect(() => {
     if (notesData?.items?.length) startSimulation();
     return () => {
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
     };
-  }, [notesData, dimensions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notesData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

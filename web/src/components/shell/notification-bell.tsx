@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
@@ -19,7 +20,8 @@ type Notification = components["schemas"]["NotificationResponse"];
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function notificationLabel(n: Notification): string {
-  const title = (n.payload as { title?: string } | null)?.title ?? "an item";
+  const payload = n.payload as { title?: string; category_name?: string; threshold_pct?: number; spent?: number; target?: number } | null;
+  const title = payload?.title ?? "an item";
   switch (n.type) {
     case "todo_assigned":
       return `You were assigned: ${title}`;
@@ -27,7 +29,17 @@ function notificationLabel(n: Notification): string {
       return `New event added: ${title}`;
     case "mentioned":
       return `You were mentioned in: ${title}`;
+    case "budget_threshold_100":
+      return payload?.category_name
+        ? `Over budget: ${payload.category_name} ($${payload.spent?.toFixed(0)} of $${payload.target?.toFixed(0)})`
+        : title;
     default:
+      // budget_threshold_<n> and any other system notifications
+      if (n.type.startsWith("budget_threshold_")) {
+        return payload?.category_name
+          ? `Approaching budget: ${payload.category_name} ($${payload.spent?.toFixed(0)} of $${payload.target?.toFixed(0)})`
+          : title;
+      }
       return title;
   }
 }
@@ -40,6 +52,8 @@ function notificationHref(n: Notification): string | null {
       return "/calendar";
     case "document":
       return "/documents";
+    case "budget_category":
+      return "/budget";
     default:
       return null;
   }
@@ -62,7 +76,9 @@ export function NotificationBell() {
   const router = useRouter();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
 
   // Lightweight poll — just the count.
   const { data: countData } = $api.useQuery("get", "/notifications/unread-count", undefined, {
@@ -83,11 +99,21 @@ export function NotificationBell() {
 
   const unreadCount = countData?.unread_count ?? 0;
 
+  // Compute fixed panel position whenever the panel opens.
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setPanelPos({ top: rect.top, left: rect.right + 8 });
+  }, [open]);
+
   // Close on outside click.
   useEffect(() => {
     if (!open) return;
     function onPointerDown(e: PointerEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      if (
+        panelRef.current && !panelRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -119,12 +145,83 @@ export function NotificationBell() {
 
   const notifications = listData?.items ?? [];
 
+  const panel = open && panelPos && (
+    <div
+      ref={panelRef}
+      style={{ top: panelPos.top, left: panelPos.left }}
+      className="fixed z-[9999] w-80 rounded-lg border border-border bg-popover shadow-lg
+                 animate-in fade-in-0 zoom-in-95 duration-100"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <span className="text-sm font-semibold">Notifications</span>
+        {listData && listData.unread_count > 0 && (
+          <button
+            type="button"
+            onClick={handleMarkAllRead}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            Mark all read
+          </button>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="max-h-[420px] overflow-y-auto">
+        {isLoading && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            Loading…
+          </div>
+        )}
+
+        {!isLoading && notifications.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No notifications yet
+          </div>
+        )}
+
+        {!isLoading && notifications.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            onClick={() => handleNotificationClick(n)}
+            className={cn(
+              "w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border/50 last:border-b-0",
+              "hover:bg-muted/60 transition-colors cursor-pointer",
+              !n.read_at && "bg-primary/5",
+            )}
+          >
+            {/* Unread dot */}
+            <span
+              className={cn(
+                "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                n.read_at ? "bg-transparent" : "bg-primary",
+              )}
+            />
+            <div className="flex-1 min-w-0">
+              <p className={cn(
+                "text-sm leading-snug",
+                n.read_at ? "text-muted-foreground" : "text-foreground font-medium",
+              )}>
+                {notificationLabel(n)}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {timeAgo(n.created_at)}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative" ref={panelRef}>
+    <div className="relative">
       <TooltipProvider delayDuration={500}>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              ref={buttonRef}
               type="button"
               onClick={() => setOpen((o) => !o)}
               className="relative flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
@@ -142,73 +239,7 @@ export function NotificationBell() {
         </Tooltip>
       </TooltipProvider>
 
-      {open && (
-        <div
-          className="absolute left-full top-0 ml-2 z-50 w-80 rounded-lg border border-border bg-popover shadow-lg
-                     animate-in fade-in-0 zoom-in-95 duration-100"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="text-sm font-semibold">Notifications</span>
-            {listData && listData.unread_count > 0 && (
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              >
-                Mark all read
-              </button>
-            )}
-          </div>
-
-          {/* Body */}
-          <div className="max-h-[420px] overflow-y-auto">
-            {isLoading && (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                Loading…
-              </div>
-            )}
-
-            {!isLoading && notifications.length === 0 && (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No notifications yet
-              </div>
-            )}
-
-            {!isLoading && notifications.map((n) => (
-              <button
-                key={n.id}
-                type="button"
-                onClick={() => handleNotificationClick(n)}
-                className={cn(
-                  "w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border/50 last:border-b-0",
-                  "hover:bg-muted/60 transition-colors cursor-pointer",
-                  !n.read_at && "bg-primary/5",
-                )}
-              >
-                {/* Unread dot */}
-                <span
-                  className={cn(
-                    "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                    n.read_at ? "bg-transparent" : "bg-primary",
-                  )}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className={cn(
-                    "text-sm leading-snug truncate",
-                    n.read_at ? "text-muted-foreground" : "text-foreground font-medium",
-                  )}>
-                    {notificationLabel(n)}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {timeAgo(n.created_at)}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {typeof document !== "undefined" && createPortal(panel, document.body)}
     </div>
   );
 }

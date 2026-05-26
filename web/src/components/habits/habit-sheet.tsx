@@ -284,6 +284,7 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
     setVisibility((habit?.visibility as Visibility) ?? "personal");
     setSharedWith(habit?.shared_with_user_ids ?? []);
     setConfirmDelete(false);
+    setSaving(false);
     setError(null);
   }, [habit, open]);
 
@@ -356,6 +357,7 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
       onClose();
     } catch {
       setError("Delete failed. Please try again.");
+    } finally {
       setSaving(false);
     }
   }

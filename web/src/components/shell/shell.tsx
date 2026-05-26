@@ -233,10 +233,13 @@ function NavLinks({
   onNavigate,
   onSearchOpen,
   onAiOpen,
+  aiEnabled,
 }: {
   onNavigate?: () => void;
   onSearchOpen: () => void;
   onAiOpen: () => void;
+  /** ai-access-001: when false, hide the Ask-AI icon entirely. */
+  aiEnabled: boolean;
 }) {
   const pathname = usePathname();
   const { sidebarConfig } = useSidebarConfig();
@@ -272,25 +275,27 @@ function NavLinks({
             </TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate?.();
-                  onAiOpen();
-                }}
-                className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-              >
-                <MessageSquare className="h-4 w-4 shrink-0" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>
-                Ask AI <kbd className="ml-1 font-mono opacity-60">⌘K</kbd>
-              </p>
-            </TooltipContent>
-          </Tooltip>
+          {aiEnabled && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate?.();
+                    onAiOpen();
+                  }}
+                  className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>
+                  Ask AI <kbd className="ml-1 font-mono opacity-60">⌘K</kbd>
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <NotificationBell />
         </div>
@@ -477,6 +482,10 @@ function SidebarContent({
   const { user, impersonating, logout } = useAuth();
   const router = useRouter();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // ai-access-001: per-membership AI gate. Default true for older API
+  // responses that don't carry the field. Affects the Ask-AI icon in
+  // the nav and the ⌘K shortcut in Shell.
+  const aiEnabled = user?.ai_features_enabled !== false;
 
   async function handleLogout() {
     await logout();
@@ -495,6 +504,7 @@ function SidebarContent({
         onNavigate={onNavigate}
         onSearchOpen={onSearchOpen}
         onAiOpen={onAiOpen}
+        aiEnabled={aiEnabled}
       />
 
       {/* Impersonation banner */}
@@ -585,6 +595,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const { toggle: toggleFocus, focused } = useFocusMode();
   const { user } = useAuth();
+  // ai-access-001: gate the AI chat panel + ⌘K shortcut on the
+  // per-membership flag. Default true for older API responses.
+  const aiEnabled = user?.ai_features_enabled !== false;
   const { width: sidebarWidth, startResize } = useResizablePanel({
     defaultWidth: 256,
     minWidth: 180,
@@ -635,7 +648,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setAiPanelOpen((o) => !o);
+        if (aiEnabled) {
+          setAiPanelOpen((o) => !o);
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "f") {
         e.preventDefault();
@@ -705,7 +720,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       />
 
       {/* AI panel — custom right-side panel with draggable left edge */}
-      {aiPanelOpen && (
+      {aiEnabled && aiPanelOpen && (
         <>
           {/* Backdrop */}
           <div

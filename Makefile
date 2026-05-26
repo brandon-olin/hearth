@@ -1,4 +1,4 @@
-.PHONY: api web migrate seed-app-projects seed-m1-subprojects update-m1-progress \
+.PHONY: api web migrate migrate-down migrate-new seed-app-projects seed-m1-subprojects update-m1-progress \
         service-install service-uninstall service-start service-stop service-restart service-status service-logs \
         bot-install bot-uninstall bot-start bot-stop bot-restart bot-status bot-logs \
         hook-install hook-uninstall sync-todos \
@@ -8,10 +8,27 @@ api:
 	cd api && .venv/bin/uvicorn life_dashboard.main:app --reload --port 1339
 
 web:
-	cd web && npm run dev
+	@if lsof -ti:1337 >/dev/null 2>&1; then \
+		echo ""; \
+		echo "▲ Next.js dev server already running at http://localhost:1337 (launchd service)"; \
+		echo "  Hot-reload is active — just open http://localhost:1337 in your browser."; \
+		echo ""; \
+		echo "  To stop the service and run on :3000 instead:"; \
+		echo "    make service-stop && cd web && npm run dev"; \
+		echo ""; \
+	else \
+		cd web && npm run dev; \
+	fi
 
 migrate:
 	cd api && .venv/bin/alembic upgrade head
+
+migrate-down:
+	cd api && .venv/bin/alembic downgrade -1
+
+# Usage: make migrate-new name=add_foo_column
+migrate-new:
+	cd api && .venv/bin/alembic revision --autogenerate -m "$(name)"
 
 seed-app-projects:
 	cd api && .venv/bin/python3.12 scripts/seed_app_projects.py

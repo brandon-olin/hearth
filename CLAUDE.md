@@ -79,6 +79,7 @@ If a design makes the self-hosted product feel crippled or fake, push back.
 - Prefer straightforward, maintainable code over clever abstractions.
 - Typed interfaces and explicit schemas everywhere (Pydantic on the API, TypeScript on the frontend).
 - Avoid infrastructure disproportionate to the current phase.
+- **Write idempotently.** Every `POST`/`PATCH` that creates or mutates state must assume it can be called twice with the same intent — network retries, double-taps, and background refetches are real. State-transition operations (e.g. marking a recurring todo complete) must be atomic. See `api/CLAUDE.md` → "Idempotency" for patterns and the implementation roadmap.
 
 ---
 

@@ -11,6 +11,6 @@ set -a
 [ -f "{{APP_DIR}}/infra/local.env" ] && . "{{APP_DIR}}/infra/local.env"
 set +a
 
-exec "{{APP_DIR}}/web/node_modules/.bin/next" start \
+exec "{{APP_DIR}}/web/node_modules/.bin/next" dev \
     --hostname 0.0.0.0 \
     --port 1337

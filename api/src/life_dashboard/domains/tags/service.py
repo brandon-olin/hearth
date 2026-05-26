@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from life_dashboard.domains.tags.models import Tag
+from life_dashboard.domains.tags.models import Tag, Tagging
 from life_dashboard.domains.tags.schemas import (
     TagCreate,
     TagListResponse,
@@ -53,10 +53,21 @@ async def list_tags(
     household_id: uuid.UUID,
     *,
     search: str | None = None,
+    entity_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> TagListResponse:
     query = select(Tag).where(Tag.household_id == household_id)
+
+    if entity_type:
+        # Restrict to tags that have been applied to at least one entity of this type.
+        # This prevents tags from unrelated domains (e.g. notes, philosophy) from
+        # appearing in pickers for other domains (e.g. recipes).
+        query = query.where(
+            Tag.id.in_(
+                select(Tagging.tag_id).where(Tagging.entity_type == entity_type)
+            )
+        )
 
     if search:
         query = query.where(Tag.name.ilike(f"%{search}%"))

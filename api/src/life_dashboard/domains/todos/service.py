@@ -145,6 +145,8 @@ async def list_todos(
     *,
     status: str | None = None,
     project_id: uuid.UUID | None = None,
+    due_date_from: date | None = None,
+    due_date_to: date | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> TodoListResponse:
@@ -154,6 +156,10 @@ async def list_todos(
         query = query.where(Todo.status == status)
     if project_id is not None:
         query = query.where(Todo.project_id == project_id)
+    if due_date_from is not None:
+        query = query.where(Todo.due_date >= due_date_from)
+    if due_date_to is not None:
+        query = query.where(Todo.due_date <= due_date_to)
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
     todos = list(

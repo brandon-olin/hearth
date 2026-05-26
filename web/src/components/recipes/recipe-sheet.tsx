@@ -61,7 +61,7 @@ function TagPicker({ selected, onChange }: TagPickerProps) {
   const { data: searchData } = $api.useQuery(
     "get",
     "/tags",
-    { params: { query: { search: dq || undefined, limit: 10 } } },
+    { params: { query: { search: dq || undefined, entity_type: "recipe", limit: 10 } } },
     { enabled: open }
   );
 

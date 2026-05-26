@@ -136,12 +136,27 @@ async def _load_note_response(db: AsyncSession, note: Note) -> NoteResponse:
     )
     bl_rows = bl_result.all()
 
+    # journal-001: expose the parent collection's `kind` so the frontend
+    # can gate journal-specific affordances (the 'Talk it out' button)
+    # without an extra round-trip. Looked up only when collection_id
+    # is set; cheap one-column query.
+    collection_kind: str | None = None
+    if note.collection_id is not None:
+        from life_dashboard.domains.collections.models import Collection
+        try:
+            collection_kind = (await db.execute(
+                select(Collection.kind).where(Collection.id == note.collection_id)
+            )).scalar_one_or_none()
+        except Exception:
+            collection_kind = None
+
     return NoteResponse(
         id=note.id,
         title=note.title,
         content_md=note.content_md,
         content_json=note.content_json,
         collection_id=note.collection_id,
+        collection_kind=collection_kind,
         visibility=note.visibility,
         shared_with_user_ids=note.shared_with_user_ids or [],
         archived_at=note.archived_at,
@@ -278,6 +293,25 @@ async def create_note(
 
     await db.commit()
     await db.refresh(note)
+
+    # Phase 1.5 of AI coach redesign: nudge the profile proposer if enough
+    # new note activity has accumulated. Fire-and-forget — failures inside
+    # the helper are logged and swallowed; never raise to the caller.
+    try:
+        from life_dashboard.ai.profile_service import maybe_propose_from_notes
+        await maybe_propose_from_notes(db, user_id, household_id)
+    except Exception:
+        pass  # belt-and-suspenders; helper already swallows
+
+    # Phase 2 of AI coach redesign: if this note lives in a journal-kind
+    # collection AND the user has signal extraction enabled, kick off a
+    # background extraction. Same fire-and-forget guarantees.
+    try:
+        from life_dashboard.ai.journal_signal_service import maybe_extract_signals
+        await maybe_extract_signals(db, note, user_id, household_id)
+    except Exception:
+        pass
+
     return await _load_note_response(db, note)
 
 
@@ -332,6 +366,34 @@ async def update_note(
 
     await db.commit()
     await db.refresh(note)
+
+    # Phase 1.5 of AI coach redesign: nudge the profile proposer for the
+    # note's author (not the current editor). Most notes are edited by
+    # their author; even when they're not, attributing the profile-update
+    # signal to the original author is the right call — it's their profile
+    # being built from their journal. Fire-and-forget.
+    if note.created_by_user_id is not None and (
+        "content_md" in updated_fields or "title" in updated_fields
+    ):
+        try:
+            from life_dashboard.ai.profile_service import maybe_propose_from_notes
+            await maybe_propose_from_notes(
+                db, note.created_by_user_id, household_id
+            )
+        except Exception:
+            pass  # belt-and-suspenders; helper already swallows
+
+    # Phase 2 of AI coach redesign: re-extract signals if content_md changed
+    # (title-only changes don't affect the signal extraction).
+    if note.created_by_user_id is not None and "content_md" in updated_fields:
+        try:
+            from life_dashboard.ai.journal_signal_service import maybe_extract_signals
+            await maybe_extract_signals(
+                db, note, note.created_by_user_id, household_id
+            )
+        except Exception:
+            pass
+
     return await _load_note_response(db, note)
 
 

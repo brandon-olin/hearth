@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from life_dashboard.core.pydantic_types import CoercedList
@@ -22,6 +22,7 @@ class GoalCreate(BaseModel):
     due_date: date | None = None
     visibility: str = "personal"
     shared_with_user_ids: list[str] = []
+    financial_link: dict[str, Any] | None = None
 
 
 class GoalUpdate(BaseModel):
@@ -37,6 +38,7 @@ class GoalUpdate(BaseModel):
     completed_at: datetime | None = None
     visibility: str | None = None
     shared_with_user_ids: list[str] | None = None
+    financial_link: dict[str, Any] | None = None
 
 
 class GoalResponse(BaseModel):
@@ -57,6 +59,7 @@ class GoalResponse(BaseModel):
     completed_at: datetime | None
     visibility: str
     shared_with_user_ids: CoercedList
+    financial_link: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 

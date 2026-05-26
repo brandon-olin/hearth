@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { RefreshCw, Sparkles, Sun, Moon, Settings2, X, Check } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { RefreshCw, Sparkles, Sun, Moon, Settings2, X, Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient, apiBaseUrl } from "@/lib/api/client";
 import {
@@ -168,6 +168,32 @@ function SettingsPanel({ config, onConfigChange }: SettingsPanelProps) {
           onToggle={(id) => toggleId(config.pinned_habit_ids, id, "pinned_habit_ids")}
         />
       )}
+
+      {/* coach-004: free-text focus. Goes beyond the structured pinned-id
+          selectors above — useful when what you want is context the
+          checkboxes can't express ('preparing for a hard conversation',
+          'recovering from a rough weekend, go easy', etc.). */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+          Focus for this coach
+        </p>
+        <p className="text-xs text-muted-foreground mb-2">
+          Free-text guidance the coach should weight above the standard
+          briefing. Leave empty to use defaults.
+        </p>
+        <textarea
+          value={config.focus ?? ""}
+          onChange={(e) => onConfigChange({ focus: e.target.value })}
+          rows={3}
+          maxLength={1000}
+          spellCheck
+          placeholder="e.g. I'm preparing for a hard conversation today — help me think through it. Go easy on the productivity nudges."
+          className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1 text-right">
+          {(config.focus ?? "").length} / 1000
+        </p>
+      </div>
     </div>
   );
 }
@@ -185,33 +211,151 @@ function PinnedSection({
   selected: string[];
   onToggle: (id: string) => void;
 }) {
+  // Layout decision: when there are ≤8 items the old chip-grid is the
+  // friendliest UI (everything visible, one click to toggle). Above 8
+  // we switch to a chip-list of selected items + a search combobox for
+  // adding more — the screen no longer scrolls past usefulness when a
+  // user has many projects/habits.
+  const COMBOBOX_THRESHOLD = 8;
+  const useCombobox = items.length > COMBOBOX_THRESHOLD;
+
   return (
     <div>
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
         {title}
       </p>
       <p className="text-[10px] text-muted-foreground mb-2">{subtitle}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => {
-          const active = selected.includes(item.id);
-          return (
+      {useCombobox ? (
+        <PinnedCombobox items={items} selected={selected} onToggle={onToggle} />
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((item) => {
+            const active = selected.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onToggle(item.id)}
+                className={cn(
+                  "flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                )}
+              >
+                {active && <Check className="h-3 w-3" />}
+                {item.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Inline searchable combobox for large item lists ──────────────────────────
+
+function PinnedCombobox({
+  items,
+  selected,
+  onToggle,
+}: {
+  items: { id: string; name: string }[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const selectedItems = items.filter((i) => selected.includes(i.id));
+  const filteredItems = items.filter((i) =>
+    query.trim() === "" ? true : i.name.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* Selected chips — clicking removes */}
+      {selectedItems.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {selectedItems.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => onToggle(item.id)}
-              className={cn(
-                "flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
-                active
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
-              )}
+              className="flex items-center gap-1 rounded-full border border-primary bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-medium cursor-pointer hover:bg-primary/20 transition-colors"
+              title="Click to remove"
             >
-              {active && <Check className="h-3 w-3" />}
               {item.name}
+              <X className="h-3 w-3 opacity-60" />
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer"
+      >
+        <Plus className="h-3 w-3" />
+        {selectedItems.length > 0 ? "Add another" : `Pick from ${items.length}`}
+      </button>
+
+      {/* Popover */}
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-w-sm rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+          <input
+            type="text"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Type to filter…"
+            className="w-full text-sm bg-background border-b border-border px-3 py-2 outline-none"
+          />
+          <div className="max-h-56 overflow-y-auto">
+            {filteredItems.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-muted-foreground">
+                No matches
+              </div>
+            ) : (
+              filteredItems.map((item) => {
+                const active = selected.includes(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onToggle(item.id)}
+                    className={cn(
+                      "w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-muted/50 cursor-pointer",
+                      active && "bg-primary/5 text-primary",
+                    )}
+                  >
+                    {active && <Check className="h-3.5 w-3.5 shrink-0" />}
+                    <span className={cn(!active && "ml-[1.125rem]")}>{item.name}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -356,6 +500,10 @@ export function AiCoachWidget({ config, isEditMode, onConfigChange }: AiCoachWid
           pinned_project_ids: config.pinned_project_ids,
           pinned_goal_ids: config.pinned_goal_ids,
           pinned_habit_ids: config.pinned_habit_ids,
+          // coach-004: pass user-supplied focus through to /ai/coach/digest/generate.
+          ...(config.focus && config.focus.trim()
+            ? { focus: config.focus.trim() }
+            : {}),
           for_date: today,
         }),
       });

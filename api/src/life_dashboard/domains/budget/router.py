@@ -23,13 +23,35 @@ from life_dashboard.domains.budget.schemas import (
     BudgetAccountCreate,
     BudgetAccountUpdate,
     BudgetAccountResponse,
+    TellerConnectRequest,
+    TellerSyncResult,
+    TellerSyncAllResult,
+    TellerConfigResponse,
     BudgetAnalyticsResponse,
     BudgetCategoryCreate,
     BudgetCategoryUpdate,
     BudgetCategoryResponse,
+    BudgetCategoryGroupCreate,
+    BudgetCategoryGroupUpdate,
+    BudgetCategoryGroupResponse,
+    BudgetCategoryGroupWithCategories,
+    BudgetProfileCreate,
+    BudgetProfileUpdate,
+    BudgetProfileResponse,
+    BudgetProfileMemberAdd,
+    BudgetProfileMemberUpdate,
+    BudgetProfileMemberResponse,
+    BudgetProfitAnalyticsResponse,
+    BudgetTargetUpsert,
+    BudgetTargetResponse,
+    BudgetTargetMonthResponse,
+    ReattributeResponse,
+    RolloverComputeResponse,
+    SeedProfilesResponse,
     BudgetSummaryResponse,
     BudgetTransactionCreate,
     BudgetTransactionUpdate,
+    BudgetTransactionReattribute,
     BudgetTransactionResponse,
     BudgetTransactionListResponse,
     BudgetTransactionBulkImport,
@@ -37,10 +59,167 @@ from life_dashboard.domains.budget.schemas import (
     CSVColumnMapping,
     BudgetImportDetectResponse,
     BudgetFileImportResponse,
+    BudgetTrendsResponse,
+    IncomeForecastResponse,
+    RecurringGenerateResponse,
 )
 from life_dashboard.domains.budget import service
 
 router = APIRouter(prefix="/budget", tags=["budget"])
+
+
+# ── Budget Profiles (budget-009) ──────────────────────────────────────────────
+
+@router.get("/profiles", response_model=list[BudgetProfileResponse])
+async def list_profiles(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BudgetProfileResponse]:
+    """Return all budget profiles the current user is a member of."""
+    return await service.list_profiles(db, current_user.household_id, current_user.id)
+
+
+@router.post(
+    "/profiles",
+    response_model=BudgetProfileResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_profile(
+    data: BudgetProfileCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfileResponse:
+    """
+    Create a new budget profile. Business profiles (profit_tracking) are a
+    paid-tier feature — returns 402 if the free-tier limit is exceeded.
+    """
+    try:
+        return await service.create_profile(db, current_user.household_id, current_user.id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
+
+
+@router.post("/profiles/seed-defaults", response_model=SeedProfilesResponse)
+async def seed_default_profiles(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SeedProfilesResponse:
+    """
+    Idempotently create the default Personal and Household profiles for this
+    household and seed all household members into each profile.
+    """
+    return await service.seed_default_profiles(
+        db, current_user.household_id, current_user.id
+    )
+
+
+@router.get("/profiles/{profile_id}", response_model=BudgetProfileResponse)
+async def get_profile(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfileResponse:
+    profile = await service.get_profile(db, profile_id, current_user.household_id)
+    if profile is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Profile not found")
+    return BudgetProfileResponse.model_validate(profile)
+
+
+@router.patch("/profiles/{profile_id}", response_model=BudgetProfileResponse)
+async def update_profile(
+    profile_id: uuid.UUID,
+    data: BudgetProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfileResponse:
+    result = await service.update_profile(db, profile_id, current_user.household_id, data)
+    if result is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Profile not found")
+    return result
+
+
+@router.delete("/profiles/{profile_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def delete_profile(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    try:
+        deleted = await service.delete_profile(db, profile_id, current_user.household_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if not deleted:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+
+# ── Profile Members (budget-014) ──────────────────────────────────────────────
+
+@router.get(
+    "/profiles/{profile_id}/members",
+    response_model=list[BudgetProfileMemberResponse],
+)
+async def list_profile_members(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BudgetProfileMemberResponse]:
+    return await service.list_profile_members(db, profile_id, current_user.household_id)
+
+
+@router.post(
+    "/profiles/{profile_id}/members",
+    response_model=BudgetProfileMemberResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def add_profile_member(
+    profile_id: uuid.UUID,
+    data: BudgetProfileMemberAdd,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfileMemberResponse:
+    try:
+        return await service.add_profile_member(db, profile_id, current_user.household_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.patch(
+    "/profiles/{profile_id}/members/{user_id}",
+    response_model=BudgetProfileMemberResponse,
+)
+async def update_profile_member(
+    profile_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: BudgetProfileMemberUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfileMemberResponse:
+    result = await service.update_profile_member(
+        db, profile_id, current_user.household_id, user_id, data, current_user.id
+    )
+    if result is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Member not found")
+    return result
+
+
+@router.delete(
+    "/profiles/{profile_id}/members/{user_id}",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def remove_profile_member(
+    profile_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    try:
+        deleted = await service.remove_profile_member(
+            db, profile_id, current_user.household_id, user_id, current_user.id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if not deleted:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Member not found")
 
 
 # ── Accounts ──────────────────────────────────────────────────────────────────
@@ -48,12 +227,14 @@ router = APIRouter(prefix="/budget", tags=["budget"])
 @router.get("/accounts", response_model=list[BudgetAccountResponse])
 async def list_accounts(
     include_archived: bool = Query(default=False),
+    profile_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[BudgetAccountResponse]:
     return await service.list_accounts(
         db, current_user.household_id, current_user.id,
         include_archived=include_archived,
+        profile_id=profile_id,
     )
 
 
@@ -63,7 +244,10 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetAccountResponse:
-    return await service.create_account(db, current_user.household_id, current_user.id, data)
+    try:
+        return await service.create_account(db, current_user.household_id, current_user.id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/accounts/{account_id}", response_model=BudgetAccountResponse)
@@ -102,17 +286,120 @@ async def delete_account(
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Account not found")
 
 
+# ── Category groups ───────────────────────────────────────────────────────────
+
+@router.get("/category-groups", response_model=list[BudgetCategoryGroupResponse])
+async def list_groups(
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BudgetCategoryGroupResponse]:
+    return await service.list_groups(db, current_user.household_id, profile_id=profile_id)
+
+
+@router.post(
+    "/category-groups",
+    response_model=BudgetCategoryGroupResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_group(
+    data: BudgetCategoryGroupCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetCategoryGroupResponse:
+    try:
+        return await service.create_group(db, current_user.household_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.patch("/category-groups/{group_id}", response_model=BudgetCategoryGroupResponse)
+async def update_group(
+    group_id: uuid.UUID,
+    data: BudgetCategoryGroupUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetCategoryGroupResponse:
+    result = await service.update_group(db, group_id, current_user.household_id, data)
+    if result is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Group not found")
+    return result
+
+
+@router.delete("/category-groups/{group_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def delete_group(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    deleted = await service.delete_group(db, group_id, current_user.household_id)
+    if not deleted:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+
+@router.post("/category-groups/seed-defaults", response_model=dict)
+async def seed_default_groups(
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Idempotently create the default YNAB-inspired category groups for the
+    household and assign matching categories by name.
+    For profit_tracking profiles, seeds business-specific group names instead.
+    """
+    return await service.seed_default_groups(db, current_user.household_id, profile_id=profile_id)
+
+
 # ── Categories ────────────────────────────────────────────────────────────────
+
+@router.post("/categories/auto-budget", response_model=list[dict])
+async def auto_budget_fixed(
+    months: int = Query(default=3, ge=1, le=12, description="Number of full calendar months to average"),
+    group_name: str = Query(default="Fixed Monthly", description="Group whose categories to auto-budget"),
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """
+    Average the last N full months of spending for every category in the named
+    group and write the result to each category's default_monthly_amount.
+    Returns the list of categories that were updated with old/new amounts.
+    """
+    return await service.auto_budget_fixed_categories(
+        db, current_user.household_id,
+        profile_id=profile_id,
+        months=months,
+        group_name=group_name,
+    )
+
+
+@router.get("/categories/grouped", response_model=list[BudgetCategoryGroupWithCategories])
+async def list_categories_grouped(
+    include_archived: bool = Query(default=False),
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BudgetCategoryGroupWithCategories]:
+    """Return categories nested inside their groups, with an implicit Other bucket for ungrouped."""
+    return await service.list_categories_grouped(
+        db, current_user.household_id,
+        include_archived=include_archived,
+        profile_id=profile_id,
+    )
+
 
 @router.get("/categories", response_model=list[BudgetCategoryResponse])
 async def list_categories(
     include_archived: bool = Query(default=False),
+    profile_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[BudgetCategoryResponse]:
     return await service.list_categories(
         db, current_user.household_id,
         include_archived=include_archived,
+        profile_id=profile_id,
     )
 
 
@@ -122,7 +409,10 @@ async def create_category(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetCategoryResponse:
-    return await service.create_category(db, current_user.household_id, data)
+    try:
+        return await service.create_category(db, current_user.household_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/categories/{category_id}", response_model=BudgetCategoryResponse)
@@ -161,6 +451,46 @@ async def delete_category(
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Category not found")
 
 
+# ── Budget Targets ────────────────────────────────────────────────────────────
+
+@router.get("/targets", response_model=BudgetTargetMonthResponse)
+async def get_targets(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetTargetMonthResponse:
+    return await service.get_effective_targets(
+        db, current_user.household_id, year, month, profile_id=profile_id
+    )
+
+
+@router.put("/targets", response_model=BudgetTargetResponse | None)
+async def upsert_target(
+    data: BudgetTargetUpsert,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetTargetResponse | None:
+    result = await service.upsert_target(db, current_user.household_id, data)
+    if result is None and data.amount is not None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Category not found")
+    return result
+
+
+@router.post("/rollover", response_model=RolloverComputeResponse)
+async def compute_rollover(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RolloverComputeResponse:
+    return await service.compute_and_store_rollover(
+        db, current_user.household_id, year, month, profile_id=profile_id
+    )
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 @router.get("/summary", response_model=BudgetSummaryResponse)
@@ -168,6 +498,7 @@ async def get_summary(
     account_id: uuid.UUID | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    profile_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetSummaryResponse:
@@ -176,23 +507,41 @@ async def get_summary(
         account_id=account_id,
         date_from=date_from,
         date_to=date_to,
+        profile_id=profile_id,
     )
 
 
-# ── Analytics ────────────────────────────────────────────────────────────────
+# ── Analytics ─────────────────────────────────────────────────────────────────
 
 @router.get("/analytics", response_model=BudgetAnalyticsResponse)
 async def get_analytics(
     year: int | None = Query(default=None, ge=2000, le=2100),
     month: int | None = Query(default=None, ge=1, le=12),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     account_id: uuid.UUID | None = Query(default=None),
+    profile_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetAnalyticsResponse:
     """
-    Per-category spending breakdown for a calendar month.
-    Defaults to the current month when year/month are omitted.
+    Per-category spending breakdown for a calendar month or arbitrary date range.
+
+    Pass year+month for the standard monthly view (with budget targets + rollover).
+    Pass date_from+date_to for an arbitrary range (budget targets omitted).
+    Defaults to the current month when all date params are omitted.
+    For profit_tracking profiles, use GET /budget/analytics/profit instead.
     """
+    # If explicit date range provided, use it directly
+    if date_from is not None or date_to is not None:
+        return await service.get_analytics(
+            db, current_user.household_id, current_user.id,
+            date_from=date_from,
+            date_to=date_to,
+            account_id=account_id,
+            profile_id=profile_id,
+        )
+    # Otherwise fall back to month-based (default: current month)
     today = date.today()
     resolved_year = year if year is not None else today.year
     resolved_month = month if month is not None else today.month
@@ -201,6 +550,36 @@ async def get_analytics(
         year=resolved_year,
         month=resolved_month,
         account_id=account_id,
+        profile_id=profile_id,
+    )
+
+
+@router.get("/analytics/profit", response_model=BudgetProfitAnalyticsResponse)
+async def get_profit_analytics(
+    profile_id: uuid.UUID = Query(...),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetProfitAnalyticsResponse:
+    """
+    P&L analytics for a profit_tracking profile (budget-012 / budget-013).
+    Returns revenue, expenses, net profit, MRR, ARR, and MoM MRR growth.
+    """
+    today = date.today()
+    resolved_year = year if year is not None else today.year
+    resolved_month = month if month is not None else today.month
+
+    # Verify profile belongs to this household and is profit_tracking
+    profile = await service.get_profile(db, profile_id, current_user.household_id)
+    if profile is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+    return await service.get_profit_analytics(
+        db, current_user.household_id, current_user.id,
+        year=resolved_year,
+        month=resolved_month,
+        profile_id=profile_id,
     )
 
 
@@ -211,12 +590,15 @@ async def list_transactions(
     account_id: uuid.UUID | None = Query(default=None),
     category_id: uuid.UUID | None = Query(default=None),
     uncategorized: bool = Query(default=False),
-    scope: str | None = Query(default=None, pattern="^(personal|household)$"),
+    txn_type: str | None = Query(default=None, pattern="^(uncategorized|transfers|income|expenses|recurring)$"),
+    scope: str | None = Query(default=None, pattern="^(private|shared)$"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
+    profile_id: uuid.UUID | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetTransactionListResponse:
@@ -225,12 +607,15 @@ async def list_transactions(
         account_id=account_id,
         category_id=category_id,
         uncategorized=uncategorized,
+        txn_type=txn_type,
         scope=scope,
         date_from=date_from,
         date_to=date_to,
         include_archived=include_archived,
         limit=limit,
         offset=offset,
+        profile_id=profile_id,
+        search=search,
     )
 
 
@@ -250,16 +635,13 @@ async def create_transaction(
 async def export_transactions_csv(
     account_id: uuid.UUID | None = Query(default=None),
     category_id: uuid.UUID | None = Query(default=None),
-    scope: str | None = Query(default=None, pattern="^(personal|household)$"),
+    scope: str | None = Query(default=None, pattern="^(private|shared)$"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    profile_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    """
-    Download all visible transactions as a CSV file.
-    Filename: hearth-budget-YYYY-MM.csv based on date_from or the current month.
-    """
     csv_content = await service.export_transactions_csv(
         db, current_user.household_id, current_user.id,
         account_id=account_id,
@@ -267,6 +649,7 @@ async def export_transactions_csv(
         scope=scope,
         date_from=date_from,
         date_to=date_to,
+        profile_id=profile_id,
     )
     ref_date = date_from or date.today()
     filename = f"hearth-budget-{ref_date.strftime('%Y-%m')}.csv"
@@ -304,6 +687,30 @@ async def update_transaction(
     return result
 
 
+@router.post(
+    "/transactions/{transaction_id}/move-to-profile",
+    response_model=ReattributeResponse,
+)
+async def reattribute_transaction(
+    transaction_id: uuid.UUID,
+    data: BudgetTransactionReattribute,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReattributeResponse:
+    """
+    budget-011: Re-attribute a transaction to a different profile for analytics.
+    The account balance is unaffected — this is purely an analytics operation.
+    Pass target_profile_id=null to revert to the account's default profile.
+    """
+    try:
+        return await service.reattribute_transaction(
+            db, transaction_id, current_user.household_id, current_user.id,
+            data.target_profile_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post("/apply-to-similar", response_model=ApplyToSimilarResponse)
 async def apply_category_to_similar(
     transaction_id: uuid.UUID = Query(...),
@@ -311,15 +718,22 @@ async def apply_category_to_similar(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ApplyToSimilarResponse:
-    """
-    Apply the given category to all uncategorized transactions that share the same
-    merchant_name as the specified transaction. Also adds the merchant name as a
-    keyword to the category for future auto-categorization.
-    """
     updated, keyword_added = await service.apply_category_to_similar(
         db, transaction_id, category_id, current_user.household_id, current_user.id
     )
     return ApplyToSimilarResponse(updated=updated, keyword_added=keyword_added)
+
+
+@router.post("/apply-transfer-to-similar")
+async def apply_transfer_to_similar(
+    transaction_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    updated = await service.apply_transfer_to_similar(
+        db, transaction_id, current_user.household_id, current_user.id
+    )
+    return {"updated": updated}
 
 
 @router.delete("/transactions", status_code=http_status.HTTP_200_OK)
@@ -328,10 +742,6 @@ async def bulk_delete_transactions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """
-    Delete all transactions for the household, optionally filtered to one account.
-    Returns { "deleted": <count> }.
-    """
     deleted = await service.delete_all_transactions(
         db, current_user.household_id, account_id=account_id
     )
@@ -370,7 +780,6 @@ async def bulk_import_transactions(
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # Auto-categorize newly imported transactions immediately
     auto_categorized = 0
     if result.inserted > 0:
         auto_categorized = await service.auto_categorize_transactions(
@@ -392,11 +801,6 @@ async def auto_categorize(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AutoCategorizeResponse:
-    """
-    Keyword-match uncategorized transactions against category keyword lists.
-    Pass account_id to restrict to a single account; omit to scan the whole household.
-    Returns { "updated": <count> }.
-    """
     updated = await service.auto_categorize_transactions(
         db, current_user.household_id, account_id=account_id
     )
@@ -410,13 +814,6 @@ async def detect_import_file(
     file: UploadFile = File(...),
     _current_user: User = Depends(get_current_user),
 ) -> BudgetImportDetectResponse:
-    """
-    Upload a file and get back format detection + column info.
-
-    For OFX/QFX: returns estimated transaction count and date range.
-    For CSV: returns column headers, up to 5 sample rows, and a best-guess
-    column mapping for the frontend to display/edit before confirming import.
-    """
     content = await file.read()
     filename = (file.filename or "").lower()
 
@@ -503,13 +900,6 @@ async def import_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BudgetFileImportResponse:
-    """
-    Import transactions from an OFX/QFX or CSV file into the given account.
-    Duplicates are silently skipped (dedup by hash + external_id).
-
-    For CSV files, supply `column_mapping` as a JSON-encoded CSVColumnMapping.
-    If omitted for CSV, heuristic detection is used.
-    """
     content = await file.read()
     filename = (file.filename or "").lower()
     parse_errors: list[str] = []
@@ -595,7 +985,6 @@ async def import_file(
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # Auto-categorize newly imported transactions immediately
     auto_categorized = 0
     if bulk_result.inserted > 0:
         auto_categorized = await service.auto_categorize_transactions(
@@ -608,3 +997,202 @@ async def import_file(
         auto_categorized=auto_categorized,
         parse_errors=parse_errors,
     )
+
+
+# ── Income forecasting (budget-020) ──────────────────────────────────────────
+
+@router.get("/income-forecast", response_model=IncomeForecastResponse)
+async def get_income_forecast(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    profile_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncomeForecastResponse:
+    """
+    Project recurring income for the given month and compare against
+    category budget targets. Returns per-source breakdown plus
+    left_to_allocate = projected_income - total_targets.
+    """
+    return await service.get_income_forecast(
+        db, current_user.household_id, current_user.id,
+        year=year, month=month, profile_id=profile_id,
+    )
+
+
+# ── Recurring transactions ────────────────────────────────────────────────────
+
+@router.post("/recurring/generate", response_model=RecurringGenerateResponse)
+async def generate_recurring(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Idempotent: generates missing recurring-transaction instances for the given
+    year/month from all active recurring templates in the household.
+    Safe to call multiple times; already-existing instances are skipped.
+    """
+    return await service.ensure_recurring_for_month(
+        db, current_user.household_id, year, month
+    )
+
+
+# ── Spending trends ────────────────────────────────────────────────────────────
+
+@router.get("/trends", response_model=BudgetTrendsResponse)
+async def get_spending_trends(
+    months: int = Query(default=6, ge=1, le=24),
+    profile_id: uuid.UUID | None = Query(default=None),
+    account_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetTrendsResponse:
+    """
+    Return monthly income / expense / budget totals for the last N months.
+    Ordered oldest → newest. Used by the trends chart on the budget page.
+    """
+    month_data = await service.get_spending_trends(
+        db, current_user.household_id, current_user.id,
+        months=months,
+        profile_id=profile_id,
+        account_id=account_id,
+    )
+    from life_dashboard.domains.budget.schemas import BudgetTrendMonth
+    return BudgetTrendsResponse(
+        months=[BudgetTrendMonth(**m) for m in month_data]
+    )
+
+
+# ── Teller bank sync ──────────────────────────────────────────────────────────
+
+@router.get("/teller/config", response_model=TellerConfigResponse)
+async def get_teller_config(
+    _current_user: User = Depends(get_current_user),
+) -> TellerConfigResponse:
+    """
+    Return public Teller configuration so the frontend knows whether bank
+    sync is available and how to initialise the Teller Connect widget.
+    The access token is never included in this response.
+    """
+    return service.get_teller_config()
+
+
+@router.post(
+    "/teller/connect",
+    response_model=list[BudgetAccountResponse],
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def connect_teller_enrollment(
+    data: TellerConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BudgetAccountResponse]:
+    """
+    Process a successful Teller Connect callback.
+
+    The frontend calls this after the TellerConnect.setup() onSuccess fires,
+    passing the access token, enrollment ID, and institution name.  The API
+    calls Teller GET /accounts to discover all bank accounts in the enrollment
+    and creates (or re-authenticates) a BudgetAccount for each.
+
+    Returns the list of created/updated BudgetAccount objects.
+    """
+    try:
+        return await service.connect_teller_enrollment(
+            db, current_user.household_id, current_user.id, data
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/accounts/{account_id}/teller/sync",
+    response_model=TellerSyncResult,
+)
+async def sync_teller_account(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TellerSyncResult:
+    """
+    Poll Teller for new transactions on a single linked account and import them.
+    Uses the stored cursor so only transactions newer than the last sync are fetched.
+    """
+    account = await service.get_account(db, account_id, current_user.household_id)
+    if account is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Account not found")
+    if not account.teller_account_id:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="This account is not linked to Teller.",
+        )
+    try:
+        return await service.sync_teller_account(db, account)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/teller/sync-all", response_model=TellerSyncAllResult)
+async def sync_all_teller_accounts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TellerSyncAllResult:
+    """
+    Sync all Teller-linked accounts in the household in sequence.
+    Individual account failures are logged and skipped — the response always
+    returns results for the accounts that succeeded.
+    """
+    return await service.sync_all_teller_accounts(db, current_user.household_id)
+
+
+@router.delete(
+    "/accounts/{account_id}/teller",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def unlink_teller_account(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """
+    Remove the Teller connection from an account.
+    Clears all teller_* fields; existing imported transactions are preserved.
+    """
+    account = await service.get_account(db, account_id, current_user.household_id)
+    if account is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    account.teller_enrollment_id = None
+    account.teller_access_token = None
+    account.teller_account_id = None
+    account.teller_institution_name = None
+    account.teller_last_synced_at = None
+    account.teller_cursor = None
+    from datetime import datetime, timezone
+    account.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+@router.post(
+    "/accounts/{account_id}/teller/reset-cursor",
+    status_code=204,
+)
+async def reset_teller_cursor(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """
+    Clear the teller_cursor so the next sync re-fetches the full transaction
+    history from scratch.  Useful after the initial connect when the cursor
+    was set before full pagination was available.
+    """
+    account = await service.get_account(db, account_id, current_user.household_id)
+    if not account or not account.teller_account_id:
+        raise HTTPException(status_code=404, detail="Teller-linked account not found")
+    from datetime import datetime, timezone
+    account.teller_cursor = None
+    account.updated_at = datetime.now(timezone.utc)
+    await db.commit()

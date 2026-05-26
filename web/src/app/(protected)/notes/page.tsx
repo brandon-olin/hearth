@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { NoteList } from "@/components/notes/note-list";
 import { NoteEditor } from "@/components/notes/note-editor";
 import { NoteGraph } from "@/components/notes/note-graph";
+import { useRegisterCurrentResource } from "@/lib/chat-context/current-resource";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useFocusMode } from "@/lib/focus/context";
 import { FocusToggle } from "@/components/focus/focus-toggle";
@@ -21,6 +22,9 @@ const NEW_NOTE_ID = "__new__";
 export default function NotesPage() {
   const { user } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // chat-001: keep the selected note's title in sync so the chat sidebar
+  // can show 'Discussing: <title>' without an extra fetch.
+  const [selectedTitle, setSelectedTitle] = useState<string>("");
   const [view, setView] = useState<View>("list");
 
   // When the active user changes (e.g. impersonation switch), reset all
@@ -41,15 +45,19 @@ export default function NotesPage() {
 
   const handleSelect = useCallback((note: NoteSummary) => {
     setSelectedId(note.id);
+    setSelectedTitle(note.title ?? "");
     setView("list");
   }, []);
 
   const handleGraphSelect = useCallback((id: string) => {
     setSelectedId(id);
+    // Title not known from a graph click — chip falls back to a short id.
+    setSelectedTitle("");
   }, []);
 
   const handleNewNote = useCallback(() => {
     setSelectedId(NEW_NOTE_ID);
+    setSelectedTitle("");
     setView("list");
   }, []);
 
@@ -78,6 +86,14 @@ export default function NotesPage() {
 
   const isNew = selectedId === NEW_NOTE_ID;
   const editorNoteId = isNew ? null : selectedId;
+
+  // chat-001: publish the open note so the sidebar chatbot knows what
+  // 'this' refers to when the user asks about the entry they're reading.
+  useRegisterCurrentResource(
+    editorNoteId
+      ? { type: "note", id: editorNoteId, title: selectedTitle }
+      : null,
+  );
 
   return (
     <div className="flex flex-col h-full min-h-full">

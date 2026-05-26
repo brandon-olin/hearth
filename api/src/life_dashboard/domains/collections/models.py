@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, Uuid
 from sqlalchemy import Enum as SaEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -42,6 +42,14 @@ class Collection(Base):
     domain: Mapped[str] = mapped_column(
         SaEnum("notes", "documents", native_enum=False)
     )
+
+    # Optional semantic flag identifying this collection's role to other
+    # subsystems. NULL = a generic user-named collection. Recognized values
+    # today: "journal" (notes in this collection are fed to the journal
+    # signal extractor and read by the CBT-aware coach). Reserved for future:
+    # "recipes", "routines". Stored as a free String (no native enum) so new
+    # kinds can be added without a DB migration. See migration 0032.
+    kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # JSON array of tag UUID strings — avoids a join table for short lists
     default_tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

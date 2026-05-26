@@ -5,9 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/lib/api/query";
 import { cn } from "@/lib/utils";
 import {
-  Loader2, Tag, X, Plus, Link2, Trash2, ChevronDown, ChevronRight,
+  Loader2, Tag, X, Plus, Link2, Trash2, ChevronDown, ChevronRight, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { JournalSession } from "@/components/journal/journal-session";
+import { useAuth } from "@/lib/auth/context";
 import type { components } from "@/lib/api/schema";
 
 type NoteResponse = components["schemas"]["NoteResponse"];
@@ -197,6 +199,55 @@ function BacklinksPanel({
   );
 }
 
+// ── Journal entry-date helper (journal-001) ──────────────────────────────────
+
+/**
+ * Decide whether `note` is TODAY's journal entry — used to gate the
+ * 'Talk it out' button. Three-step check:
+ *
+ *  1. The note must be in a journal-kind collection (server provides
+ *     collection_kind on NoteResponse).
+ *  2. Try to parse a date out of the title (the daily auto-create rule
+ *     produces titles like "Tuesday, May 25, 2026"). Optional ordinal
+ *     suffix tolerated.
+ *  3. Fallback: use the note's created_at.
+ *
+ * Returns true when the resolved date equals today in the user's
+ * timezone. Strict — past entries: no button. Future-dated journals
+ * (rare): no button.
+ */
+function isTodayJournalEntry(
+  collection_kind: string | null | undefined,
+  title: string,
+  created_at: string,
+): boolean {
+  if (collection_kind !== "journal") return false;
+
+  // Try to parse a date from the title first.
+  const match = title.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,\s+(\d{4})/);
+  let resolved: Date | null = null;
+  if (match) {
+    const [, monthStr, dayStr, yearStr] = match;
+    const parsed = new Date(`${monthStr} ${dayStr}, ${yearStr}`);
+    if (!isNaN(parsed.getTime())) {
+      resolved = parsed;
+    }
+  }
+  if (!resolved) {
+    const fallback = new Date(created_at);
+    if (isNaN(fallback.getTime())) return false;
+    resolved = fallback;
+  }
+
+  const today = new Date();
+  return (
+    resolved.getFullYear() === today.getFullYear() &&
+    resolved.getMonth() === today.getMonth() &&
+    resolved.getDate() === today.getDate()
+  );
+}
+
+
 // ── Main editor ───────────────────────────────────────────────────────────────
 
 interface NoteEditorProps {
@@ -214,6 +265,11 @@ interface NoteEditorProps {
 export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreated, onDeleted, onNavigate }: NoteEditorProps) {
   const qc = useQueryClient();
   const isNew = noteId === null;
+  // ai-access-001: hide the 'Talk it out' button when AI features are
+  // disabled for this member. Backend would 403 the journal endpoints
+  // anyway; this just keeps the UI honest.
+  const { user } = useAuth();
+  const aiEnabled = user?.ai_features_enabled !== false;
 
   // ── Local form state ───────────────────────────────────────────────────────
   const [title, setTitle] = useState(initialTitle ?? "");
@@ -225,6 +281,10 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // journal-001: 'Talk it out' overlay state. Gated by isTodayJournalEntry
+  // below — the button only appears when conditions are met.
+  const [journalOpen, setJournalOpen] = useState(false);
 
   // Autosave: save 1s after the user stops typing (update mode only)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -462,12 +522,30 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
           className="w-full text-xl font-semibold bg-transparent outline-none placeholder:text-muted-foreground/30 border-none"
         />
 
-        {/* Tags row */}
+        {/* Tags row + journal-001 'Talk it out' button */}
         <div className="flex flex-wrap items-center gap-1.5">
           {tags.map((tag) => (
             <TagPill key={tag.id} tag={tag} onRemove={() => removeTag(tag.id)} />
           ))}
           <TagAdder currentTagIds={tagIds} onAdd={addTag} />
+          {!isNew &&
+            noteData &&
+            aiEnabled &&
+            isTodayJournalEntry(
+              noteData.collection_kind,
+              noteData.title,
+              noteData.created_at,
+            ) && (
+              <button
+                type="button"
+                onClick={() => setJournalOpen(true)}
+                className="ml-2 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                title="Start a guided journal session for today's entry"
+              >
+                <Sparkles className="h-3 w-3" />
+                Talk it out
+              </button>
+            )}
         </div>
 
         {/* Markdown textarea */}
@@ -494,6 +572,23 @@ export function NoteEditor({ noteId, defaultCollectionId, initialTitle, onCreate
           <BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />
         </div>
       </div>
+
+      {/* journal-001: 'Talk it out' overlay. Renders only when explicitly
+          opened, so the note editor stays unchanged for everything else. */}
+      {journalOpen && noteData && (
+        <JournalSession
+          noteId={noteData.id}
+          noteTitle={noteData.title || "Today"}
+          onClose={() => setJournalOpen(false)}
+          onSaved={(savedNoteId) => {
+            setJournalOpen(false);
+            // Refresh the note so the appended summary appears in the
+            // editor. Invalidate both the singular and the list query.
+            qc.invalidateQueries({ queryKey: ["get", "/notes/{note_id}", { params: { path: { note_id: savedNoteId } } }] });
+            qc.invalidateQueries({ queryKey: ["get", "/notes"] });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -35,9 +35,24 @@ class Settings(BaseSettings):
     # Set ANTHROPIC_API_KEY in .env. Leave blank to disable AI until a key is provided.
     anthropic_api_key: str = ""
 
+    # Teller bank sync — BYOK: each install supplies its own Teller app credentials.
+    # Teller uses mutual TLS; cert and key are the files downloaded from the Teller
+    # dashboard. Leave blank to disable bank sync until credentials are provided.
+    teller_app_id: str = ""
+    teller_cert_path: str = ""        # absolute path to certificate.pem
+    teller_key_path: str = ""         # absolute path to private_key.pem
+    teller_signing_secret: str = ""   # webhook payload verification secret
+    teller_environment: str = "sandbox"  # sandbox | development | production
+
     # File uploads — local storage path inside the container
     upload_dir: str = "/data/uploads"
     max_upload_size_mb: int = 10
+
+    # Field-level encryption
+    # Generate a key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Comma-separate multiple keys for rotation (first key encrypts; all keys decrypt).
+    # Leave blank in local dev — values will be stored as plaintext with a warning.
+    field_encryption_key: str = ""
 
     # App
     environment: str = "development"

@@ -232,8 +232,6 @@ async def update_recipe(
     data: RecipeUpdate,
 ) -> RecipeResponse | None:
     query = select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
-    if user_id is not None:
-        query = apply_visibility_filter(query, Recipe, user_id)
     result = await db.execute(query)
     recipe = result.scalar_one_or_none()
     if recipe is None:
@@ -275,8 +273,6 @@ async def delete_recipe(
     household_id: uuid.UUID,
 ) -> bool:
     query = select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
-    if user_id is not None:
-        query = apply_visibility_filter(query, Recipe, user_id)
     result = await db.execute(query)
     recipe = result.scalar_one_or_none()
     if recipe is None:

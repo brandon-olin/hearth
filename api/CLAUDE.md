@@ -46,6 +46,92 @@ Each domain follows the same four-file pattern:
 
 ---
 
+## Idempotency
+
+Duplicate writes are a real risk in this app. Network retries, double-taps on mobile, and background refetches can all re-submit a `POST`. Treat every write endpoint as a potential retry target and guard accordingly.
+
+### What we already have (do not regress)
+
+- `tags` — `UniqueConstraint(household_id, name)`; returns 409 on duplicate name.
+- `taggings` — `UniqueConstraint(tag_id, entity_type, entity_id)`; duplicate tag application is a no-op.
+- `documents` — `UniqueConstraint(household_id, slug)`.
+- `project_goals` — `UniqueConstraint(project_id, goal_id)`; `link_goal` is explicitly idempotent (noted in the router).
+- `collection_templates` — `UniqueConstraint(collection_id, template_id)`.
+- `household_memberships` — `UNIQUE(household_id, user_id)`; returns 409 if already a member.
+- `add_recipe_ingredients_to_list` — deduplicates by `recipe_ingredient_id`, skips already-present items.
+
+### Roadmap — guards to add (in priority order)
+
+These are the high-risk paths that currently have no protection against duplicate writes. Implement them before hardening any lower-risk area.
+
+**Priority 1 — state-transition operations (data-integrity risk)**
+
+These write paths trigger downstream side-effects (auto-creating the next recurrence instance). A concurrent double-submit could create two next instances.
+
+- `PATCH /todos/{id}` marking complete on a recurring todo: check `completed_at is not None` *before* computing the next instance, inside a single transaction. The check-then-create must be atomic; don't let two requests both pass the `completed_at is None` gate.
+- `PATCH /habits/{id}/occurrences/{occ_id}` marking complete: same pattern — check `completed_at` before creating the next occurrence, atomically.
+
+Implementation note: wrap these in `SELECT … FOR UPDATE` on the parent row so concurrent requests serialise, or use a `UPDATE … WHERE completed_at IS NULL RETURNING id` pattern and only proceed if a row was actually updated.
+
+**Priority 2 — idempotency keys on all create endpoints**
+
+Add an optional `Idempotency-Key` header (UUID) to every `POST` that creates a new entity. On the server:
+
+1. If no key is sent, proceed normally (backwards-compatible).
+2. If a key is sent, look it up in an `idempotency_keys` table scoped to `household_id`.
+3. If found and `completed`, return the cached response body as-is with a `200`.
+4. If found and `pending` (still processing), return `409 Conflict`.
+5. If not found, insert with status `pending`, process the request, update to `completed` with the serialised response, and return `201`.
+
+Store keys with a 24-hour TTL. A single Alembic migration adds the table; a FastAPI middleware or dependency handles steps 2–5.
+
+Domains to cover (in rough priority order): `todos`, `habits`, `goals`, `recipes`, `documents` (create), `grocery_lists`, `projects`, `workouts`, `contacts`, `calendar_events`.
+
+**Priority 3 — notification deduplication**
+
+The notification dispatch path calls `db.add()` with no uniqueness check. Before dispatching, query for an existing notification with the same `(household_id, entity_type, entity_id, type)` created within a short window (e.g. 60 s). If found, skip creation.
+
+### Patterns to use
+
+```python
+# Pattern A — atomic check-then-create with SELECT FOR UPDATE
+async with db.begin():
+    row = await db.execute(
+        select(Todo).where(Todo.id == todo_id).with_for_update()
+    )
+    todo = row.scalar_one_or_none()
+    if todo and todo.completed_at is None:
+        todo.completed_at = datetime.now(timezone.utc)
+        if todo.recurring:
+            _create_next_instance(db, todo)
+
+# Pattern B — UPDATE WHERE … RETURNING (preferred for simple status flips)
+result = await db.execute(
+    update(HabitOccurrence)
+    .where(HabitOccurrence.id == occ_id, HabitOccurrence.completed_at.is_(None))
+    .values(completed_at=datetime.now(timezone.utc))
+    .returning(HabitOccurrence.id)
+)
+if result.scalar_one_or_none():
+    # exactly one row updated — safe to create next occurrence
+    ...
+
+# Pattern C — get-or-create with unique constraint (for association tables)
+try:
+    db.add(ProjectGoal(project_id=project_id, goal_id=goal_id))
+    await db.flush()
+except IntegrityError:
+    await db.rollback()  # already exists — treat as success
+```
+
+### What NOT to do
+
+- Never check existence in one query and insert in a separate query without a transaction or FOR UPDATE. The gap between them is a race window.
+- Never swallow an `IntegrityError` without rolling back the session — SQLAlchemy will leave the transaction in an error state.
+- Never skip idempotency on endpoints that create household-financial or sensitive records (budget entries, contacts).
+
+---
+
 ## Conventions
 
 **Routing prefix:** each domain router is mounted at `/domain-name` in `main.py`. All routes are relative to that prefix.

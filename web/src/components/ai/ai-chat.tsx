@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getAccessToken, setAccessToken } from "@/lib/auth/token";
+import { useCurrentResource } from "@/lib/chat-context/current-resource";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -42,25 +43,49 @@ function apiBase() {
   return typeof window !== "undefined" ? "" : (process.env.API_URL ?? "");
 }
 
+/** Return true if the JWT is missing, malformed, or expires within 60 s. */
+function isTokenExpiredOrMissing(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    // exp is in seconds; refresh if within 60 s of expiry
+    return typeof payload.exp === "number" && payload.exp * 1000 < Date.now() + 60_000;
+  } catch {
+    return true; // malformed — treat as expired
+  }
+}
+
+/** Singleton refresh promise so concurrent callers share one network request. */
+let _refreshPromise: Promise<string | null> | null = null;
+
+async function refreshToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${apiBase()}/api/auth/refresh`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { access_token?: string };
+        if (data.access_token) {
+          setAccessToken(data.access_token);
+          return data.access_token;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  })().finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
+}
+
 async function getValidToken(): Promise<string | null> {
   const existing = getAccessToken();
-  if (existing) return existing;
-  try {
-    const res = await fetch(`${apiBase()}/api/auth/refresh`, {
-      method: "POST",
-      credentials: "same-origin",
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { access_token?: string };
-      if (data.access_token) {
-        setAccessToken(data.access_token);
-        return data.access_token;
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
+  if (!isTokenExpiredOrMissing(existing)) return existing!;
+  // Token missing or expired — attempt a silent refresh
+  return refreshToken();
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -281,20 +306,84 @@ function ConvItem({
 // ── tool labels ───────────────────────────────────────────────────────────────
 
 const TOOL_LABELS: Record<string, string> = {
+  // Workouts
   create_workout: "Saving workout…",
+  update_workout: "Updating workout…",
   delete_workout: "Deleting workout…",
+  get_workout: "Loading workout…",
   list_workouts: "Looking up workouts…",
+  // Tasks
   list_todos: "Looking up tasks…",
+  create_todo: "Creating task…",
+  update_todo: "Updating task…",
+  delete_todo: "Deleting task…",
+  // Habits
   list_habits: "Looking up habits…",
+  create_habit: "Creating habit…",
+  update_habit: "Updating habit…",
+  delete_habit: "Deleting habit…",
+  log_habit_occurrence: "Logging habit…",
+  // Goals
   list_goals: "Looking up goals…",
+  create_goal: "Creating goal…",
+  update_goal: "Updating goal…",
+  delete_goal: "Deleting goal…",
+  // Notes
   list_notes: "Searching notes…",
+  get_note: "Reading note…",
+  create_note: "Saving note…",
+  update_note: "Updating note…",
+  delete_note: "Deleting note…",
+  // Calendar
   list_calendar_events: "Checking calendar…",
+  create_calendar_event: "Adding event…",
+  update_calendar_event: "Updating event…",
+  delete_calendar_event: "Removing event…",
+  // Recipes
   list_recipes: "Looking up recipes…",
-  get_documents: "Reading document content…",
+  get_recipe: "Loading recipe…",
+  create_recipe: "Saving recipe…",
+  update_recipe: "Updating recipe…",
+  delete_recipe: "Deleting recipe…",
+  // Contacts
+  list_contacts: "Looking up contacts…",
+  get_contact: "Loading contact…",
+  create_contact: "Saving contact…",
+  update_contact: "Updating contact…",
+  delete_contact: "Deleting contact…",
+  // Grocery
+  list_grocery_lists: "Looking up grocery lists…",
+  create_grocery_list: "Creating grocery list…",
+  update_grocery_list: "Updating grocery list…",
+  delete_grocery_list: "Deleting grocery list…",
+  add_grocery_items: "Adding items…",
+  check_grocery_item: "Checking off item…",
+  update_grocery_item: "Updating item…",
+  // Documents
+  get_documents: "Reading document…",
   list_documents: "Browsing documents…",
   search_documents: "Searching documents…",
-  list_contacts: "Looking up contacts…",
-  list_grocery_lists: "Looking up grocery lists…",
+  create_document: "Saving document…",
+  update_document: "Updating document…",
+  archive_document: "Archiving document…",
+  // Collections
+  list_collections: "Looking up collections…",
+  create_collection: "Creating collection…",
+  update_collection: "Updating collection…",
+  delete_collection: "Deleting collection…",
+  ensure_today_collection: "Checking today's collection…",
+  // Projects
+  list_projects: "Looking up projects…",
+  create_project: "Creating project…",
+  update_project: "Updating project…",
+  archive_project: "Archiving project…",
+  delete_project: "Deleting project…",
+  // Budget
+  get_budget_summary: "Reviewing your budget…",
+  list_budget_transactions: "Looking up transactions…",
+  get_spending_by_category: "Analysing spending…",
+  get_account_balances: "Checking account balances…",
+  set_category_budget: "Updating budget target…",
 };
 
 // ── AiChat ────────────────────────────────────────────────────────────────────
@@ -305,6 +394,10 @@ export interface AiChatProps {
 }
 
 export function AiChat({ onClose }: AiChatProps) {
+  // chat-001: what resource the user is currently viewing, if any. Sent
+  // with every message so the AI knows what "this" refers to.
+  const currentResource = useCurrentResource();
+
   // Conversation list
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [convsLoading, setConvsLoading] = useState(true);
@@ -466,19 +559,36 @@ export function AiChat({ onClose }: AiChatProps) {
     setSending(true);
 
     try {
-      const res = await fetch(`${apiBase()}/api/ai/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(await authHeaders()),
-        },
-        body: JSON.stringify({
-          content,
-          ...(conversationIdRef.current
-            ? { conversation_id: conversationIdRef.current }
-            : {}),
-        }),
+      const chatBody = JSON.stringify({
+        content,
+        ...(conversationIdRef.current
+          ? { conversation_id: conversationIdRef.current }
+          : {}),
+        // chat-001: attach the currently-viewed resource as a typed hint.
+        // The backend re-resolves the title from the DB; this client-side
+        // value is purely cosmetic for the 'Discussing: X' chip.
+        ...(currentResource
+          ? { context: { type: currentResource.type, id: currentResource.id } }
+          : {}),
       });
+
+      let res = await fetch(`${apiBase()}/api/ai/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: chatBody,
+      });
+
+      // If the token expired between the check and the request, refresh once and retry
+      if (res.status === 401) {
+        const newToken = await refreshToken();
+        if (newToken) {
+          res = await fetch(`${apiBase()}/api/ai/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${newToken}` },
+            body: chatBody,
+          });
+        }
+      }
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Unknown error" }));
@@ -787,6 +897,22 @@ export function AiChat({ onClose }: AiChatProps) {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               {toolStatus}
+            </div>
+          </div>
+        )}
+
+        {/* chat-001: 'Discussing:' chip — shows the user that the AI is
+            aware of what they're currently viewing. Hidden when no
+            resource is registered, so general chat is unchanged. */}
+        {currentResource && (
+          <div className="shrink-0 px-4 pt-1">
+            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 border border-border rounded-full px-2.5 py-0.5">
+              <span className="text-[10px] uppercase tracking-wide opacity-70">
+                Discussing
+              </span>
+              <span className="font-medium text-foreground truncate max-w-[14rem]">
+                {currentResource.title || `${currentResource.type} ${currentResource.id.slice(0, 8)}`}
+              </span>
             </div>
           </div>
         )}

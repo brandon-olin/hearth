@@ -28,6 +28,7 @@ import {
   type TodosWidgetConfig,
   type TodoFilter,
   type AiCoachWidgetConfig,
+  type BudgetWidgetConfig,
 } from "@/lib/dashboard/types";
 
 import { WidgetShell } from "@/components/dashboard/widget-shell";
@@ -38,6 +39,7 @@ import { ProjectProgressWidget } from "@/components/dashboard/project-progress-w
 import { AiCoachWidget } from "@/components/dashboard/ai-coach-widget";
 import { CalendarTodayWidget } from "@/components/dashboard/calendar-today-widget";
 import { CalendarWeekWidget } from "@/components/dashboard/calendar-week-widget";
+import { BudgetWidget } from "@/components/dashboard/budget-widget";
 import { AddWidgetSheet } from "@/components/dashboard/add-widget-sheet";
 import { Button } from "@/components/ui/button";
 import { Settings2, Plus, Check } from "lucide-react";
@@ -114,7 +116,8 @@ function renderWidget(
   widget: WidgetInstance,
   today: string,
   isEditMode: boolean,
-  onConfigChange: (id: string, config: Partial<WidgetInstance["config"]>) => void
+  onConfigChange: (id: string, config: Partial<WidgetInstance["config"]>) => void,
+  aiEnabled: boolean,
 ) {
   switch (widget.type) {
     case "todos": {
@@ -134,6 +137,18 @@ function renderWidget(
     case "project_progress":
       return <ProjectProgressWidget config={widget.config as import("@/lib/dashboard/types").ProjectProgressConfig} />;
     case "ai_coach":
+      // ai-access-001: hide the AI coach widget content when the
+      // current member's AI features are disabled by their household
+      // admin. Show a quiet disabled state so admins / other members
+      // viewing the same household preference layout don't see a
+      // broken widget — but the actual coach UI is gone.
+      if (!aiEnabled) {
+        return (
+          <div className="flex items-center justify-center text-xs text-muted-foreground/60 italic p-4 h-full">
+            AI features are disabled for your account.
+          </div>
+        );
+      }
       return (
         <AiCoachWidget
           config={widget.config as AiCoachWidgetConfig}
@@ -145,6 +160,8 @@ function renderWidget(
       return <CalendarTodayWidget />;
     case "calendar_week":
       return <CalendarWeekWidget />;
+    case "budget":
+      return <BudgetWidget config={widget.config as BudgetWidgetConfig} />;
     default:
       return null;
   }
@@ -203,6 +220,9 @@ function insertAsNewRow(
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  // ai-access-001: per-membership AI gate. Default true for backward
+  // compat with API responses that don't yet carry the field.
+  const aiEnabled = user?.ai_features_enabled !== false;
   const { layout, setLayout, isEditMode, setIsEditMode } = useDashboardLayout();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
 
@@ -516,7 +536,7 @@ export default function DashboardPage() {
                             onColSpanChange={handleColSpanChange}
                             onColStartChange={handleColStartChange}
                           >
-                            {renderWidget(widget, today, isEditMode, handleConfigChange)}
+                            {renderWidget(widget, today, isEditMode, handleConfigChange, aiEnabled)}
                           </WidgetShell>
                         );
                       })}

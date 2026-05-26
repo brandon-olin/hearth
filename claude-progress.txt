@@ -100,3 +100,2439 @@ What was NOT done / left for next session:
   No /features-next or /assign commands yet.
 Recommended next feature: budget-003 (Budget dashboard widget)
 
+=== 2026-05-21 — Coding session ===
+Status: complete
+Feature: budget-005 — Category groups (collapsible category sections)
+Commits: none yet (session ended before git commit — changes are written to disk)
+
+What was done:
+  Migration 0009_budget_category_groups.up/down.sql
+    - New table: budget_category_groups (id, household_id, name, sort_order, created_at, updated_at)
+    - Added group_id FK (ON DELETE SET NULL) to budget_categories
+    - Indexes on both: household_id+sort_order on groups, group_id on categories
+
+  API (api/src/life_dashboard/domains/budget/):
+    models.py
+      - New BudgetCategoryGroup ORM model
+      - Added group_id mapped_column to BudgetCategory
+    schemas.py
+      - New BudgetCategoryGroupCreate, BudgetCategoryGroupUpdate, BudgetCategoryGroupResponse
+      - New BudgetCategoryGroupWithCategories (nested response shape)
+      - Added group_id field to BudgetCategoryCreate, BudgetCategoryUpdate, BudgetCategoryResponse
+    service.py
+      - list_groups, get_group, create_group, update_group, delete_group
+      - list_categories_grouped — returns GroupWithCategories list, ungrouped in implicit "Other"
+      - seed_default_groups — idempotent seeder for the 6 default YNAB-inspired groups;
+        assigns matching categories by name; returns {groups_created, categories_assigned}
+      - DEFAULT_GROUPS constant with the 6 default groups and their category assignments
+    router.py
+      - GET/POST /category-groups, PATCH/DELETE /category-groups/{group_id}
+      - POST /category-groups/seed-defaults (idempotent)
+      - GET /categories/grouped (nested grouped response)
+      - All existing /categories endpoints preserved and unchanged
+
+  Frontend (web/src/app/(protected)/budget/categories/page.tsx):
+    - Full rewrite to grouped view with collapsible group sections
+    - GroupSection component: collapse/expand, inline group rename, delete group
+    - CategoryRow updated: group picker dropdown in edit mode
+    - CreateCategoryForm updated: group picker dropdown
+    - "Set up groups" button (calls seed-defaults) — only shown when no groups exist yet
+    - "Load defaults" button retained for seeding categories without groups
+    - Inline "New group" form at bottom of list
+    - Uncategorized shortcut retained
+    - TypeScript: zero errors (tsc --noEmit clean)
+    - Python: all four API files pass py_compile syntax check
+
+What was NOT done:
+  - Analytics page does not yet render categories in group order (budget-005 step 7)
+    — deferred to when analytics gets its full budget-006 overhaul
+  - No drag-to-reorder within or between groups (explicit YNAB feature; deferred)
+  - Migration not yet run against local DB (needs manual: cd api && alembic upgrade head)
+
+Recommended next feature: budget-006 (Budget targets — monthly envelope per category)
+
+=== 2026-05-21 — Coding session ===
+Status: complete
+Feature: budget-006 — Budget targets — monthly envelope per category
+Commits: none yet (pending make service-restart to pick up changes)
+
+What was done:
+
+  Migration (migrations/0010_budget_targets.up.sql + .down.sql):
+    - ALTER TABLE budget_categories ADD COLUMN default_monthly_amount NUMERIC(12,2)
+    - CREATE TABLE budget_targets (id, household_id, category_id, year, month, amount)
+      with UNIQUE(category_id, year, month) and indexes on (household_id, year, month)
+    - SQLite auto-patcher in database.py will add default_monthly_amount on next restart
+
+  API models (domains/budget/models.py):
+    - Added default_monthly_amount column to BudgetCategory
+    - Added BudgetTarget ORM model (full schema with FK, UNIQUE constraint)
+
+  API schemas (domains/budget/schemas.py):
+    - Added default_monthly_amount to BudgetCategoryCreate, BudgetCategoryUpdate, BudgetCategoryResponse
+    - Added BudgetTargetUpsert, BudgetTargetResponse, BudgetTargetMonthResponse
+    - Added budgeted, remaining, is_over_budget to BudgetCategoryAnalyticsEntry
+    - Added total_budgeted to BudgetAnalyticsResponse
+
+  API service (domains/budget/service.py):
+    - Updated get_analytics() to join budget_targets + default_monthly_amount
+      and resolve effective target (override → default → None) for each category
+    - Added upsert_target() — upsert or delete per-month target override
+    - Added get_effective_targets() — returns BudgetTargetMonthResponse with all
+      effective targets for a given month (override → default fallback)
+
+  API router (domains/budget/router.py):
+    - GET /budget/targets?year=&month= — effective targets for a month
+    - PUT /budget/targets — upsert per-month override (amount=null deletes)
+    - Imported all new schema types
+
+  Frontend — categories page (web/src/app/(protected)/budget/categories/page.tsx):
+    - Added default_monthly_amount to BudgetCategory interface
+    - CategoryRow: new monthlyAmount state, $ prefix input in edit form
+    - Read-only row: shows "$X/mo" when target is set
+    - updateCategory API call updated to include default_monthly_amount
+
+  Frontend — main budget page (web/src/app/(protected)/budget/page.tsx):
+    - Added budgeted, remaining, is_over_budget to CategoryEntry interface
+    - Added total_budgeted to AnalyticsResponse interface
+    - Added CategoryEnvelopeRow component: dual-line row showing spent/budgeted
+      with colored progress bar, "X left" / "X over" label, red for over-budget
+    - Added "envelope" view toggle (% button) — only shown when ≥1 category has a target
+    - Envelope view header shows total spent vs total budgeted + delta
+    - hasBudgetTargets derived state drives toggle visibility
+
+  Syntax: TypeScript tsc --noEmit clean, all four Python files pass py_compile
+
+What was NOT done:
+  - PUT /budget/targets per-month override not yet wired in the frontend
+    (currently only default_monthly_amount is editable; override endpoint ready)
+  - budget-007 (Ready to assign) — next up
+  - budget-008 (Month-to-month rollover) — after 007
+
+Recommended next feature: budget-007 (Ready to assign — unallocated balance indicator)
+
+=== 2026-05-21 — Coding session ===
+Status: complete
+Feature: budget-007 — Ready to assign — unallocated balance indicator
+Commits: none yet (pending make service-restart)
+
+What was done:
+
+  API schemas (domains/budget/schemas.py):
+    - Added total_targets field to BudgetAnalyticsResponse
+      (sum of ALL effective targets across ALL active categories for the month,
+       including categories with no transactions — distinct from total_budgeted
+       which only covers categories that have expenses)
+
+  API service (domains/budget/service.py):
+    - Updated get_analytics() to compute total_targets by fetching all active
+      categories and summing their effective targets (override → default_monthly_amount)
+    - Returns total_targets alongside total_budgeted in the analytics response
+
+  Frontend (web/src/app/(protected)/budget/page.tsx):
+    - Added total_targets to AnalyticsResponse interface
+    - Added derived state: hasAnyTargets, readyToAssign = total_income - total_targets
+    - Added 'Ready to assign' banner between month nav and summary cards
+      Three visual states (border + bg color):
+        Positive → sky blue — "Assign more to categories to reach $0"
+        Zero (±$0.01) → green — "Every dollar has a job ✓"
+        Negative → red — "Over-allocated — reduce category targets"
+      Shows 2xl bold amount + subtitle with income − budgeted breakdown
+      Banner only appears when hasAnyTargets (≥1 category has a target set)
+    - TypeScript: tsc --noEmit clean
+
+What was NOT done:
+  - The banner doesn't live-update as user edits targets in the categories page
+    (requires a page reload / re-fetch of analytics — acceptable for now)
+  - budget-008 (Month-to-month rollover) — next up
+
+Recommended next feature: budget-008 (Month-to-month rollover for underspent categories)
+
+=== 2026-05-21 — Coding session ===
+Status: complete
+Feature: budget-008 — Month-to-month rollover for underspent categories
+
+What was done:
+
+  Migration (migrations/0011_budget_rollover.up.sql):
+    - Added rollover_enabled BOOLEAN NOT NULL DEFAULT FALSE to budget_categories
+    - Created budget_rollover_amounts table: (id, household_id, category_id,
+      year, month, rollover_amount NUMERIC(12,2), computed_at)
+    - UNIQUE constraint on (category_id, year, month)
+    - Index on (household_id, year, month) for fast month lookups
+    - Design decision: dedicated table (not a column on budget_targets) to avoid
+      ambiguity — budget_targets.amount is NOT NULL and requires a user-set value;
+      rollover rows are computed, not user-authored
+
+  API models (domains/budget/models.py):
+    - Added rollover_enabled: Mapped[bool] to BudgetCategory
+    - Removed stale rollover_amount from BudgetTarget (wrong design)
+    - Added BudgetRolloverAmount ORM class for the dedicated rollover table
+
+  API schemas (domains/budget/schemas.py):
+    - Added rollover_enabled: bool to BudgetCategoryCreate/Update/Response
+    - Removed stale rollover_amount from BudgetTargetResponse
+    - Added RolloverComputeResponse schema
+    - Added rollover_amount: float to BudgetCategoryAnalyticsEntry
+
+  API service (domains/budget/service.py):
+    - Imported BudgetRolloverAmount
+    - Added compute_and_store_rollover(db, household_id, year, month):
+        Computes rollover_amount(M) = effective_target(M-1) - actual_spending(M-1)
+        Chains through prior rollover so carry-forwards compound correctly
+        Upserts into budget_rollover_amounts — idempotent
+    - Updated get_analytics() to load rollover_map from budget_rollover_amounts,
+      factor rollover into effective targets, populate rollover_amount on each
+      analytics entry, and include rollover in total_targets
+
+  API router (domains/budget/router.py):
+    - Added POST /budget/rollover?year=&month= endpoint
+    - Imported RolloverComputeResponse
+
+  Frontend categories page (web/src/app/(protected)/budget/categories/page.tsx):
+    - Added rollover_enabled to BudgetCategory interface
+    - Added rolloverEnabled state to CategoryRow
+    - Added rollover toggle (custom switch) in edit form with label/description
+    - Wired rollover_enabled into handleSave and Cancel reset
+    - Added ↩ indicator badge in read-only row view when rollover is enabled
+
+  Frontend budget page (web/src/app/(protected)/budget/page.tsx):
+    - Added rollover_amount: number to CategoryEntry interface
+    - Added useEffect to auto-call POST /budget/rollover on month change;
+      invalidates analytics query on success (silent on error)
+    - Updated CategoryEnvelopeRow to show carry-forward label when rollover is
+      non-zero ("+$120 carried" in sky blue, "−$50 carried" in red)
+
+What was NOT done:
+  - No manual E2E test yet (requires launchd service restart + browser flow)
+  - Rollover amounts are computed on navigation but not on initial page load
+    for the current month (need to navigate away then back, or use the API directly)
+  - No UI to see historical rollover amounts (acceptable for now)
+
+Recommended next feature: budget-004 (Recurring transactions) or budget-009
+  if defined; otherwise budget dashboard widget (budget-003)
+
+=== 2026-05-21 — Coding session ===
+
+Features worked on: budget-009 through budget-014 (Budget Profiles system)
+
+Status: Backend complete, frontend complete. Migrations not yet run locally.
+
+Commits made this session: none (work in progress, not yet committed)
+
+What was done:
+
+  Migrations (migrations/ directory):
+    - 0012_budget_profiles.up/down.sql: budget_profiles table (id, household_id,
+      name, budgeting_style, currency, sort_order); seeds Personal + Household
+      profiles for existing households; adds profile_id FK to budget_accounts,
+      budget_categories, budget_category_groups, budget_targets with backfill
+    - 0013_budget_scope_rename.up/down.sql: renames transaction scope enum
+      personal → private, household → shared (drops + re-adds check constraints)
+    - 0014_budget_transaction_profile.up/down.sql: nullable profile_id on
+      budget_transactions for cross-profile re-attribution (budget-011)
+    - 0015_budget_profile_members.up/down.sql: budget_profile_members table
+      with owner/member/viewer roles; seeds all existing household users
+    - 0016_budget_mrr.up/down.sql: is_recurring_revenue boolean on budget_categories
+
+  API models (domains/budget/models.py):
+    - Added BudgetProfile model (budget_profiles table)
+    - Added BudgetProfileMember model (budget_profile_members table)
+    - Updated TransactionScope enum: personal→private, household→shared
+    - Updated CategoryDefaultScope enum: personal→private, household→shared
+    - Added BudgetingStyle and ProfileMemberRole SAEnum definitions
+    - Added profile_id FK to BudgetAccount, BudgetCategoryGroup, BudgetCategory,
+      BudgetTarget models
+    - Added nullable profile_id to BudgetTransaction for re-attribution
+    - Added is_recurring_revenue bool to BudgetCategory
+
+  API schemas (domains/budget/schemas.py):
+    - Added BudgetProfileCreate, BudgetProfileUpdate, BudgetProfileResponse
+    - Added BudgetProfileMemberAdd, BudgetProfileMemberUpdate, BudgetProfileMemberResponse
+    - Added BudgetProfitAnalyticsResponse with MRR/ARR/MoM growth fields
+    - Added BudgetTransactionReattribute, SeedProfilesResponse, ReattributeResponse
+    - Updated all existing schemas with profile_id fields
+    - TransactionScope and CategoryDefaultScope literals: private/shared
+
+  API service (domains/budget/service.py):
+    - Added list_profiles, create_profile, update_profile, delete_profile
+    - Added seed_default_profiles (Personal + Household), _seed_profile_members
+    - Added list/add/update/remove_profile_member (budget-014)
+    - Added reattribute_transaction (budget-011)
+    - Added get_profit_analytics (budget-012/013) with MRR/ARR/MoM metrics
+    - Updated all existing query functions to accept optional profile_id param;
+      analytics uses COALESCE(txn.profile_id, account.profile_id) for effective profile
+    - FREE_TIER_MAX_PROFILES = 2; profit_tracking gated as paid tier
+    - Owner self-removal protection in remove_profile_member
+
+  API router (domains/budget/router.py):
+    - GET/POST /budget/profiles
+    - POST /budget/profiles/seed-defaults
+    - GET/PATCH/DELETE /budget/profiles/{profile_id}
+    - GET/POST /budget/profiles/{profile_id}/members
+    - PATCH/DELETE /budget/profiles/{profile_id}/members/{user_id}
+    - GET /budget/analytics/profit?profile_id=...
+    - POST /budget/transactions/{id}/move-to-profile
+    - All existing endpoints updated with optional profile_id query param
+
+  Frontend budget page (web/src/app/(protected)/budget/page.tsx):
+    - Added BudgetProfile and ProfitAnalyticsResponse interfaces
+    - Added ProfileSwitcher dropdown component (localStorage persistence via
+      key hearth-budget-profile-id)
+    - Added TxnActionsMenu per-transaction component with "Move to profile"
+      (hover-revealed MoreHorizontal button)
+    - Added fetchProfiles, fetchProfitAnalytics functions
+    - Updated fetchAnalytics/fetchSummary/fetchTransactions to accept profileId
+    - Profile state initialized from localStorage, synced back on change
+    - Auto-selects first profile if none stored
+    - For profit_tracking profiles: uses fetchProfitAnalytics, shows net profit
+      banner with MRR/ARR/MoM growth, relabels summary cards (Revenue/Expenses/Profit)
+      and breakdown section (P&L breakdown vs Spending breakdown)
+    - Rollover effect skipped for profit_tracking profiles
+    - Profile switcher shown in header between "Budget" title and ActionsMenu
+
+  Frontend categories page (web/src/app/(protected)/budget/categories/page.tsx):
+    - Updated default_scope type: "personal"|"household" → "private"|"shared"
+
+What was NOT done:
+  - Migrations not yet applied locally (need `alembic upgrade head` in api/)
+  - Profile settings UI (manage members, rename profiles) — not built
+  - Frontend TypeScript check: passed (tsc --noEmit = 0 errors)
+
+Recommended next: Run `alembic upgrade head` locally, test profile switcher in
+browser. Then consider profile settings page (rename, add/remove members) as
+next UI feature, or move on to a different domain.
+
+=== 2026-05-21 — Coding session ===
+
+Features worked on: budget-003 (Budget dashboard widget), Makefile improvement
+
+Status: Complete. TypeScript: 0 errors.
+
+Commits made this session: none
+
+What was done:
+
+  Makefile:
+    - Added migrate-down target: cd api && .venv/bin/alembic downgrade -1
+    - Added migrate-new target: cd api && .venv/bin/alembic revision --autogenerate -m "$(name)"
+    - All three targets use .venv/bin/alembic directly — no venv activation required
+
+  web/src/lib/dashboard/types.ts:
+    - Added BudgetWidgetConfig interface { monthly_target: number | null }
+    - Added "budget" to WidgetType union
+    - Added BudgetWidgetConfig to WidgetConfig union
+    - Added budget entry to WIDGET_META (label, description, needsConfig: false,
+      defaultConfig: { monthly_target: null })
+
+  web/src/components/dashboard/budget-widget.tsx (new file):
+    - Fetches GET /budget/summary for month-to-date range on mount
+    - Shows: month name, spent amount (large), optional progress bar + remaining
+      when monthly_target is set, income/out row when income > 0
+    - Red styling + "over budget" copy when expenses exceed target
+    - Entire widget is a button that navigates to /budget on click
+    - 5-minute stale time on the summary query
+
+  web/src/components/dashboard/add-widget-sheet.tsx:
+    - Imported Wallet icon from lucide-react
+    - Added budget: Wallet to WIDGET_ICONS map
+
+  web/src/app/(protected)/page.tsx:
+    - Imported BudgetWidgetConfig type and BudgetWidget component
+    - Added case "budget" to renderWidget switch
+
+What was NOT done:
+  - Config UI for monthly_target (user can't set a target from the widget yet)
+  - No E2E browser test
+
+Recommended next: budget-004 (Recurring transactions) — biggest day-to-day UX gap.
+
+=== 2026-05-21 — Coding session ===
+Feature: budget-004 (Recurring transactions)
+Status: complete
+
+What was done:
+  - Migration 0017: added `recurring` JSONB + `recurring_template_id` UUID FK (self-referential) + indexes
+  - Model: BudgetTransaction.recurring + BudgetTransaction.recurring_template_id columns
+  - Schemas: RecurringRule, recurring fields on Create/Update/Response, RecurringGenerateResponse
+  - Service: _recurring_dates_for_month() helper + ensure_recurring_for_month() (idempotent monthly generation)
+  - Router: POST /budget/recurring/generate?year=&month= endpoint
+  - Frontend (budget/page.tsx):
+    - RecurringRule + recurring/recurring_template_id added to BudgetTransaction interface
+    - Auto-generate useEffect fires on anaYear/anaMonth change (fire-and-forget, invalidates txn queries on new instances)
+    - Repeat icon badge on transaction rows: sky-500 for templates, muted for auto-generated instances
+    - TxnActionsMenu expanded: "Set as recurring…" (monthly/weekly picker) and "Remove recurrence" actions
+    - Instances (recurring_template_id set, no recurring rule) show badge only — no recurrence menu
+  - tsc --noEmit: 0 errors
+
+What was NOT done:
+  - No UI for editing interval or end_date (always interval=1, no end date via UI)
+  - No E2E browser test
+
+Recommended next: budget-005 (Split transactions) or budget-006 (Import improvements / CSV preview).
+
+=== 2026-05-21 — Coding session ===
+Feature: budget-005 (Category groups — collapsible category sections)
+Status: complete
+
+What was done:
+  - Backend was already fully in place (migration 0009, BudgetCategoryGroup model, CRUD endpoints,
+    seed-defaults endpoint, GET /budget/categories/grouped)
+  - Categories page (/budget/categories) already had GroupSection with full collapse/expand, rename,
+    delete, and seed-defaults button — no changes needed
+  - Main budget page (budget/page.tsx):
+    - Added GroupedCategory interface
+    - Added fetchGroupedCategories() API helper (calls /budget/categories/grouped)
+    - Added useQuery for groupedCategories (keyed by profile)
+    - Added buildGroupedEntries() helper: maps flat CategoryEntry list → [{groupId, groupName, sortOrder, entries}]
+      sorted by group sort_order; ungrouped entries fall into an "Other" bucket
+    - Added GroupedBreakdown component: renders collapsible group headers (chevron + group name + group total)
+      with CategoryEnvelopeRow or CategoryBarCondensed rows nested beneath; falls back to flat list when
+      no groups are configured
+    - Replaced flat list/envelope rendering in spending breakdown section with GroupedBreakdown
+    - Pie chart view unchanged (grouping adds no value in a pie)
+  - tsc --noEmit: 0 errors
+
+What was NOT done:
+  - No drag-and-drop reordering of groups or categories between groups (group assignment still via category edit form)
+  - No animation on collapse/expand
+
+Recommended next: grocery-001 (Generate grocery list from recipe ingredients) — p1 feature in a different domain, or calendar-001 (Show todo due dates on calendar).
+
+=== 2026-05-21 — Coding session ===
+Feature: grocery-001 (Generate grocery list from recipe ingredients)
+Status: complete
+
+What was done:
+  Backend (api/):
+    - recipes/schemas.py: Added AddToGroceryListRequest (list_id, servings_scale) + AddToGroceryListResponse (list_id, added, skipped)
+    - grocery_lists/service.py: Added add_recipe_ingredients_to_list() — verifies recipe + list ownership, appends GroceryItem rows with recipe_id + recipe_ingredient_id set, skips already-present ingredients (idempotent by recipe_ingredient_id), supports servings_scale multiplier
+    - recipes/router.py: Added POST /recipes/{recipe_id}/add-to-grocery-list endpoint; imports grocery_service locally to avoid circular imports
+  Frontend (web/):
+    - recipes/[id]/_client-page.tsx: Added AddToGroceryList component below the ingredients list
+      - ShoppingCart button opens a dropdown picker of active grocery lists (fetched via $api)
+      - Selecting a list → POST /recipes/{id}/add-to-grocery-list → shows "N items added · Open list →" chip
+      - "New list for this recipe" option → creates a list named after the recipe, then adds ingredients
+      - Idempotent: if all ingredients already in the list, shows "Already in list"
+      - Success state has dismiss (✕) and Open list → (navigates to /grocery-lists)
+  - tsc --noEmit: 0 errors
+
+What was NOT done:
+  - servings_scale UI (always 1.0; could add a "×2 servings" multiplier in a future pass)
+  - Deep link to the specific grocery list (navigates to /grocery-lists, not the specific list)
+  - No E2E test
+
+Recommended next: calendar-001 (Show todo due dates on calendar) — last remaining p1 feature.
+
+=== 2026-05-21 — Coding session ===
+Status: complete
+Features worked on: budget-015, budget-016, budget-017
+Commits made: none (changes uncommitted)
+
+What was done:
+  budget-015 (Transaction search):
+    - service.py: added search: str | None param to list_transactions(); filters description + merchant_name via ILIKE
+    - router.py: added search: str | None = Query(...) to list_transactions endpoint, passes to service
+    - page.tsx: added txnSearch + txnUncategorized state; search input + "Uncategorized" toggle above transaction list; filter resets pagination offset
+
+  budget-016 (Spending trends chart):
+    - service.py: added get_spending_trends() — iterates last N (year, month) pairs, aggregates income/expenses/targets per month
+    - schemas.py: added BudgetTrendMonth + BudgetTrendsResponse
+    - router.py: added GET /budget/trends endpoint
+    - page.tsx: added TrendMonth interface + fetchTrends(); added TrendsChart SVG component (3-bar-per-month: income=green, expenses=red, budgeted=sky, hover tooltip, Y-axis ticks, legend); added TrendingUp toggle to view switcher; query only runs when chartView === "trends"
+
+  budget-017 (Account balance field):
+    - migration: 0018_budget_account_balance.up/down.sql (adds current_balance NUMERIC(14,2) + balance_updated_at TIMESTAMPTZ to budget_accounts)
+    - models.py: added current_balance: Mapped[Decimal | None] + balance_updated_at: Mapped[datetime | None] to BudgetAccount
+    - schemas.py: added current_balance: float | None to BudgetAccountUpdate; added current_balance + balance_updated_at to BudgetAccountResponse
+    - service.py: update_account() auto-stamps balance_updated_at = now() when current_balance is in model_fields_set
+    - page.tsx: updated BudgetAccount interface; added balance display in AccountDropdown list items (right-aligned); added AccountBalanceChip component (inline editable — click to open input, Enter/blur to save via PATCH /budget/accounts/{id}); chip shows formatted balance + "Updated MM/DD" label or "Set balance" CTA; placed below account+month row when a specific account is selected
+    - SQLite dev DB: columns already present (create_all() picks up model changes on restart)
+    - tsc --noEmit: 0 errors
+
+What was NOT done:
+  - budget-017 passes=false (requires manual E2E verification)
+  - No mobile-specific balance display optimization
+
+Recommended next: budget-018 (CSV/OFX import UI improvements) or calendar-001 (show todo due dates on calendar — last remaining p1 feature).
+
+=== 2026-05-21 — Coding session ===
+Focus: Budget UI polish — color picker, default categories, inline budget editing, auto-fill
+
+What was done:
+  - Fixed startup migration chain (budget-profiles seed → budget-009 assign → default category seed)
+    - Wrong SQL joins (users.household_id → household_memberships); owner_user_id not in SQLite table
+  - Added Household (🛋️ #b45309) and Gifts (🎁 #db2777) to DEFAULT_CATEGORIES in categories/page.tsx
+  - Expanded COLORS palette from 12 → 24 swatches covering full spectrum
+  - Added custom <input type="color"> hex picker to ColorPicker component (styled as swatch + "+" label)
+  - Updated startup seeding to include icon and color for Household/Gifts; back-fills icon if missing
+  - Backend: auto_budget_fixed_categories() service — averages last N full months of spending per
+    category in a named group (default "Fixed Monthly"), writes to default_monthly_amount
+  - Backend: POST /budget/categories/auto-budget router endpoint
+  - Frontend: CategoryEnvelopeRow restructured — name area navigates, budgeted amount is now
+    separately clickable; inline input appears, Enter/blur saves via PATCH /budget/categories/{id}
+  - Frontend: unset budget shows "/ —" placeholder that is also clickable to set a budget
+  - Frontend: "Auto-fill Fixed" (Wand2) button in envelope summary bar — calls auto-budget,
+    shows result toast, invalidates analytics/categories queries
+  - TypeScript: all clean (selectedProfile.id fix)
+
+Commits made: none yet (working session)
+
+Status: complete
+What was NOT done:
+  - E2E verification requires server restart (startup migration fixes pending)
+  - budget-017 passes=false still pending manual verify
+
+Recommended next: budget-018 inline transaction editing sheet, or calendar-001 (p1 feature).
+
+=== 2026-05-22 — Coding session ===
+Focus: Transaction edit sheet + transfer marking
+
+What was done:
+  - Added `notes: string | null` to BudgetTransaction interface
+  - Added `del()` helper alongside `mutate()` — safe for 204 No Content DELETE responses
+  - New TxnEditSheet component (slide-in right panel):
+      - Fields: date, amount (expense/income toggle), description, merchant, notes, transfer toggle
+      - Save via PATCH /budget/transactions/{id} — invalidates transactions + analytics + summary
+      - Delete with in-sheet confirm step, via DELETE /budget/transactions/{id}
+      - Closes on Escape key or backdrop click
+  - Transaction rows in main list now clickable (cursor-pointer + hover:bg-muted/40)
+  - CategoryPicker and TxnActionsMenu wrapped in stopPropagation divs so their clicks
+    don't accidentally open the edit sheet
+  - editingTxn state + handleTxnSaved/handleTxnDeleted callbacks in BudgetPage
+  - TypeScript: clean (tsc --noEmit produces no output)
+
+Commits made: none yet (working session)
+
+Status: complete
+
+What was NOT done:
+  - No E2E test (would require live server)
+  - budget-017 passes=false still pending manual verify
+  - The `notes` field is added to the frontend type and PATCH payload but the backend
+    GET response may not yet return it — confirm by checking BudgetTransaction schema
+    in router.py if notes appear blank even after saving
+
+Recommended next: calendar-001 (show todo due dates on calendar — last remaining p1 feature),
+  or budget-018 (CSV/OFX import improvements).
+
+=== 2026-05-22 — Coding session ===
+Focus: Transfer toggle fix + category detail page analytics consistency
+
+What was done:
+  - Fixed transfer toggle visual bug in TxnEditSheet (both budget/page.tsx and
+    categories/[id]/page.tsx): off-state now uses bg-input + border-border for a
+    visible track, and bg-foreground/30 for the knob; on-state uses bg-primary-foreground
+    for the knob so it's visible against the primary track
+  - Transfer badge added to transaction rows in both the main list and category detail page:
+    shows "⇄ Transfer" inline below the description so transfers are immediately identifiable
+  - Root cause of analytics vs list mismatch: category detail page was fetching ALL TIME
+    transactions (no date filter), while the analytics pie is month-scoped. Now fixed:
+    * Navigation from budget page passes year, month, profile_id as URL query params
+    * Category detail page reads these via useSearchParams() and applies them to the
+      transaction list query (date_from, date_to, profile_id)
+    * Header subtitle now shows the month label (e.g. "May 2026 · 4 transactions")
+    * Transfer transactions in the uncategorized view show "⇄ Transfer · excluded from
+      analytics" badge so the user understands why pie totals < list total
+  - TypeScript: clean (tsc --noEmit produces no output)
+
+Commits made: none yet (working session)
+
+Status: complete
+
+What was NOT done:
+  - Transfers still appear in uncategorized list (they're shown with a badge rather than
+    hidden), because they may need to be categorized or deleted. Hiding them would require
+    an explicit filter, which would be confusing when the user wants to mark them.
+  - No bulk "mark all online transfers as transfer" action yet; user must mark one at a time
+    via the edit sheet
+
+Recommended next: calendar-001 (show todo due dates on calendar), or add a bulk
+  "Detect transfers" action that auto-marks transactions whose description contains
+  "transfer" as is_transfer=true.
+
+=== 2026-05-22 — Coding session ===
+Status: complete
+
+What was done:
+  budget summary preset overhaul (budget/page.tsx):
+  - Replaced the old "month / 30d / 60d / 90d / custom" preset strip with four
+    semantically meaningful presets:
+      * "Month to date" (mtd)   — current calendar month Jan 1 → today
+      * "Last month"            — full previous calendar month
+      * "Year to date"  (ytd)   — Jan 1 of the current year → today
+      * "Custom"                — manual date range picker (unchanged)
+  - presetRange() rewritten: takes only (preset, customFrom, customTo), always
+    returns a non-null { from, to } pair; no year/month params needed.
+  - effectiveRange is now just presetRange(preset, customFrom, customTo) — no more
+    summaryRange ?? monthRange two-step.
+  - Analytics year/month derivation:
+      * mtd        → today.getFullYear() / today.getMonth() + 1 (budget targets apply)
+      * last_month → derived from lastMonthDate (budget targets apply for that month)
+      * ytd/custom → date_from/date_to passed instead (no per-month budget targets)
+  - Summary cards always use the /budget/summary endpoint; removed the old
+    preset === "month" branch that pulled from analytics.
+  - Spending breakdown section title now reflects the active preset
+    (e.g. "May 2026 (MTD)", "April 2026", "Jan – May 2026", or custom date range).
+  - handleCategoryClick updated to navigate with effectiveAnaYear/effectiveAnaMonth
+    so the category detail page opens for the correct month.
+  - prevMonth / nextMonth no longer force preset back to "month" (the old preset
+    no longer exists).
+  - TypeScript: clean (tsc --noEmit produces no output)
+
+Commits made: none yet (working session)
+
+What was NOT done:
+  - Month nav arrows (< >) still visible in the header. They now only affect anaYear/
+    anaMonth state, which is used by the profit-analytics and rollover/recurring
+    effects. For ytd/custom presets these arrows have no visible effect on the charts.
+    A future cleanup could hide the arrows when preset is not "custom".
+
+Recommended next: calendar-001 (show todo due dates on calendar), or add a
+  "Detect transfers" bulk action.
+
+=== 2026-05-22 — Coding session ===
+Status: complete
+Features worked on: budget-020 (income forecasting), recurring frequency expansion,
+  filter dropdown overhaul, income scoping fix, refund netting, view cleanup
+
+What was done:
+
+  budget-020 (Income forecasting — plan view):
+    - Backend: IncomeForecastSource + IncomeForecastResponse schemas added to schemas.py
+    - Backend: get_income_forecast() service function — queries recurring income templates,
+      runs _recurring_dates_for_month() per template, returns projected income by source,
+      total_targets, left_to_allocate, is_future_month flag
+    - Backend: GET /budget/income-forecast?year=&month=&profile_id= router endpoint
+    - Frontend: IncomeForecastSource + IncomeForecast interfaces; fetchIncomeForecast();
+      forecastData/forecastLoading useQuery
+    - Frontend: "Plan" view toggle (CalendarClock icon) added to view switcher (4th option)
+    - Frontend: Full plan view UI — allocation status card (3-state: positive=sky,
+      zero=green, negative=red), projected income sources list, empty state with guidance,
+      envelope category list below when targets exist
+    - chartView persisted to localStorage (key: hearth-budget-chart-view); survives
+      navigation and browser restart; falls back to "pie" if stored value is invalid
+    - Bug fix: plan view showed "No recurring income" for current month because
+      _recurring_dates_for_month() guards against template date — fixed by injecting
+      the template's own date back into results when it falls in the target month
+    - Bug fix: SQLAlchemy conditional join bug — BudgetAccount must always be joined
+      first; profile_id filter as conditional .where() only; fixed malformed SQL when
+      profile_id was set
+
+  Recurring frequency expansion (bi-weekly + semi-monthly):
+    - schemas.py: RecurringRule.frequency Literal expanded to include "bi_weekly" and
+      "semi_monthly"
+    - service.py: _prev_friday_if_weekend() helper (adjusts Sat→Fri, Sun→Fri)
+    - service.py: _recurring_dates_for_month() updated with bi_weekly case (reuses
+      weekly walk logic with effective_interval=2) and semi_monthly case (15th + 30th,
+      clamped to last day of short months, both adjusted for weekends)
+    - Frontend: RecurringRule interface updated with new frequency types
+    - Frontend: setRecurring() signature updated
+    - Frontend: Recurring picker now shows 4 options: Every month, Every two weeks,
+      Twice a month (15th & 30th), Every week
+    - Frontend: Recurring icon tooltip now shows human-readable label
+    - Bug fix: update_transaction() service — Pydantic sub-model fields (RecurringRule)
+      were passed directly to SQLAlchemy JSONB column; fixed by calling .model_dump()
+      before setattr()
+
+  Transaction filter dropdown:
+    - Replaced single "Uncategorized" toggle button with a combobox filter dropdown
+    - Filter options: Uncategorized, Income, Expenses, Transfers, Recurring (type filters)
+      + all individual category names (Household, Shopping, etc.)
+    - txn_type query param added to list_transactions router (pattern-validated enum)
+    - service.py: effective_type branching handles all filter types
+    - Bug fix: Uncategorized filter previously included transfers (category_id IS NULL);
+      now explicitly excludes is_transfer=true
+
+  Income card scoping:
+    - get_analytics() income total now only counts transactions in category groups named
+      "Income" (via BudgetCategoryGroup join); refunds/Venmo deposits/transfers in other
+      categories no longer inflate the income card
+
+  Refund netting:
+    - get_analytics(): for non-income categories, exp = max(0, raw_expenses - refunds)
+      so returns/refunds reduce category spend rather than being ignored
+    - get_summary(): expenses query updated to include positive non-income-group amounts
+      as positive values in the sum (reducing the negative total before abs()); correctly
+      nets refunds without the clamping problem
+    - get_spending_trends(): same refund netting applied to the per-month aggregation
+    - Frontend: "Spent" card now reads from analytics.total_expenses (which clamps per
+      category at 0) rather than summary.total_expenses (which over-credited refunds
+      across category boundaries); summary still used as fallback while analytics loads
+
+  View cleanup — removed "List" view:
+    - "List" view removed from VALID_CHART_VIEWS, view switcher, and render chain
+    - GroupedBreakdown now exclusively renders envelope rows; view/maxExpense props removed
+    - List icon import removed from lucide-react
+    - Any stored "list" value in localStorage falls back to "pie" gracefully
+
+What was NOT done:
+  - Teller bank linking (budget-018) — deferred to a separate thread
+  - budget-017 (account balance field) — still awaiting manual E2E verify
+
+Recommended next: budget-018 (Teller bank linking) in a new thread, or
+  calendar-001 (show todo due dates on calendar).
+
+=== 2026-05-22 — Coding session ===
+Status: complete
+Feature: Teller polling-based bank sync
+
+What was done:
+
+  Env / settings:
+    - Added TELLER_APP_ID, TELLER_CERT_PATH, TELLER_KEY_PATH, TELLER_SIGNING_SECRET,
+      TELLER_ENVIRONMENT to settings.py (all optional; defaults allow app to boot without Teller)
+    - Added full Teller section with setup instructions to api/.env.example
+
+  Migration:
+    - migrations/0019_teller_bank_sync.up/down.sql: adds 6 Teller columns to budget_accounts
+      (teller_enrollment_id, teller_access_token, teller_account_id, teller_institution_name,
+       teller_last_synced_at, teller_cursor)
+    - api/migrations/versions/0025_teller_bank_sync.py: Alembic equivalent
+
+  API models (domains/budget/models.py):
+    - Added all 6 Teller columns to BudgetAccount ORM model
+
+  API schemas (domains/budget/schemas.py):
+    - Added Teller fields to BudgetAccountResponse (access_token excluded — never returned)
+    - Added TellerConnectRequest, TellerSyncResult, TellerSyncAllResult, TellerConfigResponse
+
+  New file: domains/budget/teller_client.py
+    - TellerClient class: async httpx client with mTLS (cert + key from settings)
+    - TellerAccount and TellerTransaction dataclasses
+    - get_accounts(access_token) — lists all accounts in an enrollment
+    - get_transactions(access_token, account_id, from_id=None) — cursor-based fetch
+    - is_configured() — returns True when cert/key/app_id are all set
+    - _teller_account_type() — maps Teller type/subtype to Hearth account_type enum
+    - Module-level singleton: teller_client
+
+  API service (domains/budget/service.py):
+    - get_teller_config() — returns TellerConfigResponse for the frontend widget
+    - connect_teller_enrollment() — calls Teller GET /accounts, creates/re-auths BudgetAccounts
+    - sync_teller_account() — cursor-based poll for one account; skips pending transactions;
+      advances teller_cursor; runs auto-categorize after import
+    - sync_all_teller_accounts() — syncs all linked accounts; errors per-account are
+      logged and skipped
+
+  API router (domains/budget/router.py):
+    - GET  /budget/teller/config        — public config for frontend widget
+    - POST /budget/teller/connect       — process Teller Connect callback; creates accounts
+    - POST /budget/accounts/{id}/teller/sync  — poll one account
+    - POST /budget/teller/sync-all      — poll all household accounts
+    - DELETE /budget/accounts/{id}/teller    — unlink (preserves transactions)
+
+  Frontend (web/src/app/(protected)/budget/page.tsx):
+    - Updated BudgetAccount interface with 4 Teller fields (access_token excluded)
+    - Added TellerConfig interface + window.TellerConnect type shim
+    - Added fetchTellerConfig query (10-min stale time)
+    - Added TellerSyncChip component: shows institution name + "Xm ago" label, sync button,
+      overflow menu with "Disconnect bank" option
+    - Added handleConnectBank: lazy-loads cdn.teller.io/connect/connect.js, opens widget,
+      POSTs enrollment to /budget/teller/connect, invalidates accounts query
+    - Updated ActionsMenu: added onConnectBank + tellerEnabled props; shows "Connect bank"
+      item when Teller is configured
+    - Account row: TellerSyncChip rendered alongside AccountBalanceChip for linked accounts
+    - Empty state: "Connect bank" button shown when Teller is configured
+
+  Syntax: all 5 Python files pass py_compile, TypeScript tsc --noEmit clean (0 errors)
+
+What was NOT done:
+  - Webhook endpoint (deferred — requires a public HTTPS host; polling covers all tiers)
+  - Encryption of teller_access_token at rest (noted in Alembic migration comment; cloud-tier TODO)
+  - Scheduled background sync (could be added with APScheduler; user can sync manually for now)
+  - Migration not yet applied to local DB (run: cd api && alembic upgrade head)
+
+Recommended next step: run the Alembic migration, add cert/key paths + app_id to api/.env,
+  set TELLER_ENVIRONMENT=sandbox, restart API, then test the Connect flow in the browser.
+
+=== 2026-05-22 — Coding session ===
+Status: complete
+Feature: Goal financial linking + budget threshold notifications (budget-016)
+
+What was done:
+
+  Migration (already landed in previous session):
+    - 0028_goal_financial_link.py: adds nullable financial_link JSON column to goals table
+
+  Model (already landed):
+    - Goal.financial_link: Mapped[dict[str, Any] | None] with inline shape documentation
+
+  Schemas (api/src/life_dashboard/domains/goals/schemas.py):
+    - Added financial_link: dict[str, Any] | None to GoalCreate, GoalUpdate, GoalResponse
+
+  Goal service (api/src/life_dashboard/domains/goals/service.py):
+    - Added _sync_financial_link() helper: when type=spending_cap, writes monthly_limit →
+      BudgetCategory.default_monthly_amount (no-op for other types or missing fields)
+    - create_goal: passes financial_link to Goal constructor, calls _sync_financial_link
+    - update_goal: calls _sync_financial_link when financial_link is in model_fields_set
+    - Fixed pre-existing bugs: update_goal and delete_goal referenced undefined user_id —
+      removed the stale apply_visibility_filter calls from both functions
+
+  AI tool (api/src/life_dashboard/ai/tools.py):
+    - _set_category_budget: after updating category.default_monthly_amount, queries for
+      all goals in the household with matching spending_cap links and updates their
+      financial_link.monthly_limit to match — keeps AI-driven changes in sync bidirectionally
+
+  Budget service (api/src/life_dashboard/domains/budget/service.py):
+    - Added check_budget_thresholds(db, household_id):
+        * Fetches all active categories with a monthly target
+        * Sums current-month expenses per category (negative amounts, excludes transfers)
+        * Fetches all household members for notification dispatch
+        * Deduplicates via existing budget_threshold_80 / budget_threshold_100 notification
+          rows for the current calendar month (one notification per threshold per category)
+        * Dispatches household-wide Notification rows for each new threshold crossing
+        * Does NOT commit — caller owns the transaction
+    - sync_all_teller_accounts: calls check_budget_thresholds after all accounts sync,
+      commits notifications in a separate try/except so a threshold failure never kills sync
+
+  feature_list.json:
+    - Added budget-016 entry for this feature
+
+What was NOT done:
+  - No frontend UI for goal financial_link editing (Goals UI shows the data but no
+    dedicated form for picking a category link — that's a future UI task)
+  - No UI for budget threshold notifications beyond the existing notification bell
+    (notifications already render via the existing notification system)
+
+Recommended next step: run `make migrate` to apply migration 0028, then restart the API.
+  Test by creating a goal with financial_link via API, verify category target syncs.
+  Test threshold notifications by running a Teller sync when a category is ≥80% spent.
+
+=== 2026-05-25 — Infrastructure session ===
+Status: complete
+Feature: AI coach redesign — design doc + phasing (docs/ai-coach-redesign.md, coach-001/002/003)
+
+What was done:
+
+  Design doc (docs/ai-coach-redesign.md):
+    - Full spec for the AI coach redesign — three-layer context model
+      (user profile, narrative signals, raw recent journal entries) on top of
+      the existing behavioral data stream.
+    - Data model changes specified:
+        * New user_profiles table (one row per user, hard-coded personal scope,
+          markdown blob)
+        * New user_profile_updates table (proposed AI diffs with accept/reject
+          workflow — AI never silently rewrites the profile)
+        * New journal_signals table (one row per journal note; sentiment,
+          self_talk_valence, themes, notable_phrases, energy_level, entry_date)
+        * New collection.kind column with 'journal' as the first recognized
+          kind; default Journal collection seeded for new users, one-time
+          migration for existing users
+    - Migration numbers reserved: 0030 (user_profiles), 0031 (journal_signals),
+      0032 (collection.kind)
+    - API surface defined: /ai/profile (GET/PATCH), /ai/profile/bootstrap,
+      /ai/profile/updates (GET/accept/reject); coach + chatbot read profile via
+      shared _load_profile_context helper
+    - Bootstrap pass spec: reads existing notes + documents + last 90 days of
+      behavioral data to draft Phase 1 profile so existing users don't start cold
+    - CBT method-layer system prompt drafted: notice when narrative and behavior
+      diverge, reality-test self-criticism against data during strong weeks, be
+      honest (not flattering) during dips, "bird by bird" register during double
+      negatives. Tones layer voice on top of shared method.
+    - Privacy decisions documented: profile is hard-coded personal scope (never
+      VisibilityMixin choice), signal extraction is opt-out per user via
+      ai_journal_extraction_enabled flag, profile + signals excluded from default
+      household export, coach quoting bounded (at most one short phrase per
+      response, only when serving the moment)
+    - Open questions captured (incremental update cadence, chatbot-driven profile
+      updates, recent-entries N, profile size cap, pinned sections, versioning)
+
+  feature_list.json (3 new entries under new "AI Coach" category):
+    - coach-001 (priority 1): Phase 1 — User profile + bootstrap pass
+    - coach-002 (priority 1): Phase 2 — Journal signal extraction
+    - coach-003 (priority 1): Phase 3 — CBT-aware coach prompt rewrite
+    - Each entry has 8-9 manual verification steps; all marked passes=false
+
+  Memory (auto-memory layer):
+    - Added project_ai_coach_direction.md recording the direction shift so
+      future sessions don't lose the thread. Indexed in MEMORY.md.
+
+What was NOT done:
+  - No code, no migrations, no schemas, no router changes — this is a design
+    pass only. Implementation begins in a follow-up session against coach-001.
+  - No frontend mockups for /settings/coach/profile (deferred to Phase 1 impl)
+  - No prompt-tuning eval harness yet (Phase 3 will benefit from one; design
+    notes that empirical tuning over 1-2 weeks is part of Phase 3 scope)
+
+Recommended next step: begin Phase 1 (coach-001). Concrete first commits:
+  1. Write migration 0030_user_profile.py adding user_profiles +
+     user_profile_updates tables (matching the spec in docs/ai-coach-redesign.md
+     → "New table: user_profiles" and "Proposed diffs")
+  2. Add the SQLAlchemy models, Pydantic schemas, and service layer for profile
+     CRUD + proposed-update CRUD
+  3. Implement the bootstrap pass service function (reads notes/documents/
+     behavioral data, calls AI provider with a structured prompt, creates a
+     pending user_profile_update with source='bootstrap')
+  4. Wire up the API endpoints (/ai/profile, /ai/profile/bootstrap,
+     /ai/profile/updates)
+  5. Add the _load_profile_context helper to ai/service.py; thread it into
+     coach_service prompt assembly and chatbot prompt assembly
+  6. Build the /settings/coach/profile frontend page (view profile, list pending
+     diffs with accept/reject, direct-edit markdown)
+  7. Manual verification against the 9 steps in coach-001; flip passes=true
+
+=== 2026-05-25 — Coding session ===
+Status: complete
+Feature: AI coach redesign Phase 1 + Phase 1.5 — user profile, bootstrap pass,
+         notes-driven incremental proposer (coach-001, coach-001b)
+
+What was done:
+
+  Migration 0030_user_profile.py:
+    - Adds last_bootstrapped_at TIMESTAMPTZ NULL to member_ai_memory
+    - Creates user_profile_updates table (id, user_id, proposed_content_md,
+      diff_summary, source, status, created_at, resolved_at) + index on
+      (user_id, status) for the "list pending" query
+    - SQLite path: handled by _patch_sqlite_schema on restart (no migration
+      body — same convention as 0029)
+
+  Migration 0031_profile_proposal_counter.py:
+    - Adds notes_at_last_proposal INTEGER NOT NULL DEFAULT 0 to
+      member_ai_memory
+    - Same SQLite-skip convention
+
+  Models (api/src/life_dashboard/ai/models.py):
+    - Extended MemberAiMemory with last_bootstrapped_at + notes_at_last_proposal
+    - Added UserProfileUpdate model with index ix_user_profile_updates_user_status
+    - Reused member_ai_memory.memory_text as the profile blob rather than
+      creating a new user_profiles table (turned out the chatbot was already
+      reading memory_text via _build_system_prompt — reusing it gives chat
+      the profile automatically with zero chat-code changes)
+
+  Schemas (api/src/life_dashboard/ai/schemas.py):
+    - ProfileResponse, ProfilePatchRequest, ProfileUpdateResponse,
+      ProfileUpdateListResponse, BootstrapResponse
+    - Literal types for source ("bootstrap"|"incremental"|"manual") and
+      status ("pending"|"accepted"|"rejected"|"superseded")
+
+  Profile service (api/src/life_dashboard/ai/profile_service.py — new file, ~470 lines):
+    - get_profile, update_profile (direct edit bypass — user always trusted
+      to write their own profile)
+    - list_pending_updates, accept_update (with auto-supersede of other
+      still-pending updates), reject_update
+    - run_bootstrap_pass: reads up to 50 user-authored notes, 20 documents
+      (titles + descriptions), active goals/projects/habits, 80 completed
+      todos from last 90 days. Trimmed to 24KB prompt budget. Returns
+      BootstrapResponse with either the new pending update or a skip reason.
+    - _PROPOSER_SYSTEM_PROMPT: opinionated prompt that defines exactly what
+      belongs in the profile (current focuses, values, recurring patterns,
+      drains, what works, things-to-not-bring-up) AND what does NOT (today's
+      tasks, transient moods, name lists without context, fixed-trait
+      judgements, confidential details). Mandates SKIP output when there's
+      no profile-worthy change.
+    - load_profile_context: shared helper used by coach + chat; returns a
+      "What you know about this person" system-prompt fragment, or "".
+      Includes the no-name-dropping instruction.
+    - Phase 1.5 incremental proposer (maybe_propose_from_notes,
+      _run_incremental_proposer, _gather_incremental_notes_context,
+      _count_user_notes):
+        * Threshold 5 net-new notes between proposer runs
+        * Counter advances on EVERY proposer run (not just successful ones)
+          so a user can never trigger >1 call per N new notes
+        * Background AsyncIO task with its own DB session — note-save commit
+          is not delayed by the AI call
+        * Skips entirely until bootstrap has run at least once
+        * Uses same _PROPOSER_SYSTEM_PROMPT as bootstrap; biases hard toward
+          SKIP for incremental ("only revise when the new material clearly
+          supports a change")
+        * Resolves display_name inside the background task so the hot path
+          (note save) doesn't pay for an extra user lookup
+
+  Router (api/src/life_dashboard/ai/router.py):
+    - GET    /ai/profile                              → ProfileResponse
+    - PATCH  /ai/profile                              → ProfileResponse
+    - POST   /ai/profile/bootstrap                    → BootstrapResponse
+    - GET    /ai/profile/updates                      → ProfileUpdateListResponse
+    - POST   /ai/profile/updates/{id}/accept          → ProfileResponse
+    - POST   /ai/profile/updates/{id}/reject          → 204
+    - 503 when no AI provider is configured (matches the coach digest pattern)
+
+  Coach integration (api/src/life_dashboard/ai/coach_service.py):
+    - generate_digest now appends load_profile_context(db, user_id) to the
+      system prompt for morning, evening, and weekly digests
+    - Wrapped in try/except — a profile-load failure logs and falls back to
+      the existing behavioral-only prompt rather than failing the digest
+
+  Chatbot integration:
+    - Zero code changes needed — the existing _build_system_prompt(user,
+      memory_text) already reads member_ai_memory.memory_text. Once
+      bootstrap populates the profile, chat picks it up on next turn.
+
+  Notes service hook (api/src/life_dashboard/domains/notes/service.py):
+    - create_note: fire-and-forget maybe_propose_from_notes(...) after the
+      successful commit
+    - update_note: same, but only when content_md or title changed;
+      attributes the trigger to the note's created_by_user_id (not the
+      current editor) — it's the author's profile being built
+    - Helper failures are swallowed twice (once in the helper, once at the
+      call site as belt-and-suspenders); a note write can never be broken
+      by a downstream proposer issue
+
+  Frontend (web/src/app/(protected)/settings/page.tsx):
+    - New ProfileSubSection component rendered as the first subsection
+      inside the existing AiSection (no new route — fits naturally with
+      the other AI settings)
+    - Read profile (rendered as preformatted markdown in a scrollable card),
+      direct-edit textarea with 8000-char counter
+    - "Build my profile" button → POST /ai/profile/bootstrap with
+      bootstrapped-state indicator
+    - Pending updates list: each card shows source badge, timestamp,
+      diff_summary, full proposed_content_md preview, accept/reject buttons
+    - Matches existing settings patterns: SubSection wrapper, Label, badge
+      classes, CSS variables for theming (no hard-coded colors)
+
+  Tests / verification done in this session:
+    - py_compile on all touched Python files: clean
+    - npx tsc --noEmit on the frontend: 0 errors
+    - SQLite create_all + schema inspection: both new tables present, all
+      columns present, index present, Phase 1.5 column present
+    - Import-time wiring: all 6 profile routes registered correctly
+    - Hand-trace of coach-001 verification steps: all 10 steps covered
+      by the implementation
+    - Hand-trace of coach-001b verification steps: all 9 steps covered
+
+  Design doc update (docs/ai-coach-redesign.md):
+    - Status header flipped to "Phase 1 + 1.5 implemented"
+    - Implementation note at the top explaining the member_ai_memory reuse
+    - New Phase 1.5 section added between Phase 1 and Phase 2
+
+  feature_list.json:
+    - coach-001 description + steps rewritten to reflect the actual
+      implementation (10 verification steps now, including the
+      "superseded" behavior when accepting one of multiple pendings)
+    - coach-001b added (Phase 1.5) with 9 verification steps
+    - Both marked passes=false pending manual end-to-end verification
+
+  Memory:
+    - Updated project_ai_coach_direction.md to note Phase 1 + 1.5 are
+      implemented and what the actual schema turned out to be
+
+What was NOT done:
+  - No backend server boot test — can't run the user's actual venv from
+    this session. Static verification (py_compile + import-check via a
+    sandbox venv with SQLite schema check) is what's been done.
+  - No end-to-end manual flow with a real AI provider — Brandon to flip
+    coach-001 / coach-001b passes=true once verified locally.
+  - Phase 2 (journal signal extraction) and Phase 3 (CBT-aware prompts)
+    are still pending. Phase 1.5 buys us "profile stays roughly current
+    as the user journals" without needing to wait for Phase 2.
+
+Recommended next step: Brandon to run `cd api && alembic upgrade head`
+  on Postgres (or just restart the API on SQLite — _patch_sqlite_schema
+  picks up the new column and table automatically). Then run the 10
+  coach-001 verification steps end-to-end, then the 9 coach-001b steps
+  (which require an AI provider configured). After both pass, flip the
+  passes flags in feature_list.json and proceed to Phase 2 (coach-002).
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: AI coach redesign Phase 2 — journal signal extraction (coach-002)
+
+What was done:
+
+  Migration 0032_collection_kind.py:
+    - Adds nullable `kind VARCHAR(32)` to collections
+    - Heuristic backfill (Postgres only — SQLite uses auto-patch): any
+      notes-domain collection named 'Journal' (case-insensitive) OR with
+      auto_create_rule->>'frequency' = 'daily' gets kind='journal'
+    - Idempotent: every household without a kind='journal' row gets a
+      fresh Journal collection inserted with sensible defaults (icon
+      'book-open', daily auto_create_rule, show_in_nav=false)
+    - Picks the household's earliest member as created_by_user_id
+
+  Migration 0033_journal_signals.py:
+    - Creates journal_signals (id, note_id UNIQUE FK→notes ON DELETE
+      CASCADE, user_id FK→users, entry_date, sentiment NUMERIC(3,2),
+      self_talk_valence VARCHAR(20) default 'neutral', themes JSON,
+      notable_phrases JSON, energy_level VARCHAR(10), extraction_version
+      INTEGER default 1, extracted_at TIMESTAMPTZ)
+    - Index ix_journal_signals_user_entry_date on (user_id, entry_date)
+      — covers the trend queries
+    - Adds ai_settings.ai_journal_extraction_enabled BOOLEAN NOT NULL
+      DEFAULT true (the per-user opt-out)
+
+  Models:
+    - Collection.kind column added (api/src/life_dashboard/domains/collections/models.py)
+    - AiSettings.ai_journal_extraction_enabled added
+    - New JournalSignal model with unique constraint on note_id
+
+  Schemas (api/src/life_dashboard/ai/schemas.py):
+    - AiSettingsResponse + AiSettingsUpdate gained
+      ai_journal_extraction_enabled
+
+  Service: ai/journal_signal_service.py (new file, ~430 lines):
+    - extract_signals_for_note(db, provider, note, user_id):
+        Calls provider.complete() with the _EXTRACTOR_SYSTEM_PROMPT,
+        parses JSON (with code-fence tolerance), coerces values to safe
+        ranges (sentiment clamped to [-1, 1], valence/energy restricted
+        to whitelists, themes/phrases capped). Upserts via DELETE +
+        INSERT keyed by note_id. Records usage with turn_kind=
+        "journal_extraction". Never raises.
+    - maybe_extract_signals(db, note, user_id, household_id):
+        Save-time gate. Skips if note has no collection_id, the
+        collection isn't kind='journal', the user has the flag off, or
+        the user has no provider. Otherwise spawns _run_extraction_
+        background as a detached asyncio.create_task.
+    - _run_extraction_background(note_id, user_id, household_id):
+        Opens fresh AsyncSessionLocal, re-fetches the note, calls
+        extract_signals_for_note, commits.
+    - backfill_for_user(db, provider, user_id, household_id, *,
+                        limit=500, only_outdated_version=False):
+        Synchronous loop over every journal note (in any kind='journal'
+        collection in this household) authored by this user; returns
+        {scanned, extracted, skipped_empty, skipped_current, errors}.
+        Commits per note so partial failure isn't catastrophic.
+    - Trend helpers (used by coach in Phase 3):
+        sentiment_trend(...)         → {avg_7d, avg_30d, delta}
+        harsh_self_talk_streak(...)  → int (consecutive harsh days back from for_date)
+        dominant_themes_recent(...)  → list[(theme, count)] over a window
+    - EXTRACTION_VERSION constant (currently 1) for prompt-rev tracking.
+    - _resolve_entry_date(): tries to parse the date from the auto-create
+      title ("Tuesday, May 25, 2026"); falls back to note.created_at.
+
+  Service helper: collections/service.py:
+    - seed_default_journal_collection(db, household_id, user_id):
+        Idempotent; mirrors seed_system_project. Inserts a kind='journal',
+        domain='notes' collection with the daily auto_create_rule if the
+        household doesn't already have one.
+
+  Bootstrap wiring:
+    - auth/router.py signup path: calls seed_default_journal_collection
+      after seed_system_project
+    - setup/router.py first-run path: same
+    - Existing households are covered by the migration heuristic + insert
+
+  Notes service hooks (notes/service.py):
+    - create_note: after the existing maybe_propose_from_notes call,
+      also calls maybe_extract_signals(db, note, user_id, household_id)
+    - update_note: when "content_md" is in updated_fields and the author
+      is known, fires maybe_extract_signals(db, note, author_id, ...).
+      Title-only edits do NOT re-extract.
+
+  Router (ai/router.py):
+    - POST /ai/journal-signals/backfill → JournalSignalsBackfillResponse
+      with optional ?only_outdated_version query param. 503 when no AI
+      provider is configured.
+
+  Frontend (web/src/app/(protected)/settings/page.tsx):
+    - New JournalSignalsSubSection component
+    - Mounted in AiSection between the API-key/provider section and the
+      Conversation history section
+    - Toggle for ai_journal_extraction_enabled (uses save() — same flow
+      as provider/retention)
+    - "Backfill existing entries" button that POSTs to the backfill
+      endpoint and renders the result counts inline. Disabled when
+      extraction is off.
+
+  Coach integration: deferred to Phase 3. journal_signal_service exposes
+  the trend helpers and signal rows; coach_service does NOT consume them
+  yet — that prompt rewrite is the whole point of Phase 3.
+
+  Verification done in this session:
+    - py_compile clean on all 12 touched/new Python files
+    - npx tsc --noEmit clean (0 errors)
+    - feature_list.json validates (13 verification steps on coach-002)
+
+What was NOT done:
+  - No coach-side consumption of signals yet — that's Phase 3.
+  - No dashboard widget for visualizing emotional weather; that was always
+    out of scope for Phase 2 and remains so.
+  - No CLI script for triggering backfill outside the API; the endpoint
+    is the primary surface. Could add a `make backfill-signals` later if
+    we want a non-HTTP path.
+
+Recommended next step: Brandon to restart the API (SQLite auto-patch picks
+  up the new tables and columns; Postgres needs `cd api && alembic upgrade
+  head` to run 0032 + 0033). Then run the 13 coach-002 verification steps,
+  including the backfill button. Flip passes=true once verified. After that
+  Phase 3 (CBT-aware coach prompt rewrite, coach-003) is the next milestone
+  — that's where users actually see the change in coach behavior.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: AI coach redesign Phase 3 — CBT-aware prompt rewrite (coach-003)
+
+What was done:
+
+  coach_service.py changes (no new files, no new migrations):
+
+    - _fetch_narrative_context(db, household_id, user_id, for_date):
+        New helper that mirrors the shape of _fetch_context and _fetch_history.
+        Pulls:
+          * sentiment_trend → {avg_7d, avg_30d, delta}
+          * harsh_self_talk_streak → int (consecutive harsh-valence days)
+          * dominant_themes_recent → list[(theme, count)] over 14d, top 5
+          * recent journal entries — last 5, oldest-first when rendered,
+            each capped at 1200 chars
+        Each sub-fetch wrapped in try/except so one broken stream never
+        blocks the others — degrades to safe defaults.
+
+    - _COACH_METHOD_PROMPT (constant):
+        Stable system-prompt fragment specifying the CBT moves:
+          * narrative harsh + data strong → reality-test, name what data shows
+          * narrative confident + data dip → honest, not flattering
+          * both negative → bird-by-bird; one next step max
+          * both positive → no manufactured lessons
+        Hard rules: no name-dropping the profile, journal quoting capped at
+        one per response and only when it lands "seen" not "surveilled,"
+        fall back gracefully when profile or narrative is empty, no
+        diagnosis, no therapy register.
+
+    - _fmt_narrative(narrative):
+        Formatter that emits a '## Recent narrative' user-message section
+        with structured trends + raw entries oldest-first. Returns ""
+        when there's nothing to surface; prompt builders cleanly omit the
+        whole section in that case.
+
+    - _build_morning_user_message / _build_evening_user_message /
+      _build_weekly_user_message:
+        Each gained an optional narrative kwarg. Block is inserted before
+        the briefing/review instructions so the model sees the full
+        picture when it starts composing.
+
+    - generate_digest rewrite:
+        System prompt now assembled as:
+            [tone voice]
+            ## How to coach
+            [_COACH_METHOD_PROMPT]
+            [profile fragment, if any]
+        Tones describe *voice*, method describes the moves shared across
+        all tones, profile is concrete context (read last).
+        Public signature unchanged — run_scheduled_digests and the
+        /ai/coach/digest/generate endpoint continue to work as-is.
+
+  Verification done in this session:
+    - py_compile clean on coach_service.py
+    - Rendered narrative block tested with synthetic data: structured
+      trends + raw entries section, empty-input case produces ""
+    - Morning user-message build tested with synthetic narrative:
+      narrative section slots in between behavioral data and briefing
+      instructions, formatting matches conventions
+    - generate_digest signature inspection: unchanged
+
+What was NOT done:
+  - No empirical prompt tuning yet — Phase 3 budgets a 1-2 week period of
+    running real digests and iterating on _COACH_METHOD_PROMPT phrasing.
+    Brandon to feed back observations after a week of live use.
+  - No chatbot-side CBT moves. Chatbot still uses the existing
+    _build_system_prompt + memory_text path; deeper CBT-in-chat is a
+    possible Phase 4 deliverable.
+  - No emotional-weather dashboard widget. Out of scope by design.
+
+Recommended next step: Brandon to restart the API, generate a coach digest
+  with both the existing behavioral data and recent journal entries, and
+  verify the response actually reflects all three context streams. The 10
+  verification steps for coach-003 are end-to-end behavioral checks
+  (not unit tests) — they're designed to be hand-run against real data.
+  Run them over a few digest cycles. After verification, flip
+  passes=true. Phase 4 (continuous loop) remains deferred.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: Context-aware chatbot + coach focus text (chat-001, coach-004)
+
+What was done (chat-001 — context-aware chatbot):
+
+  Backend:
+    - ChatRequest gained optional `context: ChatContextRef | None` field
+      where ChatContextRef = {type: "note"|"recipe"|"document"|"todo"|
+      "goal"|"habit", id: UUID}.
+    - New api/src/life_dashboard/ai/chat_context_resolver.py (~280 lines)
+      with per-type formatters that enforce visibility/ownership:
+        * notes  — author-only (notes are always personal)
+        * recipes/documents/todos/goals/habits — apply_visibility_filter
+        * journal-kind collections get a "(Journal entry)" label so the
+          AI knows to lean on the journaling register
+      Returns "" silently on unauthorized/missing refs — never breaks
+      chat. Wrapped in single outer try/except for defense in depth.
+    - Per-resource char caps (1500 for note body, 400-500 for descriptions,
+      cap of 25 ingredients / 15 recipe steps) keep prompts predictable;
+      AI can call existing domain tools (get_note etc.) if it needs more.
+    - /ai/chat endpoint resolves context after build_chat_context and
+      appends the block to the system prompt. Failures are silent
+      (`try: ... except: pass`).
+
+  Frontend:
+    - New web/src/lib/chat-context/current-resource.tsx exposes
+      CurrentResourceProvider + useRegisterCurrentResource +
+      useCurrentResource hooks.
+    - CurrentResourceProvider mounted inside FocusModeProvider in
+      app/(protected)/layout.tsx.
+    - Notes page tracks selectedTitle alongside selectedId; calls
+      useRegisterCurrentResource({type: "note", id, title}) whenever a
+      real note is selected (NEW_NOTE_ID sentinel and graph-only
+      selection both null out the resource).
+    - Recipes/[id]/_client-page.tsx registers {type: "recipe", id,
+      title: recipe.name} once data loads.
+    - DocumentEditor registers {type: "document", id, title: data.title}.
+    - ai-chat.tsx reads useCurrentResource() and:
+        * Adds `context: {type, id}` to the chat POST body when present
+        * Renders a "Discussing: <title>" chip above the textarea so
+          the user can see that the AI is aware of what they're viewing
+
+What was done (coach-004 — coach focus text field):
+
+  Backend:
+    - CoachGenerateRequest gained optional `focus: str | None` field.
+    - generate_digest gained `focus` kwarg, threaded into all three
+      user-message builders (morning/evening/weekly).
+    - New _fmt_focus() helper renders a "## What I want you to focus
+      on right now" section with a directive that the focus outweighs
+      the default briefing structure. Caps at 1000 chars defensively
+      so prompt budget is predictable.
+    - Block is rendered LAST in the user message (right before the
+      briefing instructions) so it's the freshest thing in context
+      when the model starts composing.
+
+  Frontend:
+    - AiCoachWidgetConfig gained optional `focus?: string` field.
+    - Default config in dashboard/types.ts seeds it to "" for new widgets.
+    - SettingsPanel in ai-coach-widget.tsx adds a Focus textarea with a
+      1000-char counter, rendered below the pinned-habit selector.
+    - The fetch in fetchDigest threads `focus` into the POST body only
+      when non-empty (whitespace-only strings produce no prompt section).
+
+  Persistence is automatic: widget configs already round-trip via the
+  existing dashboard preferences blob — adding a new optional field
+  needs no migration on either side.
+
+Verification:
+  - py_compile clean on all touched Python files
+  - npx tsc --noEmit clean (0 errors) across all frontend changes
+  - Sample narrative + focus rendering inspected manually
+  - chat_context_resolver: signature inspected, visibility checks
+    confirmed via code review against existing service patterns
+
+What was NOT done:
+  - No new domain types in the resolver beyond the six listed. Calendar
+    events, grocery lists, contacts, workouts are not yet supported as
+    chat context — easy to add later by writing a new formatter and
+    extending the ChatContextType literal.
+  - No "Discussing: <X>" indicator inside conversation history retroactively
+    — only the live chip in the input area shows current context. Sufficient
+    for the use case (the AI already has the context in its message
+    history).
+  - No frontend hook for todos/goals/habits detail pages (those are sheet-
+    based, not dedicated routes today). Easy to add when we want them.
+
+Recommended next step: Brandon to restart both the API and the web dev
+  server, then test the flow end-to-end:
+  1. Open a journal entry → "Looking at this, am I being too hard on
+     myself?" → coach-style honest answer
+  2. Open a recipe → "What could I swap for a spicier variation?" →
+     specific suggestions tied to the recipe's actual ingredients
+  3. Open the coach widget settings → write "Today I have a hard
+     conversation, help me prepare" → Regenerate → verify the digest
+     opens with that framing rather than the default morning briefing
+  Then flip chat-001 / coach-004 passes=true after the 9 + 8 verification
+  steps each.
+
+=== 2026-05-25 — Bugfix session ===
+Status: complete
+Feature: SQLite users missed migration 0032's data backfill — journal
+         collections had kind=NULL, breaking coach narrative + signal extraction
+
+Root cause: migration 0032's `upgrade()` returns early on SQLite
+  (`if bind.dialect.name == "sqlite": return`). That guard correctly skips
+  the SQL DDL — but it also skipped the data backfill (heuristic tagging of
+  existing notes collections as kind='journal') and the seed of a default
+  Journal collection per household. `_patch_sqlite_schema` only adds the
+  *column*, not the data. So every existing collection on local dev sat at
+  kind=NULL.
+
+Downstream symptoms:
+  - _fetch_narrative_context found zero kind='journal' collections →
+    returned empty recent_entries → coach digest contained no narrative
+    block → coach didn't reference recent journal entries at all
+  - maybe_extract_signals also gates on kind='journal' → silently skipped
+    every new journal save → no journal_signals rows accumulated
+
+What was done:
+  - New backfill_journal_kind(db) in domains/collections/service.py
+    (~85 lines). Idempotent Python-side equivalent of migration 0032's SQL
+    backfill — works on both SQLite and Postgres. Two steps:
+      (1) Tag existing notes-domain collections where kind IS NULL AND
+          (name lowercased == 'journal' OR auto_create_rule.frequency ==
+          'daily') with kind='journal'.
+      (2) For every household without a kind='journal' collection, insert
+          a fresh one (name='Journal', icon='book-open', daily auto_create
+          rule). Attributes created_by_user_id to the earliest member
+          (HouseholdMembership.joined_at ASC).
+    Returns counts {'tagged', 'seeded', 'skipped'} for boot-log visibility.
+
+  - Wired into main.py lifespan after run_bootstrap_if_needed. Runs on
+    every API boot, unconditionally (Postgres too — covers the case where
+    a migration was skipped or never ran). Wrapped in try/except, logged
+    at WARNING level if it fails — never blocks boot.
+
+Verification:
+  - Sandbox SQLite test: created 2 households (one with an existing
+    'Journal' collection at kind=NULL, one with no collections). First
+    backfill run produced {tagged: 1, seeded: 1, skipped: 1}; the
+    'Recipes notes' collection correctly stayed kind=NULL. Second run
+    produced {tagged: 0, seeded: 0, skipped: 2} (idempotent).
+  - py_compile clean.
+
+Recommended next step: Brandon restarts the API. He'll see a line like
+  "Journal-kind backfill: tagged=1, seeded=0, already-tagged=0" in the
+  log on first restart, confirming his existing Journal collection got
+  tagged. Then:
+    1. Trigger a new coach digest — verify it now reads the recent
+       journal entry (raw text section appears in the prompt).
+    2. To populate signal trends (sentiment, themes, harsh streak) for
+       entries written BEFORE the fix, click 'Backfill existing
+       entries' in Settings → AI → Journal signals once. New entries
+       written from now on get extracted automatically.
+
+This bug also exposes a small gap in the coach-002 verification steps:
+  step 2 ("Verify every existing household has at least one collection
+  with kind='journal'") was the right check, but couldn't be run on
+  SQLite without this fix. The startup backfill is the right belt-and-
+  suspenders to keep both backends in lockstep going forward.
+
+=== 2026-05-25 — UX investigation + bug fix session ===
+Status: complete
+What was done:
+  Investigated a reported UX issue: user couldn't figure out how to mark
+  a habit complete after the fact (had journaled but forgot to tick the
+  habit, coach digest was then consoling them for missing it).
+
+  Findings:
+  - The retroactive marking feature already exists: the habit sheet
+    (opened by clicking any row on the habits page) contains a WeekTracker
+    component with prev/next week navigation. Any past day can be toggled
+    complete or incomplete from there. No backend work needed — the API
+    has always supported arbitrary scheduled_date on occurrences.
+  - The cached digest problem is real: ai_coach_digests are generated and
+    stored at a point in time. Retroactively fixing a habit occurrence does
+    not automatically regenerate the cached digest. The "Regenerate" button
+    in the coach widget is the escape hatch, but there is no nudge to use
+    it after a backfill. Flagged as a future improvement (post-backfill
+    toast with "Refresh your coach digest?" action).
+  - Root cause of user confusion: on the habits page, habit rows with a
+    cadence link (e.g. Journaling → /notes/journal) have two click zones —
+    the name navigates to the linked page, clicking elsewhere opens the
+    sheet. But hovering anywhere outside the name showed a default cursor,
+    not a pointer, making the row look non-interactive.
+
+  Fix applied:
+  - web/src/components/habits/habit-row.tsx: added `cursor-pointer` to
+    the <tr> className so the full row signals it is clickable.
+
+  UX model clarified and confirmed:
+  - Habits page: row click → edit/history sheet (management surface).
+    Name button (with link icon) → linked page as a secondary affordance.
+  - Dashboard widget: already correct — name button navigates to the
+    linked page, circle toggles completion, no misleading row-level click.
+    No changes needed to habits-widget.tsx.
+
+Commits this session: none (one-line className change, not yet committed)
+What's left / recommended next:
+  - Consider adding a post-backfill nudge in the coach widget: after a
+    WeekTracker toggle for a past date, prompt "Digest may be stale —
+    regenerate?" This requires WeekTracker to call qc.invalidateQueries
+    on the habits list and optionally trigger /ai/coach/digest/generate.
+  - Consider invalidating the habits list query from WeekTracker after a
+    toggle so streak/rate columns update without a full page refresh.
+
+=== 2026-05-25 — Bugfix session ===
+Status: complete
+Feature: Teller sync cursor advancing past pending transactions, causing
+         settled transactions to be silently skipped on future syncs
+
+Root cause: In sync_teller_account(), after fetching transactions from
+  Teller, the cursor was advanced to transactions[0].id — the newest
+  transaction overall, including pending ones. Teller's from_id filter
+  returns only transactions *newer* than the stored cursor. So if the
+  newest transaction(s) were pending at sync time, the cursor jumped
+  past them. When those transactions eventually settled and posted
+  (keeping the same IDs), they fell behind the cursor and were never
+  returned by Teller again — silently dropped forever.
+
+  The account balance updates and budget threshold notifications still
+  fired normally (balance is a separate API call; a pre-existing
+  notification triggered the user's suspicion), masking the bug.
+
+What was done:
+  - Changed the cursor-advance line in service.py:
+      Before: if transactions: account.teller_cursor = transactions[0].id
+      After:  if posted: account.teller_cursor = posted[0].id
+    Cursor now only advances to the newest *posted* transaction.
+    Pending transactions above it are re-fetched on each subsequent sync
+    until they settle; deduplication via external_id handles re-inserts
+    safely once they post.
+
+  - Diagnosed that the user's missing 5/22-5/25 transactions were simply
+    still pending at Teller (weekend settlement lag), not a data loss
+    scenario. The fix ensures they will be picked up cleanly once posted.
+
+Files changed:
+  - api/src/life_dashboard/domains/budget/service.py (cursor advance logic)
+
+Commits this session: none (not yet committed)
+What's left / recommended next:
+  - No immediate action needed. Pending transactions will appear
+    automatically on the next sync once they settle at the bank.
+    "Re-sync full history" option remains available in the UI if manual
+    recovery is ever needed.
+
+=== 2026-05-25 — Bugfix session ===
+Status: complete
+Feature: Multi-domain bug fixes + budget category color tooling
+
+Commits made: none (changes written to disk)
+
+What was done:
+
+  Notes graph bouncing fix (web/src/components/notes/note-graph.tsx):
+    - Root cause: ResizeObserver fired → setDimensions state update →
+      dimensions in useEffect deps → startSimulation() → initPositions()
+      reset all node positions → infinite re-settling loop
+    - Fix: added simCenter ref + resizeTimer ref; ResizeObserver now
+      updates simCenter.current immediately (gravity shifts live) and
+      debounces setDimensions by 150ms; startSimulation syncs simCenter
+      before use; loop() reads simCenter.current each tick instead of
+      captured cx/cy; removed dimensions from useEffect dependency array
+
+  Recipe tag 500 error (api/src/life_dashboard/domains/recipes/service.py):
+    - update_recipe and delete_recipe both referenced undefined user_id
+      variable (leftover from copy-paste of get_recipe)
+    - Removed stale apply_visibility_filter calls from both functions;
+      router already enforces ownership via get_item_creator before calling
+      the service so these checks were redundant and broken
+
+  Recipe tag picker showing all tags (api + web):
+    - GET /tags had no domain filter — all tags across all domains were
+      returned regardless of context
+    - Added optional entity_type query param to tags router and service;
+      service filters via Tag.id IN (SELECT tag_id FROM taggings WHERE
+      entity_type = ?) when the param is provided
+    - Recipe sheet's TagPicker now passes entity_type="recipe" so only
+      tags previously applied to recipes are shown
+
+  Habit sheet stuck in saving after delete:
+    - handleDelete only called setSaving(false) in catch — success path
+      went setSaving(true) → await deleteHabit → onClose() without ever
+      resetting the flag; next opened habit inherited saving=true
+    - Fixed with finally block in handleDelete; also added setSaving(false)
+      to the useEffect that runs on [habit, open] change so any leak is
+      cleared on re-open
+
+  Delete project 500 error (api/src/life_dashboard/domains/projects/router.py):
+    - Router called service.delete_project(..., user_id=current_user.id)
+      and service.archive_project(..., user_id=current_user.id) but neither
+      service function accepts user_id as a parameter
+    - Removed the stale kwarg from both call sites
+
+  Duplicate seed data cleanup script (cleanup_duplicates.py — new file):
+    - Stdlib-only HTTP client, --dry-run flag
+    - Covers all 13 domains: tags, collections, notes, workouts, habits,
+      grocery lists, goals, budget profiles, budget accounts, budget
+      transactions, projects (system-protected), todos, calendar events,
+      documents
+    - Dedup keys and sort-by-created_at to keep the oldest record
+
+  Budget category colors (api + seed_test_data.py + backfill_category_colors.py):
+    - service.py create_category: now auto-applies icon/color from
+      CATEGORY_DEFAULTS for any category whose name matches a known key
+    - seed_test_data.py find_or_create_category: updated to accept color
+      param; if an existing category is missing icon or color it PATCH-es
+      the gap before returning; all 15 seed categories now pass explicit
+      colors matching the CATEGORY_DEFAULTS palette
+    - backfill_category_colors.py (new standalone script): patches only
+      budget categories for the target account — no other data touched,
+      so running it does not create duplicates. Covers both seed-script
+      names ("Dining Out", "Rent / Mortgage", etc.) and service.py
+      CATEGORY_DEFAULTS names. Dry-run flag supported.
+
+What was NOT done:
+  - No E2E browser verification of the graph fix (needs live dev server)
+  - budget-017 (account balance field) still awaiting manual verify
+  - feature_list.json unchanged — all work was bug fixes and tooling,
+    not new feature implementations that flip a passes flag
+
+Recommended next: calendar-001 (show todo due dates on calendar) is the
+  last remaining priority-1 non-budget feature. After that, return to
+  coach-001 through coach-004 manual E2E verification and flip passes=true.
+
+=== 2026-05-25 — Session wrap-up ===
+Status: summary only — no code changes
+Feature: End-of-session recap for the AI coach redesign push
+
+Today's session, in order:
+  1. Infrastructure session — wrote docs/ai-coach-redesign.md design doc,
+     added coach-001 / coach-002 / coach-003 entries to feature_list.json,
+     created project_ai_coach_direction memory.
+  2. Coding session — Phase 1 (user profile + bootstrap pass): migration
+     0030, member_ai_memory.last_bootstrapped_at + user_profile_updates,
+     profile_service.py (~470 lines), 6 new /ai/profile/* endpoints,
+     load_profile_context wired into coach prompts (chat already read
+     memory_text), Settings → AI → Profile subsection. coach-001 entry
+     rewritten to match the leaner implementation that reuses
+     member_ai_memory rather than introducing a new user_profiles table.
+  3. Coding session (cont.) — Phase 1.5 (notes-driven proposer):
+     migration 0031, notes_at_last_proposal counter, maybe_propose_from_notes
+     fired from notes service create/update hooks, _run_incremental_proposer
+     background task, skipped until bootstrap has run. coach-001b entry
+     added.
+  4. Coding session (cont.) — Phase 2 (journal signal extraction):
+     migrations 0032 + 0033, collection.kind column, journal_signals table,
+     ai_journal_extraction_enabled flag, ai/journal_signal_service.py
+     (~430 lines with extraction + trend helpers + backfill), seed_default_
+     journal_collection wired into auth + setup signup, POST /ai/journal-
+     signals/backfill endpoint, Settings → AI → Journal signals subsection.
+  5. Coding session (cont.) — Phase 3 (CBT-aware prompts): no new files
+     or migrations. coach_service rewrite — _fetch_narrative_context,
+     _COACH_METHOD_PROMPT, _fmt_narrative, three user-message builders
+     all accept narrative kwarg, generate_digest assembles system prompt
+     as [tone voice]→method→profile. coach-003 entry steps tightened.
+  6. Coding session (cont.) — chat-001 + coach-004 in one slice:
+     ChatRequest.context, ai/chat_context_resolver.py (~280 lines, 6
+     types, visibility-aware), useCurrentResource hook + provider,
+     "Discussing:" chip in chat sidebar, hooks wired into notes /
+     recipes/[id] / DocumentEditor. CoachGenerateRequest.focus,
+     AiCoachWidgetConfig.focus, widget settings textarea, _fmt_focus
+     section in coach prompts.
+  7. Bugfix session — discovered SQLite users had no collections tagged
+     kind='journal' (migration 0032's data backfill is Postgres-only).
+     Added backfill_journal_kind() in collections/service.py — Python-side
+     idempotent equivalent, wired into main.py lifespan, runs on every
+     boot regardless of backend.
+
+Files created this session (8):
+  api/migrations/versions/0030_user_profile.py
+  api/migrations/versions/0031_profile_proposal_counter.py
+  api/migrations/versions/0032_collection_kind.py
+  api/migrations/versions/0033_journal_signals.py
+  api/src/life_dashboard/ai/profile_service.py
+  api/src/life_dashboard/ai/journal_signal_service.py
+  api/src/life_dashboard/ai/chat_context_resolver.py
+  web/src/lib/chat-context/current-resource.tsx
+
+Files modified this session (12):
+  api/src/life_dashboard/ai/models.py
+  api/src/life_dashboard/ai/schemas.py
+  api/src/life_dashboard/ai/service.py
+  api/src/life_dashboard/ai/coach_service.py
+  api/src/life_dashboard/ai/router.py
+  api/src/life_dashboard/domains/collections/models.py
+  api/src/life_dashboard/domains/collections/service.py
+  api/src/life_dashboard/domains/notes/service.py
+  api/src/life_dashboard/auth/router.py
+  api/src/life_dashboard/setup/router.py
+  api/src/life_dashboard/main.py
+  web/src/app/(protected)/layout.tsx
+  web/src/app/(protected)/notes/page.tsx
+  web/src/app/(protected)/recipes/[id]/_client-page.tsx
+  web/src/app/(protected)/settings/page.tsx
+  web/src/components/ai/ai-chat.tsx
+  web/src/components/dashboard/ai-coach-widget.tsx
+  web/src/components/documents/document-editor.tsx
+  web/src/lib/dashboard/types.ts
+  docs/ai-coach-redesign.md
+
+=== 2026-05-25 — Bugfix + feature session ===
+Status: complete
+Feature: is_income flag on BudgetCategoryGroup — income recognition by flag, not name
+
+Root cause of income showing as $0: get_analytics() and get_summary() gated income on
+  `BudgetCategoryGroup.name.lower() == "income"`. User had named their group "Salary",
+  so it never matched. The fix adds an explicit is_income boolean to the group model so
+  any group name works and users aren't locked into calling it "Income".
+
+What was done:
+
+  Migration (api/migrations/versions/0034_category_group_is_income.py):
+    - ADD COLUMN is_income BOOLEAN NOT NULL DEFAULT 0 to budget_category_groups
+    - SQLite path: raw ALTER TABLE ADD COLUMN in try/except (idempotent; SQLite supports
+      ADD COLUMN; skip logic avoids Alembic dialect issues)
+    - Postgres path: op.add_column with server_default="0"
+    - Backfill: UPDATE … SET is_income = 1 WHERE lower(name) = 'income' (runs on both)
+    - downgrade: DROP COLUMN on Postgres; no-op on SQLite (DROP COLUMN unsupported)
+
+  Model (api/src/life_dashboard/domains/budget/models.py):
+    - Added is_income: Mapped[bool] = mapped_column(Boolean, nullable=False,
+      default=False, server_default="0") to BudgetCategoryGroup
+
+  Schemas (api/src/life_dashboard/domains/budget/schemas.py):
+    - BudgetCategoryGroupCreate: is_income: bool = False
+    - BudgetCategoryGroupUpdate: is_income: bool | None = None
+    - BudgetCategoryGroupResponse: is_income: bool
+    - BudgetCategoryGroupWithCategories: is_income: bool
+
+  Service (api/src/life_dashboard/domains/budget/service.py):
+    - get_analytics(): SELECT adds BudgetCategoryGroup.is_income.label("group_is_income");
+      GROUP BY includes BudgetCategoryGroup.is_income; income detection changed from
+      name-match to bool(row.group_is_income)
+    - get_summary(): WHERE clause changed from func.lower(name) == "income" to
+      BudgetCategoryGroup.is_income == True
+    - list_categories_grouped(): passes is_income=grp.is_income and is_income=False
+      (for the implicit "Other" bucket) to BudgetCategoryGroupWithCategories constructor
+    - DEFAULT_GROUPS: added is_income key per group (Income → True, all others → False)
+    - DEFAULT_BUSINESS_GROUPS: added is_income key (Revenue → True, all others → False)
+    - seed_default_groups: passes is_income=defn.get("is_income", False) when creating
+      new BudgetCategoryGroup objects; syncs is_income from template for existing groups
+      if the flag doesn't match (covers groups created before this flag existed)
+
+  Frontend (web/src/app/(protected)/budget/categories/page.tsx):
+    - BudgetCategoryGroup interface: added is_income: boolean
+    - GroupWithCategories interface: added is_income: boolean
+    - updateGroup() type signature: added is_income?: boolean to body param
+    - GroupSection component: added onGroupIsIncomeToggled prop + handleToggleIncome handler
+    - Group actions row: added a small "Income" toggle button (green badge when active,
+      muted ghost when inactive) alongside the edit pencil and delete trash icons
+    - Main component: added handleGroupIsIncomeToggled state updater; wired into GroupSection
+
+Verification:
+  - ast.parse on service.py: clean
+  - npx tsc --noEmit: 0 errors
+
+What was NOT done:
+  - Migration not yet applied to local DB — run `cd api && alembic upgrade head`
+  - No E2E browser test; UI change is one-line per group in the categories page
+
+Recommended next step: restart the API (migration will apply), navigate to
+  /budget/categories, toggle the "Income" badge on whichever group holds salary/income
+  transactions, then verify the income total on the budget page updates correctly.
+  feature_list.json
+  claude-progress.txt
+
+feature_list.json entries added (6): coach-001, coach-001b, coach-002,
+  coach-003, chat-001, coach-004. All marked passes=false pending Brandon's
+  end-to-end manual verification.
+
+What's deferred (intentionally not done in this session):
+  - Phase 4: continuous loop, scheduled background profile updates,
+    profile section pinning, profile versioning/rollback
+  - Chatbot-side CBT moves (separate from coach Phase 3)
+  - Emotional-weather dashboard widget (no signal visualization in UI)
+  - Calendar / grocery / contacts / workouts as chat-context types
+    (only note / recipe / document / todo / goal / habit so far)
+  - Empirical tuning of _COACH_METHOD_PROMPT — needs 1-2 weeks of live
+    digest runs to iterate
+
+What Brandon needs to do to verify:
+  1. Restart the API. Confirm boot log shows
+     "Journal-kind backfill: tagged=N, seeded=M, already-tagged=K".
+  2. Settings → AI → Profile → "Build my profile". Accept the proposal.
+  3. Settings → AI → Journal signals → "Backfill existing entries"
+     (one-time, to populate sentiment/themes/streak for past entries).
+  4. Trigger a fresh coach digest — verify the response references the
+     profile AND the most recent journal entry (the heavy one from last
+     night should now be in the narrative section).
+  5. Open a journal entry → sidebar chat → "looking at this, am I being
+     too hard on myself?" → coach-style honest answer.
+  6. Open a recipe → "what could I swap for a spicier variation?" → AI
+     references the actual ingredients.
+  7. Coach widget settings → add focus text → Regenerate → verify the
+     digest opens with that framing.
+  8. After a week of live use, flip passes=true on the entries that
+     verified end-to-end.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: Silent-learning shift — hide profile, auto-bootstrap on key save,
+         validate keys, update_profile chat tool, coach widget combobox
+         (coach-005 + coach-006)
+
+What was done:
+
+  Silent-learning shift (profile no longer user-facing):
+    - profile_service.run_bootstrap_pass: writes directly to
+      member_ai_memory.memory_text + creates an audit row with
+      status='accepted' on insert. No more pending queue.
+    - profile_service._run_incremental_proposer: same — auto-apply,
+      audit-only row.
+    - web/src/app/(protected)/settings/page.tsx: ProfileSubSection
+      removed from AiSection. Replaced with an inline comment explaining
+      the change. Backend /ai/profile/* endpoints remain available.
+
+  API key validation:
+    - ai/provider.py AIProvider Protocol gains validate() method.
+    - AnthropicProvider.validate() makes a max_tokens=1 probe call,
+      maps AuthenticationError → 'Invalid API key', APIConnectionError /
+      APITimeoutError → 'Could not reach Anthropic', RateLimitError →
+      OK (structurally valid).
+    - ai/router.py PATCH /ai/settings: when api_key is supplied and
+      not clearing, calls validate() BEFORE persisting; returns 400
+      with the user-facing message on failure. Key is never saved
+      if validation fails.
+
+  Auto-bootstrap on key save:
+    - ai/router.py PATCH /ai/settings: after a successful save with a
+      new key, kicks off run_bootstrap_pass in a detached asyncio
+      task if the user has no profile yet (memory_text empty OR
+      last_bootstrapped_at NULL). _run_bootstrap_background helper
+      opens its own AsyncSessionLocal so the request returns
+      immediately. By the time the user reaches the dashboard the
+      coach already knows them.
+    - Idempotent: a second key save when the profile is already
+      populated does NOT re-bootstrap (silent UX).
+
+  update_profile chat tool:
+    - ai/tools.py: added update_profile TOOL_DEFINITION with
+      content_md (required) and diff_summary (optional). Description
+      gives explicit positive AND negative trigger examples and tells
+      the model to acknowledge in plain language WITHOUT mentioning
+      the tool or profile.
+    - ai/tools.py: _update_profile handler writes content_md to
+      memory_text + records an audit UserProfileUpdate(source='manual',
+      status='accepted'). Defensively trims to PROFILE_HARD_CAP_CHARS.
+    - ai/service.py _build_system_prompt: new "Profile maintenance"
+      section instructs the model on when to call the tool silently
+      (durable preferences, ongoing focus, stable values) and when
+      NOT (one-off events, transient moods).
+    - ai/tools.py execute_tool dispatch: added the routing branch.
+
+  Coach widget combobox:
+    - dashboard/ai-coach-widget.tsx PinnedSection: switches to a
+      combobox layout above 8 items per category; below 8 keeps the
+      original chip-grid (lowest friction for small lists).
+    - New PinnedCombobox component (inline, ~90 lines) — selected
+      chips above (click X to remove), 'Pick from N' button opens
+      a popover with autofocused search input + filtered scrollable
+      list + outside-click dismiss. Built without shadcn Command /
+      Popover primitives (they're not in this project).
+    - useRef + useEffect for outside-click handling; useState for
+      open/query.
+
+  Verification:
+    - py_compile clean on tools.py, service.py, router.py, provider.py,
+      profile_service.py
+    - npx tsc --noEmit clean (0 errors)
+    - All existing AI Coach feature entries (coach-001 through
+      coach-004) remain valid — the silent-learning shift does NOT
+      break their verification steps because backend endpoints are
+      unchanged; only the user-facing UI was removed and the bootstrap
+      now auto-applies. Per-feature impact noted in coach-005's
+      description.
+
+  Files modified:
+    - api/src/life_dashboard/ai/provider.py
+    - api/src/life_dashboard/ai/profile_service.py
+    - api/src/life_dashboard/ai/service.py
+    - api/src/life_dashboard/ai/router.py
+    - api/src/life_dashboard/ai/tools.py
+    - web/src/app/(protected)/settings/page.tsx
+    - web/src/components/dashboard/ai-coach-widget.tsx
+    - docs/ai-coach-redesign.md (status header updated)
+    - feature_list.json (coach-005, coach-006 added)
+
+What was NOT done:
+  - OpenAI / Ollama validate() implementations — only Anthropic is
+    currently in providers, so validate() for the others lands when
+    those providers are implemented. PATCH /ai/settings passes through
+    unchecked for non-Anthropic providers today.
+  - No automatic re-bootstrap when the user clears + re-adds a key
+    if memory_text is already populated. By design — they've already
+    been "learned about," and re-bootstrap would be expensive + spammy.
+  - No admin/debug UI to inspect or wipe the profile. Brandon can
+    query member_ai_memory directly or hit the GET /ai/profile
+    endpoint via curl if he wants to see what the AI knows.
+
+Recommended next step: Brandon to restart the API and test the flow:
+  1. Clear his existing API key (if testing fresh-key bootstrap)
+  2. Save a deliberately bad key → verify 400 with clear message
+  3. Save a real key → verify it persists AND the boot log shows the
+     bootstrap pass running shortly after
+  4. Open chat: 'I want to focus more on consistency moving forward'
+     → verify acknowledgement + (after a moment) query
+     member_ai_memory.memory_text to confirm the profile was updated
+  5. Configure a coach widget with >8 projects/habits → verify the
+     combobox replaces the chip-grid
+  After verifying, flip coach-005 and coach-006 to passes=true.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: Phase 4 — profile versioning + weekly scheduled refresh + decay (coach-007)
+
+What was done:
+
+  Migration 0034_user_profile_versions.py:
+    - Creates user_profile_versions (id, user_id FK→users CASCADE,
+      content_md TEXT, source VARCHAR(20), created_at TIMESTAMPTZ).
+    - Index ix_user_profile_versions_user_created on (user_id, created_at).
+    - Append-only history of OLD content captured before each
+      memory_text overwrite. Retention enforced in application layer
+      (PROFILE_VERSION_RETENTION = 50 per user).
+
+  Models (ai/models.py):
+    - New UserProfileVersion model.
+
+  Schemas (ai/schemas.py):
+    - ProfileUpdateSource literal expanded:
+      bootstrap | incremental | manual → +scheduled +direct_edit.
+    - New ProfileVersionResponse + ProfileVersionListResponse for the
+      debug endpoint.
+
+  Service (ai/profile_service.py):
+    - PROFILE_VERSION_RETENTION = 50, PROFILE_UPDATE_SOURCES constant
+      (enforced at the boundary).
+    - New _apply_profile_update(db, memory, new_content_md, *, source):
+      single write path for all memory_text changes. Snapshots OLD
+      content into user_profile_versions (skipped when OLD is empty —
+      first bootstrap doesn't need a history row), trims old rows
+      beyond retention cap. Raises ValueError on unknown source.
+    - All write sites refactored to flow through _apply_profile_update:
+        * run_bootstrap_pass            → source='bootstrap'
+        * _run_incremental_proposer     → source='incremental'
+        * _update_profile chat tool     → source='manual'
+        * update_profile (direct edit)  → source='direct_edit'
+        * run_scheduled_profile_refresh → source='scheduled'
+    - New _SCHEDULED_REFRESH_PROMPT system prompt for the weekly job.
+      Two explicit jobs: (1) integrate durable new patterns,
+      (2) decay stale content (resolved past situations, fixed-trait
+      language, things that haven't recurred). Biased hard toward SKIP.
+    - New _gather_scheduled_refresh_sources: 4-week window of
+      user-authored notes + user-side chat messages.
+    - New run_scheduled_profile_refresh(db, provider, user_id, hh, name):
+      runs the refresh for one user, returns {outcome: applied|skip|
+      skipped_no_profile|skipped_no_activity|error}. Never raises.
+    - New run_scheduled_profile_refresh_all(): iterates every user
+      whose memory_text is non-empty, resolves provider/household,
+      calls per-user refresh. Returns aggregate counts.
+    - New list_profile_versions(db, user_id, *, limit=50): newest-
+      first version history.
+
+  Router (ai/router.py):
+    - New GET /ai/profile/versions?limit=N → ProfileVersionListResponse.
+      Debug-only; no UI surfaces this. Range-validated query param
+      (1..100).
+
+  Scheduler (main.py):
+    - New APScheduler job 'profile_scheduled_refresh' running Sunday
+      03:00 (low-traffic slot, clear of the morning digest). Calls
+      run_scheduled_profile_refresh_all and logs the aggregate
+      {users, applied, skip, skipped_no_activity, error} counts.
+    - Inner async helper _run_scheduled_profile_refresh_with_logging
+      wraps the call so a failure logs at exception level but never
+      brings down the scheduler.
+
+  Tools (ai/tools.py):
+    - _update_profile chat handler now imports + uses
+      _apply_profile_update — versioning flows through automatically.
+
+  Verification:
+    - py_compile clean across all touched Python files.
+    - npx tsc --noEmit clean (no frontend changes in Phase 4).
+    - Import-time wiring: UserProfileVersion model registers,
+      list_profile_versions function callable, the new
+      /ai/profile/versions endpoint appears in the router routes.
+
+  Files modified:
+    - api/migrations/versions/0034_user_profile_versions.py (new)
+    - api/src/life_dashboard/ai/models.py
+    - api/src/life_dashboard/ai/schemas.py
+    - api/src/life_dashboard/ai/profile_service.py
+    - api/src/life_dashboard/ai/router.py
+    - api/src/life_dashboard/ai/tools.py
+    - api/src/life_dashboard/main.py
+    - docs/ai-coach-redesign.md (Phase 4 section + status header)
+    - feature_list.json (coach-007 added)
+
+What was NOT done:
+  - No UI for the version history. By design — silent learning means
+    no user-facing profile surface; the GET /ai/profile/versions
+    endpoint is enough for debug via curl or the admin path.
+  - No per-section pinning. Without a user-facing profile UI, locking
+    sections from the AI isn't actionable. Revisit if the journaling
+    tool surfaces sections to the user.
+  - No frontend rollback button. If a refresh ever produces a bad
+    profile, Brandon can PATCH /ai/profile with content from
+    /ai/profile/versions/{id} to roll back manually. Could be wrapped
+    in a one-click endpoint later if it becomes a frequent operation.
+  - Journal-driven and chat-driven proposers still trigger on their
+    own thresholds (notes_at_last_proposal, the legacy chat memory
+    refresh). The scheduled refresh sits ALONGSIDE those, catching
+    cases where activity exists but didn't cross the per-trigger
+    thresholds. They don't conflict — the audit row sources
+    distinguish them.
+
+Recommended next step: Brandon to restart the API, confirm the boot
+  log line shows the new 'profile_refresh=Sun 03:00' job is scheduled.
+  Then verify the version pipeline:
+    1. Make any profile change (e.g. say 'I want to focus more on X'
+       in chat)
+    2. curl GET /ai/profile/versions — verify a row appears with the
+       OLD content
+    3. Make another change; verify a second version row
+    4. Optionally: manually trigger run_scheduled_profile_refresh_all
+       via a Python shell to verify the weekly job works without
+       waiting until Sunday
+  Flip coach-007 passes=true once verified.
+
+Also discussed: a future journal-001 feature for a guided journaling
+  tool — focused conversation surface that asks open questions, listens
+  with CBT-aware register, synthesizes a first-person summary, saves
+  to the Journal collection. Sketch captured in conversation; not
+  built yet.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: journal-001 — guided journaling tool with adaptive AI register
+  (+ chat system prompt fix: check-before-suggest rule)
+
+What was done:
+
+  Bug fix (chat system prompt):
+    - Added explicit "before suggesting to CREATE or SET UP a habit/goal/
+      project/recipe, FIRST call the relevant list_* tool" rule to
+      _build_system_prompt in ai/service.py. Fixes the bug where the AI
+      offered to set up a 'no alcohol' habit when one already existed.
+
+  journal-001 backend:
+    - Migration 0035_journal_conversations.py:
+        * ai_conversations.kind VARCHAR(20) NOT NULL DEFAULT 'chat'
+        * ai_conversations.note_id UUID NULL FK→notes ON DELETE SET NULL
+        * Index ix_ai_conversations_user_kind_note on (user_id, kind, note_id)
+    - AiConversation model: added kind + note_id Mapped columns and the
+      __table_args__ index.
+    - NoteResponse + notes/service.py: added collection_kind field — the
+      parent collection's `kind` if any. Looked up cheaply (single column
+      query) when collection_id is set. Frontend uses to gate the
+      'Talk it out' button without an extra round-trip.
+    - ai/schemas.py: JournalStartRequest, JournalStartResponse,
+      JournalFinishResponse, JournalSaveRequest, JournalSaveResponse.
+    - ai/service.py: new _build_journal_system_prompt with role-clarity
+      ('not a therapist, friend, or substitute'), adaptive register
+      guidance (rant vs reflective), never-start-with-question rule,
+      point-at-humans rule for interpersonal topics, profile-aware
+      reference instructions. Tools restricted: update_profile only.
+    - ai/service.py: _JOURNAL_SYNTHESIS_PROMPT — first-person 'I' voice,
+      1-2 paragraphs dense, no manufactured conclusions, no summarizing
+      what the AI said.
+    - ai/service.py: synthesize_journal_summary() helper — returns
+      (summary_md, transcript_md) tuple. Transcript is formatted but
+      only used when the user opts in at save time.
+    - ai/service.py: build_chat_context() branches on conv.kind — journal
+      conversations get the journal-mode system prompt.
+    - ai/service.py: generate_stream() gained tools parameter — defaults
+      to TOOL_DEFINITIONS, journal mode passes [update_profile_def] only.
+    - ai/router.py:
+        * POST /ai/journal/start — finds or creates the journal
+          conversation for (user, note_id). Validates the note exists,
+          belongs to this user, and is in a kind='journal' collection.
+        * POST /ai/journal/{id}/finish — runs synthesis, returns
+          summary_md NOT yet saved.
+        * POST /ai/journal/save — appends summary (+ optional transcript)
+          to the target note's content_md. Preserves existing content
+          (adds a `---` divider only when there's something to separate).
+          Goes through notes service update_note so the existing
+          maybe_propose_from_notes + maybe_extract_signals hooks fire
+          automatically — the saved journal entry becomes a normal
+          journal note for the rest of the pipeline.
+        * /ai/chat endpoint: when conv.kind == 'journal', passes the
+          single-tool array to generate_stream so the AI can't accidentally
+          access task tools mid-session.
+
+  journal-001 frontend:
+    - web/src/components/journal/journal-session.tsx (new, ~370 lines):
+      Full-screen overlay component. Distinct chrome from sidebar chat —
+      calm background, larger 15px text, single message in flight,
+      gentle exchange counter, Sparkles icon. Reuses /ai/chat SSE
+      streaming directly (no new endpoint needed for turns). Three phases:
+        * conversation — chat back-and-forth, 'Finish' button after
+          first exchange
+        * synthesizing — spinner with 'Pulling together what came out of
+          this…' message
+        * review — editable textarea with the summary, 'Save with
+          transcript' toggle, 'Save' / 'Keep talking' / 'Don't save this
+          session' buttons
+    - web/src/components/notes/note-editor.tsx:
+        * isTodayJournalEntry() helper — parses entry_date from the title
+          via regex (handles ordinal suffixes), falls back to created_at,
+          compares to today in the user's local timezone. Strict gating:
+          past entries get no button.
+        * 'Talk it out' button rendered in the tags row, gated by
+          collection_kind === 'journal' AND isTodayJournalEntry. Uses the
+          Sparkles icon + primary-tinted pill style.
+        * JournalSession mounted as an overlay when journalOpen state is
+          true. On successful save, invalidates the note query so the
+          appended summary appears in the editor.
+    - schema.d.ts: manually added collection_kind to NoteResponse as a
+      placeholder. Brandon should run `npm run codegen` against the
+      running API to regenerate cleanly.
+
+  Verification:
+    - py_compile clean across all touched Python files (models, schemas,
+      service, router, notes service, migration)
+    - SQLite create_all + schema inspection: ai_conversations has the new
+      columns + index, three new endpoints registered
+    - npx tsc --noEmit clean (0 errors)
+
+  Files created:
+    - api/migrations/versions/0035_journal_conversations.py
+    - web/src/components/journal/journal-session.tsx
+
+  Files modified:
+    - api/src/life_dashboard/ai/models.py
+    - api/src/life_dashboard/ai/schemas.py
+    - api/src/life_dashboard/ai/service.py
+    - api/src/life_dashboard/ai/router.py
+    - api/src/life_dashboard/domains/notes/models.py (no change actually — schema only)
+    - api/src/life_dashboard/domains/notes/schemas.py (collection_kind)
+    - api/src/life_dashboard/domains/notes/service.py (collection_kind lookup)
+    - web/src/components/notes/note-editor.tsx (button + helper + overlay)
+    - web/src/lib/api/schema.d.ts (manual collection_kind patch)
+    - docs/ai-coach-redesign.md (status header)
+    - feature_list.json (journal-001 added)
+
+What was NOT done:
+  - Phase B (personalized opening prompts based on recent narrative,
+    time-of-day awareness) and Phase C (dashboard widget for one-tap
+    session start) deferred. Phase A is enough to use the feature for a
+    couple of weeks and see what it wants to become.
+  - No /journal/today route. The button-in-note-editor flow is the only
+    entry point, which keeps the affordance contextual rather than
+    creating yet another route.
+  - The schema.d.ts manual patch is a stopgap; Brandon needs to run
+    `npm run codegen` against the running API to regenerate properly
+    with all the new endpoints + the collection_kind field.
+
+Recommended next step: Brandon to restart the API, then in web/ run
+  `npm run codegen` against the running server to refresh schema.d.ts,
+  then run `npm run dev` and:
+    1. Open today's journal entry → verify the 'Talk it out' button
+    2. Click → rant for a few messages → confirm adaptive register
+    3. Try a planning-oriented message → confirm reflective register
+    4. Try interpersonal content → confirm point-at-humans rule fires
+    5. Click Finish → review the summary → save
+    6. Confirm the journal note now has the appended summary
+    7. Try 'Save with transcript' to confirm the transcript section
+    8. Verify the next coach digest reads the new entry
+  Flip journal-001 to passes=true once verified end-to-end.
+
+Also discussed (not built, captured for future work): the broader
+  ethical concern about AI dependence — Brandon is rightly worried
+  about over-reliance on AI for connection, especially given his
+  kid on the way. Implemented points 1, 2, and 4 from that discussion
+  (role-clarity + point-at-humans + profile-aware references). Held
+  point 3 (soft acknowledgement at session close) for later — would
+  be added in journal-002 if we decide it's needed after live use.
+  Also: per-member admin control of AI access for households with
+  kids is a real future feature, captured in memory but not built.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: journal-001 Phase B — personalized opening messages
+
+What was done:
+
+  Backend (ai/service.py):
+    - New _JOURNAL_OPENER_PROMPT constant — short, warm, non-directive
+      opener guidelines. Explicit rules: 1-2 sentences, no sharp
+      questions, no name-dropping the profile, gentler register on a
+      harsh self-talk streak, neutral otherwise, time-of-day aware.
+    - New _resolve_time_of_day_label(now_local) → 'morning' | 'afternoon'
+      | 'evening' | 'late night'. Defaults to server UTC; caller can
+      pass a locale-adjusted datetime when we want to be precise.
+    - New generate_journal_opener(db, provider, user_id, household_id,
+      display_name) — pulls profile + sentiment_trend + harsh_self_talk_
+      streak + dominant_themes_recent + time-of-day, asks the AI for the
+      opener. max_tokens=120 (cheap). Falls back to _fallback_opener on
+      any failure so the UI never gets blank.
+    - New _fallback_opener(time_label, harsh_streak) — static safe
+      defaults. 'Hey. No rush — I'm here when you're ready.' on a harsh
+      streak, time-appropriate generic openers otherwise.
+
+  Backend (ai/router.py):
+    - /ai/journal/start: when creating a new conversation, generates
+      the opener via generate_journal_opener, persists it as the first
+      assistant message via service.append_message, returns it in
+      opening_message field of JournalStartResponse. Wrapped in
+      try/except — opener failure doesn't block session start.
+
+  Backend (ai/schemas.py):
+    - JournalStartResponse gained opening_message: str | None field
+      with explanatory docstring.
+
+  Frontend (web/src/components/journal/journal-session.tsx):
+    - useEffect mount handler now reads opening_message from the start
+      response and seeds the messages array with it as an assistant
+      turn for new sessions. Resumed sessions still get the
+      'Picking back up. Take your time.' placeholder (because their
+      history isn't loaded into the overlay state).
+    - Updated the empty-state placeholder copy: was 'I'm here. How's
+      today landing?' (a question — wrong for Phase B since the AI
+      should be the one opening). Now: 'Picking back up. Take your
+      time.' (only shown for the rare empty-message case).
+
+  Verification:
+    - py_compile clean on all touched Python files
+    - npx tsc --noEmit clean (0 errors)
+    - journal-001 feature_list entry updated with 4 Phase B-specific
+      verification steps (fallback, personalization, no-sharp-question,
+      persistence)
+
+  Files modified:
+    - api/src/life_dashboard/ai/service.py
+    - api/src/life_dashboard/ai/schemas.py
+    - api/src/life_dashboard/ai/router.py
+    - web/src/components/journal/journal-session.tsx
+    - docs/ai-coach-redesign.md (status header)
+    - feature_list.json (journal-001 description + steps)
+
+What was NOT done:
+  - Phase C (dashboard widget for one-tap session start) — deferred.
+    The current Notes-page entry point is functional; widget is UX
+    polish, not a blocker.
+  - Locale-adjusted time-of-day. _resolve_time_of_day_label currently
+    uses UTC; users in non-UTC timezones will get the wrong bucket
+    occasionally. Fix: pass user.timezone-adjusted datetime when calling.
+    Not blocking for Phase B — the opener generation is forgiving since
+    it's an AI call, not a hard threshold.
+  - No persistence of opener across resumed sessions in the frontend.
+    The opener IS saved on the backend (it's in the conversation's
+    message history), but the JournalSession overlay doesn't fetch
+    that history when resuming — it shows the static placeholder.
+    Trade-off: simplicity over perfect resume fidelity. The full
+    transcript IS available via the existing conversation endpoints
+    if we want to load it later.
+
+Recommended next step: with Phase B shipped, brandon now has the full
+  guided journaling experience. Next sensible direction is either:
+    (a) Use it for a few weeks, see what wants to change. Skip further
+        AI coach work for now.
+    (b) journal-001 Phase C — dashboard widget for one-tap session
+        launch from the home screen. ~150 lines.
+    (c) Per-member AI access controls for households with kids
+        (covers the future kid-account case).
+    (d) Switch focus to a different domain — calendar, recipes,
+        whatever's next on the roadmap.
+
+=== 2026-05-26 — Infrastructure session ===
+
+What was worked on: Field-level encryption for sensitive database columns
+(Threats 1 & 2 of the security review: database breach and server compromise).
+
+Status: Complete
+
+Commits made this session: none yet — ready to commit
+
+What was done:
+  - Created api/src/life_dashboard/core/encryption.py
+    · EncryptedText: SQLAlchemy TypeDecorator that transparently Fernet-encrypts
+      Text columns on write and decrypts on read. Gracefully degrades (plaintext
+      passthrough + warning) when FIELD_ENCRYPTION_KEY is not set (local dev).
+    · EncryptedJSON: Same pattern for JSON columns — serialises to JSON before
+      encrypting; deserialises after decrypting. Stored as TEXT in the DB.
+    · MultiFernet support for zero-downtime key rotation (comma-separated keys).
+    · InvalidToken graceful fallback so pre-migration plaintext rows don't crash.
+  - Updated api/src/life_dashboard/core/settings.py: added field_encryption_key
+    (optional, defaults to "" for local dev compatibility).
+  - Generated a Fernet key and added FIELD_ENCRYPTION_KEY to api/.env.
+
+  Phase 1 — Active credentials (highest risk):
+    · budget/models.py: BudgetAccount.teller_access_token → EncryptedText
+    · ai/models.py:     AiSettings.api_key_encrypted      → EncryptedText
+      (also removed the TODO decrypt/encrypt stubs in ai/service.py — the
+      TypeDecorator handles both directions transparently at the ORM boundary)
+
+  Phase 2 — Sensitive personal data:
+    · ai/models.py: MemberAiMemory.memory_text             → EncryptedText
+    · ai/models.py: AiCoachDigest.content                  → EncryptedText
+    · ai/models.py: UserProfileUpdate.proposed_content_md  → EncryptedText
+    · ai/models.py: UserProfileVersion.content_md          → EncryptedText
+    · ai/models.py: JournalSignal.notable_phrases           → EncryptedJSON
+
+  - Created migrations/versions/0036_field_encryption.py
+    · Step 1 (DDL): alters journal_signals.notable_phrases from JSON → TEXT
+      using postgresql_using="notable_phrases::text" for zero-data-loss cast.
+    · Step 2 (data): encrypts all existing plaintext rows in all 7 columns.
+      Skipped gracefully if FIELD_ENCRYPTION_KEY is not set.
+    · Downgrade: reverts the schema change (data not decrypted — documented).
+
+What was left / not done:
+  Phase 3 (ai_messages.content, notes.content_md/content_json,
+  budget_transactions.description, contacts PII) is intentionally deferred.
+  These fields have full-text search dependencies that need a separate design
+  decision before encrypting. To be addressed in a follow-up session.
+
+Recommended next step:
+  Phase 3 — decide on the search trade-off for ai_messages.content and notes,
+  then apply EncryptedText to the remaining high-volume content fields.
+  Alternatively, run `alembic upgrade head` locally to confirm the migration
+  applies cleanly against the real Postgres DB.
+
+  Verification note (added post-session): `make migrate` on SQLite correctly
+  followed the create_all() path (schema managed at startup, not via versioned
+  Alembic migrations on SQLite). Migration 0036 DDL/data steps are for Postgres
+  only and will run correctly when moving to a managed Postgres deployment.
+
+=== 2026-05-25 — Coding session (cont.) ===
+Status: complete
+Feature: Per-member AI access control (ai-access-001)
+
+What was done:
+
+  Backend:
+    - Migration 0036_membership_ai_features_enabled.py: adds
+      ai_features_enabled BOOLEAN NOT NULL DEFAULT TRUE to
+      household_memberships. SQLite covered by _patch_sqlite_schema.
+    - auth/models.py HouseholdMembership: ai_features_enabled column.
+    - auth/dependencies.py get_current_user: attaches
+      user.ai_features_enabled from the membership.
+    - auth/dependencies.py NEW require_ai_enabled dependency:
+      depends on get_current_user, raises 403 with clear message
+      ('AI features are disabled for your account by your household
+      admin. Ask an admin to enable them in Settings → Household.')
+      when the flag is False. Returns the user otherwise.
+    - auth/schemas.py UserResponse: ai_features_enabled field
+      (default True for backward compat).
+    - households/router.py:
+        * MemberResponse: adds ai_features_enabled.
+        * GET /members: returns ai_features_enabled per row.
+        * NEW PATCH /members/{user_id}: admin-only (403 otherwise).
+          Takes UpdateMemberRequest with optional ai_features_enabled
+          field. Guardrail: admins CANNOT disable their own AI through
+          this endpoint — returns 400 with a hint to clear their API
+          key in Settings → AI instead.
+    - ai/router.py: every Depends(get_current_user) inside the
+      /ai/* router replaced with Depends(require_ai_enabled). All
+      22 endpoints now uniformly 403 when the flag is False:
+        /ai/settings (GET/PATCH), /ai/usage, /ai/conversations
+        (GET/DELETE/SEARCH/DETAIL), /ai/coach/digest (GET/POST),
+        /ai/coach/tones, /ai/profile (GET/PATCH/bootstrap/
+        updates/accept/reject/versions), /ai/journal-signals/backfill,
+        /ai/journal/* (start/finish/save), /ai/chat.
+
+  Frontend:
+    - schema.d.ts: manually patched MemberResponse +
+      UserResponse to include ai_features_enabled. Re-generate via
+      `npm run codegen` against the running API.
+    - Settings → Household: new MemberRow component replaces the
+      inline member row. Admins see a real AI features checkbox per
+      row (their own row is rendered but disabled with a tooltip
+      explaining the self-lockout guardrail). Non-admins see a
+      read-only 'AI: on/off' status pill. Optimistic update with
+      rollback on error.
+    - Settings page: new aiEnabled = user.ai_features_enabled !==
+      false guard. AI tab is hidden from the left nav when False;
+      the section also won't render even if somehow navigated to.
+    - Shell sidebar (NavLinks + SidebarContent): added aiEnabled
+      prop. Ask-AI icon and ⌘K shortcut both gated. AI chat panel
+      won't render when the flag is False.
+    - Dashboard renderWidget: takes aiEnabled. AI coach widget
+      shows a small disabled-state placeholder ('AI features are
+      disabled for your account.') instead of the live widget.
+    - Notes editor: 'Talk it out' button gated by aiEnabled
+      alongside the existing collection_kind + today gating.
+
+  Verification:
+    - py_compile clean across auth + households + ai routers, models,
+      schemas, dependencies, migration.
+    - npx tsc --noEmit clean (0 errors).
+    - Audit: grep confirms 22 /ai/* endpoints all use require_ai_enabled.
+    - Manual flow trace covers: schema, /auth/me, /households/members
+      GET + PATCH, the self-lockout guardrail, AI endpoint 403, every
+      UI surface hidden/disabled, data preservation across disable/
+      enable cycle.
+
+  Memory:
+    - project_ai_coach_direction.md: per-member AI access controls
+      were previously listed as future work. Now built and tracked
+      under feature id ai-access-001 — will update memory on next
+      pass.
+
+  Files modified (backend):
+    api/migrations/versions/0036_membership_ai_features_enabled.py (new)
+    api/src/life_dashboard/auth/models.py
+    api/src/life_dashboard/auth/dependencies.py
+    api/src/life_dashboard/auth/schemas.py
+    api/src/life_dashboard/households/router.py
+    api/src/life_dashboard/ai/router.py
+
+  Files modified (frontend):
+    web/src/lib/api/schema.d.ts (manual patch — re-run codegen)
+    web/src/app/(protected)/settings/page.tsx
+    web/src/app/(protected)/page.tsx
+    web/src/components/shell/shell.tsx
+    web/src/components/notes/note-editor.tsx
+
+  Files updated (docs + tracking):
+    docs/ai-coach-redesign.md (status header — to be updated)
+    feature_list.json (ai-access-001 added)
+
+What was NOT done:
+  - Per-feature granularity (e.g. allow chat but not coach). Single
+    on/off toggle keeps the mental model simple. Worth revisiting
+    if households actually need finer control.
+  - Audit log of toggle changes. Today the change just lands —
+    there's no history of who flipped what for whom. Could be a
+    follow-up if it turns out to matter for households with multiple
+    admins or for trust.
+  - Bulk toggle (e.g. 'disable AI for all members under 18'). No age
+    fields on User today, so this would need data we don't yet
+    collect. Out of scope.
+  - The schema.d.ts manual patch is a stopgap; Brandon needs to run
+    `cd web && npm run codegen` against the running API to refresh
+    properly.
+
+Recommended next step: Brandon to restart the API, then in web/:
+  1. Run `npm run codegen` to regenerate schema.d.ts cleanly
+  2. Run `npm run dev`
+  3. As an admin, open Settings → Household — verify the AI toggle
+     appears per-row, with your own row disabled
+  4. Toggle another household member off; have them log in (or
+     impersonate) — verify all AI surfaces are gone
+  5. Toggle them back on — verify everything returns
+  6. Flip ai-access-001 passes=true once verified end-to-end.
+
+=== 2026-05-26 — Coding session ===
+What was worked on: calendar-001 (todo due dates on calendar) and calendar-002 (scheduled habits on calendar)
+Status: complete
+Commits made this session: none (in-progress changes, not committed)
+
+What was done:
+  API:
+  - Added due_date_from / due_date_to query params to GET /todos router and list_todos service
+  - Both filters apply SQL WHERE clauses (Todo.due_date >= from, Todo.due_date <= to)
+  - Manually patched schema.d.ts with the new params (API not reachable from sandbox)
+
+  Frontend (web/src/app/(protected)/calendar/page.tsx):
+  - Added second $api.useQuery for /todos with due_date_from/due_date_to scoped to visible window
+  - Added $api.useQuery for /habits (all active habits, client-side scheduling)
+  - habitScheduledOn() helper: handles daily (every day), weekly (cadence.days_of_week with
+    correct JS→Python weekday conversion: (jsDay+6)%7), monthly (day-of-month from start_date)
+  - habitsByDate map built by iterating every date in the visible window
+  - DayCell updated: renders event chips (primary), todo chips (cal-chip-todo / amber), habit
+    chips (cal-chip-habit / green) with shared 3-item overflow budget
+  - Completed todos show line-through in all three views (month cell chips, week column, day list)
+  - Clicking a todo chip opens TodoSheet; clicking a habit chip opens HabitSheet
+  - All three views (month, week, day) updated to accept todosByDate and habitsByDate props
+  - Added .cal-chip-todo and .cal-chip-habit CSS classes to globals.css using badge CSS variables
+  - TypeScript: 0 errors
+
+What was left: nothing — both features complete and verified
+Recommended next feature: budget-016 (goal financial linking / spending_cap sync + Teller threshold notifications)
+  or budget-017 (account balance field — manual current_balance on accounts)
+
+=== 2026-05-26 — Coding session ===
+Status: complete
+Features: budget-016 (goal financial linking — spending_cap UI in goal sheet)
+Commits made this session: 0 (edits applied directly; commit manually)
+
+What was done:
+  Schema patches (web/src/lib/api/schema.d.ts):
+  - Added financial_link field (JSONB) to GoalResponse, GoalCreate, and GoalUpdate schemas
+  - Added default_monthly_amount field to BudgetCategoryResponse schema
+  (API not reachable from sandbox; patched manually to match Python Pydantic models)
+
+  Frontend (web/src/components/goals/goal-sheet.tsx):
+  - Added SpendingCapLink type: { type: "spending_cap", category_id, monthly_limit }
+  - Added financialLink: SpendingCapLink | null state, initialized from goal.financial_link on open
+  - Added $api.useQuery("get", "/budget/categories") to fetch categories for the picker
+  - Added "Budget link" UI section at the bottom of the form:
+      * Label row: "Budget link" on left, "Link to spending cap" button (Link2 icon) on right
+        when unlinked; X clear button on right when linked
+      * When linked: bordered muted panel with category <select> (filtered to non-archived) and
+        monthly limit number Input (in dollars)
+  - financial_link included in handleSave body (both create and update paths)
+  - Backend already had _sync_financial_link(), set_category_budget AI tool, and
+    check_budget_thresholds() — only the frontend was missing
+
+  feature_list.json: budget-016 (goal financial linking) flipped to passes: true
+
+What was left: nothing — budget-016 complete
+Recommended next feature: budget-016/spending trends chart (the other entry with same ID)
+  or next unbuilt budget/calendar feature in feature_list.json

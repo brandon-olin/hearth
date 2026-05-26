@@ -54,7 +54,13 @@ interface ImportResult {
 }
 
 type AccountScope = "personal" | "shared";
-type AccountType = "checking" | "savings" | "credit_card" | "loan" | "investment" | "other";
+type AccountType =
+  | "checking"
+  | "savings"
+  | "credit_card"
+  | "loan"
+  | "investment"
+  | "other";
 
 interface BudgetAccount {
   id: string;
@@ -93,7 +99,7 @@ async function createAccount(body: {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string };
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
     throw new Error(err.detail ?? "Failed to create account");
   }
   return res.json() as Promise<BudgetAccount>;
@@ -120,8 +126,8 @@ function StepIndicator({ current }: { current: Step }) {
               i < currentIdx
                 ? "bg-primary text-primary-foreground"
                 : i === currentIdx
-                ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
-                : "bg-muted text-muted-foreground"
+                  ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
+                  : "bg-muted text-muted-foreground",
             )}
           >
             {i < currentIdx ? <CheckCircle2 className="w-4 h-4" /> : i + 1}
@@ -129,7 +135,9 @@ function StepIndicator({ current }: { current: Step }) {
           <span
             className={cn(
               "text-sm",
-              i === currentIdx ? "text-foreground font-medium" : "text-muted-foreground"
+              i === currentIdx
+                ? "text-foreground font-medium"
+                : "text-muted-foreground",
             )}
           >
             {step.label}
@@ -162,7 +170,7 @@ function ColumnSelect({
     <div className="flex flex-col gap-1">
       <Label className="text-xs text-muted-foreground">
         {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+        {required && <span className="text-budget-negative ml-0.5">*</span>}
       </Label>
       <Select
         value={value ?? ""}
@@ -197,7 +205,8 @@ export default function BudgetImportPage() {
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [newAccountName, setNewAccountName] = useState("");
   const [newAccountType, setNewAccountType] = useState<AccountType>("checking");
-  const [newAccountScope, setNewAccountScope] = useState<AccountScope>("personal");
+  const [newAccountScope, setNewAccountScope] =
+    useState<AccountScope>("personal");
   const [accountError, setAccountError] = useState("");
 
   // Upload step
@@ -224,7 +233,9 @@ export default function BudgetImportPage() {
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
-  const { data: accounts, isLoading: accountsLoading } = useQuery<BudgetAccount[]>({
+  const { data: accounts, isLoading: accountsLoading } = useQuery<
+    BudgetAccount[]
+  >({
     queryKey: ["budget", "accounts"],
     queryFn: fetchAccounts,
   });
@@ -277,10 +288,10 @@ export default function BudgetImportPage() {
         body: formData,
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { detail?: string };
+        const err = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(err.detail ?? "Detection failed.");
       }
-      const data = await res.json() as DetectResult;
+      const data = (await res.json()) as DetectResult;
       setDetectResult(data);
       if (data.format === "csv" && data.detected_mapping) {
         setMapping(data.detected_mapping);
@@ -308,10 +319,10 @@ export default function BudgetImportPage() {
         body: formData,
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { detail?: string };
+        const err = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(err.detail ?? "Import failed.");
       }
-      const data = await res.json() as ImportResult;
+      const data = (await res.json()) as ImportResult;
       setImportResult(data);
       void qc.invalidateQueries({ queryKey: ["budget", "transactions"] });
       setStep("confirm");
@@ -330,7 +341,8 @@ export default function BudgetImportPage() {
         <StepIndicator current="account" />
         <h1 className="text-lg font-semibold mb-1">Select account</h1>
         <p className="text-sm text-muted-foreground mb-6">
-          Choose which account these transactions belong to, or create a new one.
+          Choose which account these transactions belong to, or create a new
+          one.
         </p>
 
         {accountsLoading ? (
@@ -347,12 +359,12 @@ export default function BudgetImportPage() {
                   "flex items-center justify-between px-4 py-3 rounded-lg border text-sm transition-colors text-left",
                   accountId === acc.id
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:border-muted-foreground/40"
+                    : "border-border hover:border-muted-foreground/40",
                 )}
               >
                 <span className="font-medium">{acc.name}</span>
                 <span className="text-muted-foreground text-xs capitalize">
-                  {acc.account_type.replace("_", " ")} · {acc.scope}
+                  {acc.account_type.replace("_", "")} · {acc.scope}
                 </span>
               </button>
             ))}
@@ -362,7 +374,10 @@ export default function BudgetImportPage() {
         {creatingAccount ? (
           <div className="border rounded-lg p-4 flex flex-col gap-3 mb-4">
             <div className="flex flex-col gap-1">
-              <Label htmlFor="acc-name" className="text-xs text-muted-foreground">
+              <Label
+                htmlFor="acc-name"
+                className="text-xs text-muted-foreground"
+              >
                 Account name
               </Label>
               <Input
@@ -378,19 +393,27 @@ export default function BudgetImportPage() {
                 <Label className="text-xs text-muted-foreground">Type</Label>
                 <Select
                   value={newAccountType}
-                  onChange={(e) => setNewAccountType(e.target.value as AccountType)}
+                  onChange={(e) =>
+                    setNewAccountType(e.target.value as AccountType)
+                  }
                   className="h-8 text-sm"
                 >
                   {Object.entries(ACCOUNT_TYPE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
                   ))}
                 </Select>
               </div>
               <div className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">Visibility</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Visibility
+                </Label>
                 <Select
                   value={newAccountScope}
-                  onChange={(e) => setNewAccountScope(e.target.value as AccountScope)}
+                  onChange={(e) =>
+                    setNewAccountScope(e.target.value as AccountScope)
+                  }
                   className="h-8 text-sm"
                 >
                   <option value="personal">Personal</option>
@@ -399,7 +422,7 @@ export default function BudgetImportPage() {
               </div>
             </div>
             {accountError && (
-              <p className="text-xs text-red-500 flex items-center gap-1">
+              <p className="text-xs text-budget-negative flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" /> {accountError}
               </p>
             )}
@@ -414,7 +437,11 @@ export default function BudgetImportPage() {
                 )}
                 Create
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setCreatingAccount(false)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setCreatingAccount(false)}
+              >
                 Cancel
               </Button>
             </div>
@@ -441,9 +468,7 @@ export default function BudgetImportPage() {
 
   if (step === "upload") {
     const canContinue =
-      !!detectResult &&
-      detectResult.format !== "unknown" &&
-      !detectError;
+      !!detectResult && detectResult.format !== "unknown" && !detectError;
 
     return (
       <div className="max-w-lg mx-auto py-10 px-4">
@@ -459,7 +484,7 @@ export default function BudgetImportPage() {
             "border-2 border-dashed rounded-lg p-8 flex flex-col items-center gap-3 cursor-pointer transition-colors mb-4",
             file
               ? "border-primary/40 bg-primary/5"
-              : "border-border hover:border-muted-foreground/40"
+              : "border-border hover:border-muted-foreground/40",
           )}
         >
           {file ? (
@@ -473,8 +498,12 @@ export default function BudgetImportPage() {
           ) : (
             <>
               <Upload className="w-8 h-8 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Click to choose a file</span>
-              <span className="text-xs text-muted-foreground">.ofx · .qfx · .csv</span>
+              <span className="text-sm text-muted-foreground">
+                Click to choose a file
+              </span>
+              <span className="text-xs text-muted-foreground">
+                .ofx · .qfx · .csv
+              </span>
             </>
           )}
         </div>
@@ -500,7 +529,7 @@ export default function BudgetImportPage() {
         )}
 
         {detectError && (
-          <div className="flex items-start gap-2 text-sm text-red-500 mb-4">
+          <div className="flex items-start gap-2 text-sm text-budget-negative mb-4">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             {detectError}
           </div>
@@ -508,15 +537,19 @@ export default function BudgetImportPage() {
 
         {detectResult && detectResult.format !== "unknown" && (
           <div className="rounded-lg border px-4 py-3 text-sm mb-4">
-            <div className="font-medium mb-1 capitalize">{detectResult.format} file detected</div>
+            <div className="font-medium mb-1 capitalize">
+              {detectResult.format} file detected
+            </div>
             {detectResult.estimated_transaction_count !== undefined && (
               <div className="text-muted-foreground">
                 {detectResult.estimated_transaction_count} transactions
-                {detectResult.date_range_start && detectResult.date_range_end && (
-                  <>
-                    {" "}· {detectResult.date_range_start} – {detectResult.date_range_end}
-                  </>
-                )}
+                {detectResult.date_range_start &&
+                  detectResult.date_range_end && (
+                    <>
+                      {""}· {detectResult.date_range_start} –{" "}
+                      {detectResult.date_range_end}
+                    </>
+                  )}
               </div>
             )}
             {detectResult.format === "csv" && detectResult.columns && (
@@ -525,7 +558,7 @@ export default function BudgetImportPage() {
               </div>
             )}
             {detectResult.errors && detectResult.errors.length > 0 && (
-              <div className="text-amber-600 mt-1 text-xs">
+              <div className="text-warning mt-1 text-xs">
                 {detectResult.errors.length} warning
                 {detectResult.errors.length > 1 ? "s" : ""}
               </div>
@@ -569,9 +602,10 @@ export default function BudgetImportPage() {
         </p>
         {detectResult?.mapping_confidence !== undefined &&
           detectResult.mapping_confidence < 0.8 && (
-            <div className="flex items-center gap-2 text-xs text-amber-600 mb-4 bg-amber-50 dark:bg-amber-950/30 rounded px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-warning bg-warning mb-4 rounded px-3 py-2">
               <AlertCircle className="w-3 h-3 shrink-0" />
-              Column names weren&apos;t recognised automatically — please review the mapping below.
+              Column names weren&apos;t recognised automatically — please review
+              the mapping below.
             </div>
           )}
 
@@ -587,13 +621,16 @@ export default function BudgetImportPage() {
             label="Description column"
             value={mapping.description_col}
             columns={columns}
-            onChange={(v) => setMapping((m) => ({ ...m, description_col: v ?? "" }))}
+            onChange={(v) =>
+              setMapping((m) => ({ ...m, description_col: v ?? "" }))
+            }
             required
           />
 
           <div className="border-t pt-3">
             <p className="text-xs text-muted-foreground mb-2">
-              Amount — use a single signed column <em>or</em> separate debit/credit columns:
+              Amount — use a single signed column <em>or</em> separate
+              debit/credit columns:
             </p>
             <div className="flex flex-col gap-2">
               <ColumnSelect
@@ -647,7 +684,9 @@ export default function BudgetImportPage() {
         {/* Sample rows preview */}
         {detectResult?.sample_rows && detectResult.sample_rows.length > 0 && (
           <div className="mb-6">
-            <p className="text-xs text-muted-foreground mb-2">Sample rows from your file:</p>
+            <p className="text-xs text-muted-foreground mb-2">
+              Sample rows from your file:
+            </p>
             <div className="overflow-x-auto rounded border text-xs">
               <table className="w-full">
                 <thead>
@@ -702,7 +741,7 @@ export default function BudgetImportPage() {
       {importResult ? (
         // Done state
         <div className="flex flex-col items-center text-center gap-4 py-6">
-          <CheckCircle2 className="w-12 h-12 text-green-500" />
+          <CheckCircle2 className="w-12 h-12 text-budget-positive" />
           <div>
             <h1 className="text-lg font-semibold mb-1">Import complete</h1>
             <p className="text-sm text-muted-foreground">
@@ -710,14 +749,19 @@ export default function BudgetImportPage() {
               {importResult.inserted !== 1 ? "s" : ""} imported
               {importResult.skipped > 0 && (
                 <>, {importResult.skipped} skipped as duplicates</>
-              )}.
+              )}
+              .
               {importResult.auto_categorized > 0 && (
-                <> <strong>{importResult.auto_categorized}</strong> automatically categorized.</>
+                <>
+                  {" "}
+                  <strong>{importResult.auto_categorized}</strong> automatically
+                  categorized.
+                </>
               )}
             </p>
           </div>
           {importResult.parse_errors.length > 0 && (
-            <div className="w-full text-left rounded border px-4 py-3 text-xs text-amber-600">
+            <div className="w-full text-left rounded border px-4 py-3 text-xs text-warning">
               <p className="font-medium mb-1">
                 {importResult.parse_errors.length} row
                 {importResult.parse_errors.length > 1 ? "s" : ""} skipped:
@@ -762,7 +806,9 @@ export default function BudgetImportPage() {
             </div>
             <div className="flex justify-between px-4 py-3">
               <span className="text-muted-foreground">Format</span>
-              <span className="font-medium uppercase">{detectResult?.format}</span>
+              <span className="font-medium uppercase">
+                {detectResult?.format}
+              </span>
             </div>
             <div className="flex justify-between px-4 py-3">
               <span className="text-muted-foreground">Account</span>
@@ -781,7 +827,7 @@ export default function BudgetImportPage() {
           </div>
 
           {importError && (
-            <div className="flex items-start gap-2 text-sm text-red-500 mb-4">
+            <div className="flex items-start gap-2 text-sm text-budget-negative mb-4">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               {importError}
             </div>

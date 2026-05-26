@@ -51,3 +51,9 @@ infra/scripts/run-web.sh
 # Bundled Node.js runtime downloaded by service.sh for non-dev users (~50MB)
 infra/runtime/
 api/*.db
+
+# Evolution engine — raw signal files (personal session data)
+.claude/memory/observations.jsonl
+.claude/memory/corrections.jsonl
+.claude/memory/violations.jsonl
+.claude/memory/sessions.jsonl
