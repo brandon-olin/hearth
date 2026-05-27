@@ -1,7 +1,7 @@
 """Phase 4 of AI coach redesign — user_profile_versions append-only history.
 
-Revision ID: 0034
-Revises: 0033
+Revision ID: 0034b
+Revises: 0034
 Create Date: 2026-05-25
 
 Phase 4 adds three connected capabilities: profile versioning, a weekly
@@ -31,8 +31,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0034"
-down_revision = "0033"
+revision = "0034b"
+down_revision = "0034"
 branch_labels = None
 depends_on = None
 

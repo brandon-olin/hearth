@@ -1,7 +1,7 @@
 """journal-002 — check-in modes for Talk-it-out.
 
 Revision ID: 0037
-Revises: 0036
+Revises: 0036b
 Create Date: 2026-05-26
 
 Adds a `mode` column to ai_conversations to record which guided
@@ -30,7 +30,7 @@ import sqlalchemy as sa
 
 
 revision = "0037"
-down_revision = "0036"
+down_revision = "0036b"
 branch_labels = None
 depends_on = None
 

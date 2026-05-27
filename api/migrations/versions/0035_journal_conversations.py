@@ -1,7 +1,7 @@
 """journal-001 — AiConversation.kind + note_id columns.
 
 Revision ID: 0035
-Revises: 0034
+Revises: 0034b
 Create Date: 2026-05-25
 
 Adds two columns to ai_conversations so the chat infrastructure can host
@@ -28,7 +28,7 @@ import sqlalchemy as sa
 
 
 revision = "0035"
-down_revision = "0034"
+down_revision = "0034b"
 branch_labels = None
 depends_on = None
 

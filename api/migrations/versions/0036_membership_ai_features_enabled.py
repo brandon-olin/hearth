@@ -1,7 +1,7 @@
 """ai-access-001 — per-member AI features gating.
 
-Revision ID: 0036
-Revises: 0035
+Revision ID: 0036b
+Revises: 0036
 Create Date: 2026-05-25
 
 Adds an admin-controlled toggle to HouseholdMembership that determines
@@ -29,8 +29,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0036"
-down_revision = "0035"
+revision = "0036b"
+down_revision = "0036"
 branch_labels = None
 depends_on = None
 
