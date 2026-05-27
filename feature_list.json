@@ -935,7 +935,7 @@
         "Document the setting location in infra/CLAUDE.md for the cloud deployment tier",
         "Verify SSL/TLS is enforced for all connections to the DB"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-001",

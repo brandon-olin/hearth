@@ -56,6 +56,56 @@ These are produced by `service.sh install` and should never be committed:
 
 ---
 
+## Cloud deployment (Tier 3 — Vercel + Railway + Neon)
+
+As of 2026-05-27 the production cloud stack is:
+
+| Layer    | Provider | Notes |
+|----------|----------|-------|
+| Frontend | Vercel   | Next.js; root dir `web/`; env var `API_URL=https://<railway-url>` |
+| API      | Railway  | FastAPI; root dir `api/`; Dockerfile builder; env var `PORT` auto-set |
+| Database | Neon     | Managed Postgres; connection string uses `postgresql+asyncpg://...?ssl=require` |
+
+### Railway environment variables required
+
+```
+DATABASE_URL=postgresql+asyncpg://<user>:<pass>@<host>/<db>?ssl=require
+JWT_SECRET_KEY=<random 32+ byte hex>
+FIELD_ENCRYPTION_KEY=<Fernet key — generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+ALLOWED_ORIGINS=https://hearth-opal-phi.vercel.app
+```
+
+Optional (add when relevant features are built):
+```
+ANTHROPIC_API_KEY=...
+TELLER_APP_ID=...
+TELLER_CERT=<base64-encoded cert>   # base64 variant — not file paths (filesystem is ephemeral on Railway)
+TELLER_KEY=<base64-encoded key>
+TELLER_ENVIRONMENT=sandbox|production
+MAILGUN_API_KEY=...
+MAILGUN_DOMAIN=...
+```
+
+### Migrations
+
+Run against Neon **before** deploying new API code:
+
+```bash
+cd api
+DATABASE_URL="postgresql+asyncpg://..." alembic upgrade head
+```
+
+Railway's filesystem is ephemeral — never reference local file paths in env vars for cloud deploys.
+
+### Security checklist (verified 2026-05-27)
+
+- **Encryption at rest**: Neon enables AES-256 encryption at rest by default on all plans. No action needed.
+- **TLS in transit**: enforced via `ssl=require` in `DATABASE_URL`. Neon rejects unencrypted connections.
+- **Field-level encryption**: `FIELD_ENCRYPTION_KEY` is set in Railway. Fernet-encrypted columns: `teller_access_token`, `api_key_encrypted`, `memory_text`, `ai_coach_digests.content`, `proposed_content_md`, `content_md`, `notable_phrases`.
+- **CORS**: `ALLOWED_ORIGINS` is set to the Vercel domain only. Update if a custom domain is added.
+
+---
+
 ## What's here
 
 ```
