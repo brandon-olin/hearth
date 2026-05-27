@@ -3007,3 +3007,46 @@ Recommended next step:
   work is complete. Next security concern is triggered by the self-hosted
   Docker build (Caddy TLS, Postgres not publicly exposed) or cloud deployment
   (encryption at rest, Redis for rate limiting, warrant canary).
+
+=== 2026-05-27 — Infrastructure session ===
+Status: complete
+Commits made this session:
+  - fix(migrations): catch-up AI-domain tables missing from formal chain (0029b_ai_domain.py)
+  - fix(migrations): use hm.joined_at instead of hm.created_at in 0032
+  - fix(migrations): use boolean true (not integer 1) for is_income backfill on Postgres
+  - fix(web): guard API_URL against missing protocol prefix in next.config rewrites
+
+What was done:
+  - Completed deploy-001: Hearth is live at https://hearth-opal-phi.vercel.app/
+  - Neon (Postgres), Railway (FastAPI API), Vercel (Next.js) all provisioned and wired together
+  - Fixed a series of Alembic migration failures on fresh Postgres deployment:
+    · Created 0024b_budget_domain.py (catch-up for 8 budget tables never formally migrated)
+    · Created 0029b_ai_domain.py (catch-up for ai_conversations, ai_messages,
+      member_ai_memory, ai_settings — also adds retroactive ai_usage FK)
+    · Made migrations 0025-0037 idempotent with ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+    · Fixed 0032: hm.created_at → hm.joined_at (household_memberships uses joined_at)
+    · Fixed 0034: SET is_income = 1 → SET is_income = true for Postgres boolean column
+  - Fixed .gitignore: uploads/ → api/uploads/ (was shadowing the uploads source package)
+  - Fixed duplicate revision IDs 0034/0036 → renamed to 0034b/0036b, updated downstream refs
+  - Fixed Railway deployment: set Root Directory to api/, switched to Dockerfile builder
+  - Fixed DATABASE_URL: postgresql+asyncpg:// scheme + ssl=require (not sslmode=require)
+  - Fixed next.config.ts rewrite: guard API_URL against missing https:// prefix
+  - Full migration chain: single head at 0037, 41 revisions, all passing on Neon
+  - Verified: signup works, dashboard loads, API calls succeed from Vercel frontend
+  - feature_list.json: deploy-001 flipped to passes=true
+
+What was left:
+  - ALLOWED_ORIGINS on Railway set to hearth-opal-phi.vercel.app — update if custom domain added
+  - Field encryption key is set in Railway but 0036 data migration was skipped (no existing rows
+    to encrypt; any new encrypted data will be written correctly by the app)
+  - Teller cert/key files still referenced by path in settings — will need base64 env var
+    approach when budget-018 (Teller bank sync) is built for cloud tier
+
+Recommended next step:
+  deploy-001 is done. The next V1 must-ship features are:
+    email-001   — transactional email (Mailgun; Brandon has a paid account)
+    scheduler-001 — verify APScheduler jobs fire correctly in Railway (coach digests, Teller sync)
+    onboarding-001/002/003 — household setup flow
+    habit-002   — habit completion streaks
+  Suggest starting with email-001 (unblocks password reset, invitations, notifications)
+  using the existing Mailgun account via SMTP or Mailgun API.

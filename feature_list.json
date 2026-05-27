@@ -19,7 +19,7 @@
         "Verify field-level encryption works: save an AI API key, confirm it persists and AI chat responds",
         "Configure a custom domain on Vercel if desired"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "email-001",
