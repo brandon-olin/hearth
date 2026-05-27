@@ -38,15 +38,10 @@ def upgrade() -> None:
         except Exception:
             pass  # Column already exists — idempotent
     else:
-        op.add_column(
-            "budget_category_groups",
-            sa.Column(
-                "is_income",
-                sa.Boolean(),
-                nullable=False,
-                server_default="0",
-            ),
-        )
+        op.execute(sa.text(
+            "ALTER TABLE budget_category_groups "
+            "ADD COLUMN IF NOT EXISTS is_income boolean NOT NULL DEFAULT false"
+        ))
 
     # Backfill: mark any group currently named "income" (case-insensitive).
     # Runs on both dialects — covers users who had an "Income" group before

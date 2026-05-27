@@ -30,18 +30,9 @@ def upgrade() -> None:
     if bind.dialect.name == "sqlite":
         return  # SQLite: handled by _patch_sqlite_schema on restart
 
-    op.add_column(
-        "budget_categories",
-        sa.Column(
-            "notify_threshold_pct",
-            sa.Integer(),
-            nullable=True,
-            server_default="80",
-        ),
-    )
-    # Remove the server default so future rows can be NULL by default
-    # (the application layer controls the value)
-    op.alter_column("budget_categories", "notify_threshold_pct", server_default=None)
+    op.execute(sa.text(
+        "ALTER TABLE budget_categories ADD COLUMN IF NOT EXISTS notify_threshold_pct integer"
+    ))
 
 
 def downgrade() -> None:

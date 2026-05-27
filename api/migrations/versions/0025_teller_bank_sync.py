@@ -1,7 +1,7 @@
 """Add Teller bank-sync columns to budget_accounts
 
 Revision ID: 0025
-Revises: 0024
+Revises: 0024b
 Create Date: 2026-05-22
 
 Changes:
@@ -22,18 +22,28 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0025"
-down_revision = "0024"
+down_revision = "0024b"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("budget_accounts", sa.Column("teller_enrollment_id", sa.String(200), nullable=True))
-    op.add_column("budget_accounts", sa.Column("teller_access_token", sa.Text(), nullable=True))
-    op.add_column("budget_accounts", sa.Column("teller_account_id", sa.String(200), nullable=True))
-    op.add_column("budget_accounts", sa.Column("teller_institution_name", sa.String(200), nullable=True))
-    op.add_column("budget_accounts", sa.Column("teller_last_synced_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("budget_accounts", sa.Column("teller_cursor", sa.String(200), nullable=True))
+    # Columns already created by 0024b_budget_domain on fresh Postgres deployments.
+    # Using ADD COLUMN IF NOT EXISTS so this is a safe no-op in that case, while
+    # still applying correctly on any older deployment that ran migrations before
+    # 0024b existed.
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+    for col_sql in [
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_enrollment_id varchar(200)",
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_access_token text",
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_account_id varchar(200)",
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_institution_name varchar(200)",
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_last_synced_at timestamptz",
+        "ALTER TABLE budget_accounts ADD COLUMN IF NOT EXISTS teller_cursor varchar(200)",
+    ]:
+        op.execute(sa.text(col_sql))
 
 
 def downgrade() -> None:

@@ -1352,6 +1352,27 @@
       "passes": false
     },
     {
+      "id": "budget-023",
+      "category": "Budget",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "GoCardless bank linking — EU/UK alternative to Teller",
+      "description": "Integrate GoCardless (via their Bank Account Data API, formerly Nordigen) as the Open Banking connectivity layer for EU and UK users. Teller only covers US/CA institutions; GoCardless covers 2,300+ banks across 31 European countries using PSD2/Open Banking standards. The two integrations are parallel and non-exclusive — the user's region determines which is offered, or both can be shown with the appropriate one highlighted.\n\nBackend: add gocardless_requisition_id and gocardless_account_id to budget_accounts (nullable, separate from teller_* columns). New service module at domains/budget/gocardless_service.py wrapping the GoCardless Bank Account Data API (REST, no SDK required — use httpx). A /budget/accounts/gocardless/link endpoint initiates the GoCardless authorisation flow: (1) create a requisition via POST /api/v2/requisitions/ specifying institution_id and redirect_uri; (2) redirect the user's browser to requisition.link for the bank's consent screen; (3) on redirect back, store the confirmed account_id against the budget_account. A background sync job calls GET /api/v2/accounts/{id}/transactions/ and upserts into budget_transactions deduplicated by gocardless_transaction_id (or the transaction's internalTransactionId). Account balances from GET /api/v2/accounts/{id}/balances/ overwrite current_balance (budget-017) when a sync runs.\n\nGoCardless tokens: a GoCardless secret_id + secret_key pair (stored as encrypted env vars, not per-user) generates short-lived access tokens via POST /api/v2/token/new/. Tokens are cached in-process and refreshed automatically before expiry.\n\nRegion detection: show the 'Link account' flow with a country picker. If the selected country is US or CA, proceed with Teller; otherwise proceed with GoCardless. Both can coexist — a household might have a US account (Teller) and a French account (GoCardless) simultaneously.\n\nFree tier limits: GoCardless Bank Account Data has a free tier (90-day transaction history, limited requisitions per month — check current pricing before launch). Exceeding the free tier is a cost passed through to the cloud hosting tier; self-hosted users supply their own GoCardless credentials.",
+      "steps": [
+        "Navigate to Budget → Accounts → Link account and select a European country (e.g. France)",
+        "Verify the GoCardless institution picker appears with banks for that country",
+        "Select a bank — verify the browser is redirected to GoCardless's authorisation URL",
+        "Complete the bank consent flow — verify the redirect back creates a budget_account with gocardless_account_id set",
+        "Verify transactions from the past 90 days are imported and appear in the transaction list",
+        "Verify the account balance chip (budget-017) is populated from the GoCardless balances endpoint",
+        "Trigger a manual sync — verify new transactions appear and duplicates are not created (idempotent on internalTransactionId)",
+        "Verify a US institution selection still routes to the Teller flow (not GoCardless)",
+        "Disconnect the linked account — verify the gocardless_account_id and any cached tokens are cleared",
+        "Verify API token refresh: allow the cached GoCardless access token to expire (or force expiry) and confirm the next sync automatically fetches a fresh token without error"
+      ],
+      "passes": false
+    },
+    {
       "id": "infra-002",
       "category": "Infrastructure",
       "priority": 2,

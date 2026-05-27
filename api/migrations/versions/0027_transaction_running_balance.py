@@ -26,10 +26,9 @@ def upgrade() -> None:
         # SQLite: column added via create_all() / _patch_sqlite_schema() on restart
         return
 
-    op.add_column(
-        "budget_transactions",
-        sa.Column("running_balance", sa.Numeric(14, 2), nullable=True),
-    )
+    op.execute(sa.text(
+        "ALTER TABLE budget_transactions ADD COLUMN IF NOT EXISTS running_balance numeric(14,2)"
+    ))
 
 
 def downgrade() -> None:
