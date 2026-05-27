@@ -90,7 +90,7 @@ def upgrade() -> None:
                 SELECT hm.user_id
                 FROM household_memberships hm
                 WHERE hm.household_id = h.id
-                ORDER BY hm.created_at ASC
+                ORDER BY hm.joined_at ASC
                 LIMIT 1
             ) AS created_by_user_id,
             'Journal',
