@@ -301,7 +301,7 @@ export default function OnboardingPage() {
   const { setConfig } = useThemeCustomizer();
   const router = useRouter();
 
-  // If the user has already completed onboarding, skip straight to the app.
+  // If onboarding is already done, skip straight to the app.
   useEffect(() => {
     if (!isLoading && user?.preferences?.["onboarding_completed"] === true) {
       router.replace("/");
@@ -351,19 +351,16 @@ export default function OnboardingPage() {
         onboarding_completed: true,
       };
 
-      // Update display name + preferences + mark onboarding done
       const { error: meError } = await apiClient.PATCH("/auth/me", {
         body: { display_name: data.display_name.trim(), preferences },
       });
       if (meError) throw new Error("Failed to save your profile.");
 
-      // Rename the household
       const { error: hhError } = await apiClient.PATCH("/households/name", {
         body: { name: data.household_name.trim() },
       });
       if (hhError) throw new Error("Failed to save household name.");
 
-      // Apply theme locally so the app feels instant
       setConfig(data.themeConfig);
       applyThemeConfig(data.themeConfig, false);
 
@@ -382,7 +379,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="flex items-center justify-center min-h-screen p-4">
       <div className="w-full max-w-sm">
         {!isDone && <StepDots currentId={currentStep.id} />}
 
