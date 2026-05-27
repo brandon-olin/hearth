@@ -46,11 +46,14 @@ def upgrade() -> None:
     # Backfill: mark any group currently named "income" (case-insensitive).
     # Runs on both dialects — covers users who had an "Income" group before
     # this flag existed.
+    # SQLite stores booleans as integers (1/0); Postgres requires the boolean
+    # literal true. Use a dialect-aware value to satisfy both.
+    true_val = "1" if bind.dialect.name == "sqlite" else "true"
     op.execute(
         sa.text(
-            "UPDATE budget_category_groups "
-            "SET is_income = 1 "
-            "WHERE lower(name) = 'income'"
+            f"UPDATE budget_category_groups "
+            f"SET is_income = {true_val} "
+            f"WHERE lower(name) = 'income'"
         )
     )
 
