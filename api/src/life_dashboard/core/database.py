@@ -33,12 +33,18 @@ def _make_engine():
         # Postgres: asyncpg driver, validated pool.
         # pool_pre_ping validates each connection before handing it to a query.
         # Important for long-idle pools — the NAS firewall may silently drop connections.
+        #
+        # statement_cache_size=0 disables asyncpg's prepared-statement cache.
+        # Without this, any schema change (migration) invalidates cached plans
+        # and causes a one-time InvalidCachedStatementError on the first request
+        # after a deploy. The small per-query overhead is negligible at this scale.
         return create_async_engine(
             url,
             pool_pre_ping=True,
             pool_size=5,
             max_overflow=10,
             echo=(settings.environment == "development"),
+            connect_args={"statement_cache_size": 0},
         )
 
 

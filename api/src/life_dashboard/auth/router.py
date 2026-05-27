@@ -119,6 +119,10 @@ async def register(
         display_name=display_name,
         is_active=True,
         email_verified=False,
+        # Flag consumed by the frontend to trigger the post-registration
+        # onboarding wizard (household name, theme, nav).  Flipped to True
+        # when the user completes /onboarding.
+        preferences={"onboarding_completed": False},
     )
     db.add(user)
     await db.flush()

@@ -4757,12 +4757,6 @@ export interface components {
             email: string;
             /** Password */
             password: string;
-            /** Household Name */
-            household_name: string;
-            /** Preferences */
-            preferences?: {
-                [key: string]: unknown;
-            } | null;
         };
         /** SetupStatusResponse */
         SetupStatusResponse: {
@@ -5405,13 +5399,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Account created — email verification required */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoginResponse"];
+                    "application/json": components["schemas"]["RegistrationPendingResponse"];
                 };
             };
             /** @description Validation Error */

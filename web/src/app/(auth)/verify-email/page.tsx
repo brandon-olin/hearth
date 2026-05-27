@@ -95,7 +95,10 @@ export default function VerifyEmailPage() {
       }
 
       setAccessToken(data.access_token);
-      window.location.replace("/");
+      // Always land on /onboarding after a fresh verification.
+      // The onboarding page itself redirects to / if the user has already
+      // completed it, so returning users who somehow land here are safe.
+      window.location.replace("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
       // Clear digits so the user can re-enter
