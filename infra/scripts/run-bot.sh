@@ -6,7 +6,7 @@
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.npm/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
 
 set -a
-[ -f "/Users/brandonolin/Code/Personal/life-dashboard/infra/local.env" ] && . "/Users/brandonolin/Code/Personal/life-dashboard/infra/local.env"
+[ -f "/Users/brandonolin/Code/Personal/hearth/infra/local.env" ] && . "/Users/brandonolin/Code/Personal/hearth/infra/local.env"
 set +a
 
-exec "/Users/brandonolin/Code/Personal/life-dashboard/api/.venv/bin/python3.12" "/Users/brandonolin/Code/Personal/life-dashboard/infra/scripts/hearth-bot.py"
+exec "/Users/brandonolin/Code/Personal/hearth/api/.venv/bin/python3.12" "/Users/brandonolin/Code/Personal/hearth/infra/scripts/hearth-bot.py"
