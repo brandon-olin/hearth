@@ -29,16 +29,11 @@ def upgrade() -> None:
     if bind.dialect.name == "sqlite":
         return  # SQLite: handled by _patch_sqlite_schema on restart
 
-    op.add_column(
-        "member_ai_memory",
-        sa.Column(
-            "notes_at_last_proposal",
-            sa.Integer(),
-            nullable=False,
-            server_default="0",
-        ),
-    )
-    op.alter_column("member_ai_memory", "notes_at_last_proposal", server_default=None)
+    # Using IF NOT EXISTS so this is a safe no-op if 0029b already created it.
+    op.execute(sa.text(
+        "ALTER TABLE member_ai_memory "
+        "ADD COLUMN IF NOT EXISTS notes_at_last_proposal integer NOT NULL DEFAULT 0"
+    ))
 
 
 def downgrade() -> None:

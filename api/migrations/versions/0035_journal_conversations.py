@@ -38,28 +38,22 @@ def upgrade() -> None:
     if bind.dialect.name == "sqlite":
         return  # SQLite: handled by _patch_sqlite_schema on restart
 
-    op.add_column(
-        "ai_conversations",
-        sa.Column("kind", sa.String(20), nullable=False, server_default="chat"),
-    )
-    op.alter_column("ai_conversations", "kind", server_default=None)
-
-    op.add_column(
-        "ai_conversations",
-        sa.Column(
-            "note_id",
-            sa.Uuid(),
-            sa.ForeignKey("notes.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    # Using IF NOT EXISTS so these are safe no-ops if 0029b already created the columns.
+    op.execute(sa.text(
+        "ALTER TABLE ai_conversations "
+        "ADD COLUMN IF NOT EXISTS kind varchar(20) NOT NULL DEFAULT 'chat'"
+    ))
+    op.execute(sa.text(
+        "ALTER TABLE ai_conversations "
+        "ADD COLUMN IF NOT EXISTS note_id uuid REFERENCES notes(id) ON DELETE SET NULL"
+    ))
 
     # Look-up index for "find this user's existing journal session for this note".
-    op.create_index(
-        "ix_ai_conversations_user_kind_note",
-        "ai_conversations",
-        ["user_id", "kind", "note_id"],
-    )
+    # Wrapped in a DO block so it's idempotent.
+    op.execute(sa.text(
+        "CREATE INDEX IF NOT EXISTS ix_ai_conversations_user_kind_note "
+        "ON ai_conversations (user_id, kind, note_id)"
+    ))
 
 
 def downgrade() -> None:

@@ -91,18 +91,11 @@ def upgrade() -> None:
     # feature is on for new users; existing users get TRUE backfilled by
     # the server default. The application layer governs the value going
     # forward.
-    op.add_column(
-        "ai_settings",
-        sa.Column(
-            "ai_journal_extraction_enabled",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.true(),
-        ),
-    )
-    op.alter_column(
-        "ai_settings", "ai_journal_extraction_enabled", server_default=None
-    )
+    # Using IF NOT EXISTS so this is a safe no-op if 0029b already created it.
+    op.execute(sa.text(
+        "ALTER TABLE ai_settings "
+        "ADD COLUMN IF NOT EXISTS ai_journal_extraction_enabled boolean NOT NULL DEFAULT true"
+    ))
 
 
 def downgrade() -> None:

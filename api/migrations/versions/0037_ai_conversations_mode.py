@@ -40,10 +40,11 @@ def upgrade() -> None:
     if bind.dialect.name == "sqlite":
         return  # SQLite: handled by _patch_sqlite_schema on restart
 
-    op.add_column(
-        "ai_conversations",
-        sa.Column("mode", sa.String(32), nullable=True),
-    )
+    # Using IF NOT EXISTS so this is a safe no-op if 0029b already created it.
+    op.execute(sa.text(
+        "ALTER TABLE ai_conversations "
+        "ADD COLUMN IF NOT EXISTS mode varchar(32)"
+    ))
 
 
 def downgrade() -> None:

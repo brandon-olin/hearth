@@ -34,7 +34,7 @@ import sqlalchemy as sa
 
 
 revision = "0030"
-down_revision = "0029"
+down_revision = "0029b"
 branch_labels = None
 depends_on = None
 
@@ -45,10 +45,11 @@ def upgrade() -> None:
         return  # SQLite: handled by _patch_sqlite_schema on restart
 
     # 1) Add last_bootstrapped_at to member_ai_memory.
-    op.add_column(
-        "member_ai_memory",
-        sa.Column("last_bootstrapped_at", sa.DateTime(timezone=True), nullable=True),
-    )
+    # Using IF NOT EXISTS so this is a safe no-op if 0029b already created it.
+    op.execute(sa.text(
+        "ALTER TABLE member_ai_memory "
+        "ADD COLUMN IF NOT EXISTS last_bootstrapped_at timestamptz"
+    ))
 
     # 2) Create user_profile_updates.
     op.create_table(
