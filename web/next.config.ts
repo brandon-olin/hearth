@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
-const API_URL = process.env.API_URL ?? "http://localhost:1338";
+// Ensure API_URL always has a protocol — bare hostnames break Next.js rewrites.
+const _rawApiUrl = process.env.API_URL ?? "http://localhost:1338";
+const API_URL = _rawApiUrl.startsWith("http") ? _rawApiUrl : `https://${_rawApiUrl}`;
 
 // TAURI=1 triggers a fully static export for bundling inside the desktop app.
 // The Next.js proxy and rewrites are not available in static export mode —
