@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     upload_dir: str = "/data/uploads"
     max_upload_size_mb: int = 10
 
+    # Mailgun — transactional email (verification codes, etc.)
+    # Sign up at https://mailgun.com and create a sending domain.
+    # API key is found under Settings → API Keys (use the "Private API key").
+    mailgun_api_key: str = ""
+    mailgun_domain: str = ""   # e.g. "mail.yourdomain.com"
+    mailgun_from_email: str = ""  # e.g. "Hearth <noreply@mail.yourdomain.com>"
+
     # Field-level encryption
     # Generate a key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Comma-separate multiple keys for rotation (first key encrypts; all keys decrypt).

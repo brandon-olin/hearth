@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.hashing import hash_password, is_sentinel, needs_rehash, verify_password
-from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, RefreshToken, User
+from life_dashboard.auth.models import EmailVerificationCode, Household, HouseholdMembership, MembershipRole, RefreshToken, User
 from life_dashboard.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,10 @@ class AuthenticationError(Exception):
 
 class TokenError(Exception):
     """Refresh token is missing, expired, or already revoked."""
+
+
+class VerificationError(Exception):
+    """OTP is invalid, expired, or already used."""
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -185,6 +189,67 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
     if token and token.revoked_at is None:
         token.revoked_at = datetime.now(timezone.utc)
         await db.commit()
+
+
+# ── Email verification ────────────────────────────────────────────────────────
+
+_CODE_TTL_MINUTES = 15
+_CODE_LENGTH = 6  # 6-digit numeric OTP → 1,000,000 possibilities
+
+
+def _generate_otp() -> str:
+    """Return a cryptographically random 6-digit string (zero-padded)."""
+    return f"{secrets.randbelow(10 ** _CODE_LENGTH):0{_CODE_LENGTH}d}"
+
+
+async def create_verification_code(db: AsyncSession, user_id: uuid.UUID) -> str:
+    """Generate a 6-digit OTP, persist its hash, and return the raw code.
+
+    Any previous unused codes for this user are implicitly superseded (not
+    deleted — they'll fail to verify because we check used_at and expiry).
+    """
+    raw_code = _generate_otp()
+    db.add(EmailVerificationCode(
+        user_id=user_id,
+        code_hash=_hash_token(raw_code),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=_CODE_TTL_MINUTES),
+    ))
+    await db.commit()
+    return raw_code
+
+
+async def verify_email_code(db: AsyncSession, user_id: uuid.UUID, raw_code: str) -> None:
+    """Validate the OTP and mark the user's email as verified.
+
+    Raises VerificationError on any failure (wrong code, expired, already used).
+    Uses a constant error message to avoid leaking which check failed.
+    """
+    _INVALID = "Verification code is invalid or has expired."
+
+    result = await db.execute(
+        select(EmailVerificationCode)
+        .where(
+            EmailVerificationCode.user_id == user_id,
+            EmailVerificationCode.code_hash == _hash_token(raw_code),
+        )
+    )
+    record = result.scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    if record is None or record.used_at is not None or _as_aware(record.expires_at) <= now:
+        raise VerificationError(_INVALID)
+
+    # Mark code as consumed and user as verified in one transaction.
+    record.used_at = now
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise VerificationError(_INVALID)
+
+    user.email_verified = True
+    user.last_login_at = now
+    await db.commit()
 
 
 # ── Account deletion ──────────────────────────────────────────────────────────

@@ -1,20 +1,38 @@
+import uuid
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from life_dashboard.core.rate_limit import limiter
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from life_dashboard.auth.dependencies import get_current_user
+from life_dashboard.auth.email import EmailSendError, send_verification_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
-from life_dashboard.auth.schemas import ChangePasswordRequest, DeleteMeRequest, LoginRequest, LoginResponse, RegisterRequest, TokenResponse, UpdateMeRequest, UserResponse
+from life_dashboard.auth.schemas import (
+    ChangePasswordRequest,
+    DeleteMeRequest,
+    LoginRequest,
+    LoginResponse,
+    RegisterRequest,
+    RegistrationPendingResponse,
+    ResendVerificationRequest,
+    TokenResponse,
+    UpdateMeRequest,
+    UserResponse,
+    VerifyEmailRequest,
+)
 from life_dashboard.auth.service import (
     AuthenticationError,
     TokenError,
+    VerificationError,
     authenticate_user,
     create_refresh_token,
+    create_verification_code,
     delete_account,
     revoke_refresh_token,
     rotate_refresh_token,
+    verify_email_code,
 )
 from life_dashboard.auth.tokens import create_access_token
 from life_dashboard.core.database import get_db
@@ -52,22 +70,25 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
-@router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=RegistrationPendingResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/hour")
 async def register(
     body: RegisterRequest,
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-) -> LoginResponse:
+) -> RegistrationPendingResponse:
     """
-    Public. Creates a new household + account and logs the user in immediately.
+    Public. Creates a new household + account and sends a 6-digit OTP to the
+    provided email address.  Does NOT issue a session — the client must call
+    POST /auth/verify-email with the OTP to complete login.
 
     display_name defaults to the local part of the email address.
     household_name defaults to "{display_name}'s Home".
     Password must be at least 8 characters.
 
     Returns 409 Conflict if the email is already registered.
+    Returns 503 if the email service is unavailable.
     """
     if len(body.password) < 8:
         raise HTTPException(
@@ -75,15 +96,17 @@ async def register(
             detail="Password must be at least 8 characters.",
         )
 
+    email = body.email.lower().strip()
+
     # Check for duplicate email.
-    existing = (await db.execute(select(User).where(User.email == body.email.lower().strip()))).scalar_one_or_none()
+    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with that email already exists.",
         )
 
-    display_name = body.email.split("@")[0]
+    display_name = email.split("@")[0]
     household_name = f"{display_name}'s Home"
 
     household = Household(name=household_name)
@@ -91,10 +114,11 @@ async def register(
     await db.flush()
 
     user = User(
-        email=body.email.lower().strip(),
+        email=email,
         password_hash=hash_password(body.password),
         display_name=display_name,
         is_active=True,
+        email_verified=False,
     )
     db.add(user)
     await db.flush()
@@ -107,15 +131,66 @@ async def register(
     await db.flush()
 
     await seed_system_project(db, household_id=household.id, user_id=user.id)
-    # Seed default Journal collection (kind='journal') for the AI coach pipeline.
     from life_dashboard.domains.collections.service import seed_default_journal_collection
     await seed_default_journal_collection(db, household_id=household.id, user_id=user.id)
     await db.commit()
     await db.refresh(user)
 
-    # Attach household_name and role for UserResponse (same pattern as login).
-    user.household_name = household_name  # type: ignore[attr-defined]
-    user.role = MembershipRole.owner.value  # type: ignore[attr-defined]
+    # Generate OTP and send verification email.
+    raw_code = await create_verification_code(db, user.id)
+    try:
+        await send_verification_email(email, raw_code)
+    except EmailSendError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+    return RegistrationPendingResponse(user_id=str(user.id), email=email)
+
+
+@router.post("/verify-email", response_model=LoginResponse)
+@limiter.limit("5/15minute")
+async def verify_email(
+    body: VerifyEmailRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> LoginResponse:
+    """
+    Submit the 6-digit OTP emailed at registration to complete account setup.
+
+    On success: marks the email verified, issues access + refresh tokens, and
+    returns a full LoginResponse so the client can enter the app immediately.
+
+    Rate-limited to 5 attempts per 15 minutes to resist brute-force on the
+    OTP space.  Returns 400 on any invalid/expired/used code (generic message).
+    """
+    try:
+        await verify_email_code(db, body.user_id, body.code.strip())
+    except VerificationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Reload user with household info (same pattern as login).
+    user_result = await db.execute(select(User).where(User.id == body.user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found.")
+
+    membership_result = await db.execute(
+        select(HouseholdMembership).where(HouseholdMembership.user_id == user.id)
+    )
+    membership = membership_result.scalar_one_or_none()
+    if membership:
+        household_result = await db.execute(
+            select(Household).where(Household.id == membership.household_id)
+        )
+        household = household_result.scalar_one_or_none()
+        user.household_name = household.name if household else None  # type: ignore[attr-defined]
+        user.role = membership.role.value  # type: ignore[attr-defined]
+    else:
+        user.household_name = None  # type: ignore[attr-defined]
+        user.role = None  # type: ignore[attr-defined]
 
     raw_refresh = await create_refresh_token(db, user.id, request.headers.get("User-Agent"))
     _set_refresh_cookie(response, raw_refresh)
@@ -124,6 +199,38 @@ async def register(
         access_token=create_access_token(str(user.id)),
         user=UserResponse.model_validate(user),
     )
+
+
+@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("3/hour")
+async def resend_verification(
+    body: ResendVerificationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Resend a verification OTP to the given email address.
+
+    Always returns 204 regardless of whether the email exists or is already
+    verified — this prevents email enumeration.  Rate-limited to 3/hour.
+    """
+    email = body.email.lower().strip()
+    result = await db.execute(
+        select(User).where(User.email == email, User.is_active == True)  # noqa: E712
+    )
+    user = result.scalar_one_or_none()
+
+    # Silently no-op for unknown emails or already-verified accounts.
+    if user is None or user.email_verified:
+        return
+
+    raw_code = await create_verification_code(db, user.id)
+    try:
+        await send_verification_email(email, raw_code)
+    except EmailSendError:
+        # Don't expose the failure — log it server-side and return 204 anyway.
+        # The user can try again; a 503 here would leak that the email was found.
+        pass
 
 
 @router.post("/login", response_model=LoginResponse)

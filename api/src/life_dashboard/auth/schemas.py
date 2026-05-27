@@ -69,3 +69,23 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class RegistrationPendingResponse(BaseModel):
+    """Returned by /auth/register when email verification is required.
+
+    The frontend should redirect to the verify-email page, passing user_id
+    so the verify endpoint knows whose code to check.
+    """
+    needs_verification: bool = True
+    user_id: str
+    email: str  # displayed in the "we sent a code to …" UI
+
+
+class VerifyEmailRequest(BaseModel):
+    user_id: uuid.UUID
+    code: str  # raw 6-digit OTP as entered by the user
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str

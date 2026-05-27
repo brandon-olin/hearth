@@ -10,6 +10,21 @@ from sqlalchemy.sql import func
 from life_dashboard.core.database import Base
 
 
+class EmailVerificationCode(Base):
+    """Short-lived OTP issued after registration; consumed once to verify an email address."""
+    __tablename__ = "email_verification_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # SHA-256 of the raw 6-digit code — same pattern as refresh tokens
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MembershipRole(str, enum.Enum):
     owner = "owner"
     admin = "admin"
@@ -53,6 +68,9 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Verified via 6-digit OTP sent to the email address at registration.
+    # Existing users (pre-feature) are backfilled to True in migration 0038.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preferences: Mapped[dict | None] = mapped_column(JSON)
 

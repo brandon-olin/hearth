@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api/client";
-import { setAccessToken } from "@/lib/auth/token";
 import {
   Card,
   CardContent,
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -46,9 +47,13 @@ export default function RegisterPage() {
         throw new Error(detail ?? "Registration failed. Please try again.");
       }
 
-      setAccessToken(data.access_token);
-      // Hard redirect so AuthProvider re-mounts and restores the new session.
-      window.location.replace("/");
+      // Registration succeeded — redirect to email verification.
+      // The verify page uses these params to display the email and submit the OTP.
+      const params = new URLSearchParams({
+        user_id: data.user_id,
+        email: data.email,
+      });
+      router.replace(`/verify-email?${params.toString()}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

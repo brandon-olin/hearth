@@ -268,6 +268,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Email — submit OTP to complete registration and receive a session */
+        post: operations["verify_email_auth_verify_email_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend Verification — re-send a 6-digit OTP to the given email */
+        post: operations["resend_verification_auth_resend_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -3983,6 +4017,39 @@ export interface components {
             password: string;
         };
         /**
+         * RegistrationPendingResponse
+         * @description Returned by /auth/register. Email verification required — no session issued yet.
+         */
+        RegistrationPendingResponse: {
+            /** @default true */
+            needs_verification: boolean;
+            /** User Id */
+            user_id: string;
+            /** Email */
+            email: string;
+        };
+        /**
+         * VerifyEmailRequest
+         * @description Submit a 6-digit OTP to verify an email address.
+         */
+        VerifyEmailRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Code */
+            code: string;
+        };
+        /**
+         * ResendVerificationRequest
+         * @description Request a new OTP for the given email address.
+         */
+        ResendVerificationRequest: {
+            /** Email */
+            email: string;
+        };
+        /**
          * LoginResponse
          * @description Returned by /auth/login. Includes the user so the frontend doesn't need a follow-up call.
          */
@@ -5691,14 +5758,78 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Account created — email verification required */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationPendingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_email_auth_verify_email_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response — session issued */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["LoginResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_verification_auth_resend_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description No content — always 204 regardless of whether email was found */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
