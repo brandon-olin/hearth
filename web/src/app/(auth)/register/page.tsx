@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api/client";
+import { validatePassword } from "@/lib/auth/password-policy";
 import {
   Card,
   CardContent,
@@ -32,10 +33,8 @@ export default function RegisterPage() {
       setError("Please enter a valid email address.");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    const pwError = validatePassword(password);
+    if (pwError) { setError(pwError); return; }
     if (password !== confirmPassword) {
       setError("Passwords don't match.");
       return;
@@ -92,7 +91,7 @@ export default function RegisterPage() {
                 id="password"
                 type="password"
                 autoComplete="new-password"
-                placeholder="At least 8 characters"
+                placeholder="8+ chars, number & symbol"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required

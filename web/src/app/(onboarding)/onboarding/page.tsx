@@ -19,9 +19,10 @@ import {
   applyThemeConfig,
   type ThemeConfig,
 } from "@/lib/theme/presets";
+import { useLoadingMessages } from "@/lib/hooks/use-loading-messages";
+import { HEARTH_LOADING_MESSAGES } from "@/components/ui/loading-screen";
 import {
   Check,
-  Loader2,
   PartyPopper,
   ChefHat,
   Dumbbell,
@@ -612,6 +613,7 @@ function DoneStep({
   error: string | null;
   isInvited: boolean;
 }) {
+  const loadingMessage = useLoadingMessages(HEARTH_LOADING_MESSAGES, 2000);
   const visibleCount = TOGGLEABLE_SECTIONS.length - data.hidden_sections.length;
   const baseTheme = BASE_THEMES.find((t) => t.id === data.themeConfig.baseThemeId);
   const accent    = ACCENT_COLORS.find((a) => a.id === data.themeConfig.accentId);
@@ -647,7 +649,7 @@ function DoneStep({
       {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
       <Button onClick={onSubmit} disabled={submitting} className="w-full">
-        {submitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</> : "Open Hearth"}
+        {submitting ? loadingMessage : "Open Hearth"}
       </Button>
     </div>
   );

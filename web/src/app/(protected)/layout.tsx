@@ -8,6 +8,7 @@ import { FocusModeProvider } from "@/lib/focus/context";
 import { FocusOverlay } from "@/components/focus/focus-overlay";
 import { LocaleDetectedBanner } from "@/components/locale-detected-banner";
 import { CurrentResourceProvider } from "@/lib/chat-context/current-resource";
+import { LoadingScreen } from "@/components/ui/loading-screen";
 
 export default function ProtectedLayout({
   children,
@@ -28,11 +29,7 @@ export default function ProtectedLayout({
   }, [isLoading, user, router]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-full flex items-center justify-center">
-        <div className="text-muted-foreground text-sm">Loading…</div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!user) return null;

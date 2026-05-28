@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, LayoutGrid } from "lucide-react";
+import { validatePassword } from "@/lib/auth/password-policy";
 
 /**
  * First-run setup page — shown when no users exist in the database.
@@ -42,10 +43,8 @@ export default function SetupPage() {
       setError("Please enter your name.");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    const pwError = validatePassword(password);
+    if (pwError) { setError(pwError); return; }
     if (password !== confirmPassword) {
       setError("Passwords don't match.");
       return;

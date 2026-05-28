@@ -4,6 +4,7 @@ import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiBaseUrl } from "@/lib/api/client";
+import { validatePassword } from "@/lib/auth/password-policy";
 import {
   Card,
   CardContent,
@@ -58,10 +59,8 @@ function ResetPasswordForm() {
     e.preventDefault();
     setError(null);
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    const pwError = validatePassword(password);
+    if (pwError) { setError(pwError); return; }
     if (password !== confirm) {
       setError("Passwords don't match.");
       return;

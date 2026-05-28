@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/context";
 import { getAccessToken } from "@/lib/auth/token";
 import { apiBaseUrl } from "@/lib/api/client";
+import { validatePassword } from "@/lib/auth/password-policy";
 import {
   Card,
   CardContent,
@@ -34,10 +35,8 @@ export default function SetPasswordPage() {
     e.preventDefault();
     setError(null);
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    const pwError = validatePassword(password);
+    if (pwError) { setError(pwError); return; }
     if (password !== confirm) {
       setError("Passwords don't match.");
       return;

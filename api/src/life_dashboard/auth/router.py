@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.email import EmailSendError, send_verification_email
 from life_dashboard.auth.hashing import hash_password
+from life_dashboard.auth.password_policy import validate_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
 from life_dashboard.auth.schemas import (
     ChangePasswordRequest,
@@ -96,11 +97,8 @@ async def register(
     Returns 409 Conflict if the email is already registered.
     Returns 503 if the email service is unavailable.
     """
-    if len(body.password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Password must be at least 8 characters.",
-        )
+    if pw_error := validate_password(body.password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
 
     email = body.email.lower().strip()
 
@@ -337,11 +335,8 @@ async def change_password(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Current password is incorrect.",
         )
-    if len(body.new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="New password must be at least 8 characters.",
-        )
+    if pw_error := validate_password(body.new_password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
     current_user.password_hash = hash_password(body.new_password)
     await db.commit()
 
@@ -421,13 +416,10 @@ async def reset_password(
     Consume a password reset token and set a new password.
 
     Returns 400 if the token is invalid, expired, or already used.
-    Returns 422 if the new password is too short.
+    Returns 422 if the new password fails policy.
     """
-    if len(body.new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="New password must be at least 8 characters.",
-        )
+    if pw_error := validate_password(body.new_password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
     try:
         await consume_password_reset_token(db, body.token, body.new_password)
     except PasswordResetError as exc:
@@ -456,11 +448,8 @@ async def set_initial_password(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Use PATCH /auth/me/password to change your password.",
         )
-    if len(body.new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="New password must be at least 8 characters.",
-        )
+    if pw_error := validate_password(body.new_password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
     current_user.password_hash = hash_password(body.new_password)
     current_user.force_password_change = False
     await db.commit()

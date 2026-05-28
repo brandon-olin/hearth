@@ -33,6 +33,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
 import { useAuth } from "@/lib/auth/context";
+import { validatePassword } from "@/lib/auth/password-policy";
 import { useAppConfig } from "@/lib/app-config";
 import { $api } from "@/lib/api/query";
 import { apiBaseUrl } from "@/lib/api/client";
@@ -2588,9 +2589,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [done,     setDone]     = useState(false);
 
   // Client-side validation
-  const mismatch = next.length > 0 && confirm.length > 0 && next !== confirm;
-  const tooShort = next.length > 0 && next.length < 8;
-  const canSubmit = current.length > 0 && next.length >= 8 && next === confirm && !saving;
+  const mismatch  = next.length > 0 && confirm.length > 0 && next !== confirm;
+  const pwHint    = next.length > 0 ? validatePassword(next) : null;
+  const canSubmit = current.length > 0 && !pwHint && next === confirm && !saving;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2692,8 +2693,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 show={showNext}
                 onToggle={() => setShowNext((s) => !s)}
               />
-              {tooShort && (
-                <p className="text-xs text-destructive -mt-2">Must be at least 8 characters.</p>
+              {pwHint && (
+                <p className="text-xs text-destructive -mt-2">{pwHint}</p>
               )}
 
               <PasswordField

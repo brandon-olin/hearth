@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.auth.email import EmailSendError, send_verification_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
+from life_dashboard.auth.password_policy import validate_password
 from life_dashboard.auth.schemas import RegistrationPendingResponse
 from life_dashboard.auth.service import create_verification_code
 from life_dashboard.core.database import get_db
@@ -76,11 +77,8 @@ async def complete_setup(
             detail="Setup has already been completed. Use /auth/login to sign in.",
         )
 
-    if len(body.password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Password must be at least 8 characters.",
-        )
+    if pw_error := validate_password(body.password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
 
     email = body.email.lower().strip()
 
