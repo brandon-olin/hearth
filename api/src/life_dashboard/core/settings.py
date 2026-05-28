@@ -67,5 +67,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 1338
 
+    # Deployment tier — controls multi-user invite flow and email behaviour.
+    #   local       — single-machine install (default); adding household members is disabled.
+    #   self_hosted — NAS / Docker install; invites show a temp password in the UI, no email.
+    #   cloud       — Vercel + Railway; invites send a Mailgun email, no temp password shown.
+    deployment_tier: str = "local"  # local | self_hosted | cloud
+
 
 settings = Settings()

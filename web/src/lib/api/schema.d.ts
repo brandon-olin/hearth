@@ -5212,6 +5212,11 @@ export interface components {
              * ai-access-001: per-membership AI gate. Manual patch — regenerate via `npm run codegen`.
              */
             ai_features_enabled?: boolean;
+            /**
+             * Force Password Change
+             * invite-001: True when an admin created this account on the user's behalf. Manual patch — regenerate via `npm run codegen`.
+             */
+            force_password_change?: boolean;
         };
         /** ValidationError */
         ValidationError: {

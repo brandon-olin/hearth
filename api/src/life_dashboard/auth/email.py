@@ -90,3 +90,154 @@ async def send_verification_email(to_email: str, code: str) -> None:
     except httpx.RequestError as exc:
         logger.error("Mailgun request error: %s", exc)
         raise EmailSendError("Failed to reach email service. Please try again.") from exc
+
+
+async def send_invite_email(
+    to_email: str,
+    invited_by_name: str,
+    household_name: str,
+    app_url: str,
+) -> None:
+    """Send a household invitation email.
+
+    The invited user clicks the link and logs in with the email address + temp
+    password set by the admin. After first login, force_password_change=True
+    drives them to the set-password screen.
+
+    Raises EmailSendError if Mailgun is not configured or the send fails.
+    """
+    if not _configured():
+        logger.warning("Mailgun not configured — invite email not sent to %s", to_email)
+        if settings.environment == "development":
+            return
+        raise EmailSendError(
+            "Email service is not configured. Set MAILGUN_API_KEY, MAILGUN_DOMAIN, "
+            "and MAILGUN_FROM_EMAIL in your environment."
+        )
+
+    login_url = f"{app_url}/login"
+
+    text_body = (
+        f"{invited_by_name} has invited you to join {household_name!r} on Hearth.\n\n"
+        f"Log in at: {login_url}\n\n"
+        f"Use your email address ({to_email}) and the temporary password your admin shared with you.\n"
+        f"You'll be prompted to set a new password after your first login.\n\n"
+        f"If you weren't expecting this invitation, you can safely ignore this email."
+    )
+
+    html_body = f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui,sans-serif;color:#111;background:#fff;margin:0;padding:0">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:40px auto;padding:0 16px">
+    <tr><td>
+      <p style="font-size:22px;font-weight:600;margin:0 0 8px">You&rsquo;re invited to Hearth</p>
+      <p style="color:#555;margin:0 0 24px">
+        <strong>{invited_by_name}</strong> has invited you to join
+        <strong>{household_name}</strong>.
+      </p>
+      <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+        Log in to Hearth
+      </a>
+      <p style="color:#888;font-size:13px;margin:24px 0 0">
+        Use your email address and the temporary password your admin provided.
+        You&rsquo;ll be prompted to set a new password after your first login.
+      </p>
+      <p style="color:#bbb;font-size:12px;margin:8px 0 0">
+        If you weren&rsquo;t expecting this invitation, you can safely ignore this email.
+      </p>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.mailgun.net/v3/{settings.mailgun_domain}/messages",
+                auth=("api", settings.mailgun_api_key),
+                data={
+                    "from": settings.mailgun_from_email,
+                    "to": to_email,
+                    "subject": f"You've been invited to {household_name} on Hearth",
+                    "text": text_body,
+                    "html": html_body,
+                },
+                timeout=10.0,
+            )
+        resp.raise_for_status()
+        logger.info("Invite email sent to %s (Mailgun id: %s)", to_email, resp.json().get("id"))
+    except httpx.HTTPStatusError as exc:
+        logger.error("Mailgun invite send failed: %s — %s", exc.response.status_code, exc.response.text)
+        raise EmailSendError(f"Failed to send invite email (status {exc.response.status_code})") from exc
+    except httpx.RequestError as exc:
+        logger.error("Mailgun invite request error: %s", exc)
+        raise EmailSendError("Failed to reach email service. Please try again.") from exc
+
+
+async def send_password_reset_email(to_email: str, reset_url: str) -> None:
+    """Send a password reset link.
+
+    Only called on the cloud tier. reset_url includes the raw token as a query param.
+    Raises EmailSendError if Mailgun is not configured or the send fails.
+    """
+    if not _configured():
+        logger.warning("Mailgun not configured — reset URL for %s: %s", to_email, reset_url)
+        if settings.environment == "development":
+            return
+        raise EmailSendError(
+            "Email service is not configured. Set MAILGUN_API_KEY, MAILGUN_DOMAIN, "
+            "and MAILGUN_FROM_EMAIL in your environment."
+        )
+
+    text_body = (
+        f"You requested a password reset for your Hearth account.\n\n"
+        f"Click the link below to set a new password:\n{reset_url}\n\n"
+        f"This link expires in 1 hour.\n\n"
+        f"If you didn't request a password reset, you can safely ignore this email."
+    )
+
+    html_body = f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui,sans-serif;color:#111;background:#fff;margin:0;padding:0">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:40px auto;padding:0 16px">
+    <tr><td>
+      <p style="font-size:22px;font-weight:600;margin:0 0 8px">Reset your password</p>
+      <p style="color:#555;margin:0 0 24px">Click the button below to set a new password for your Hearth account.</p>
+      <a href="{reset_url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+        Reset password
+      </a>
+      <p style="color:#888;font-size:13px;margin:24px 0 0">
+        This link expires in 1&nbsp;hour. If you didn&rsquo;t request a password reset,
+        you can safely ignore this email.
+      </p>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.mailgun.net/v3/{settings.mailgun_domain}/messages",
+                auth=("api", settings.mailgun_api_key),
+                data={
+                    "from": settings.mailgun_from_email,
+                    "to": to_email,
+                    "subject": "Reset your Hearth password",
+                    "text": text_body,
+                    "html": html_body,
+                },
+                timeout=10.0,
+            )
+        resp.raise_for_status()
+        logger.info("Password reset email sent to %s", to_email)
+    except httpx.HTTPStatusError as exc:
+        logger.error("Mailgun reset send failed: %s — %s", exc.response.status_code, exc.response.text)
+        raise EmailSendError(f"Failed to send reset email (status {exc.response.status_code})") from exc
+    except httpx.RequestError as exc:
+        logger.error("Mailgun reset request error: %s", exc)
+        raise EmailSendError("Failed to reach email service. Please try again.") from exc

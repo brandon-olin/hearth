@@ -543,6 +543,25 @@ async def health():
         return {"status": "degraded", "database": str(exc)}
 
 
+@app.get("/app/config", tags=["ops"])
+async def app_config():
+    """Public endpoint — returns static deployment configuration.
+
+    The frontend fetches this once on startup to know which features are
+    available (e.g. whether to show the invite UI, the forgot-password link).
+
+    deployment_tier: local | self_hosted | cloud
+    """
+    return {
+        "deployment_tier": settings.deployment_tier,
+        "email_enabled": bool(
+            settings.deployment_tier == "cloud"
+            and settings.mailgun_api_key
+            and settings.mailgun_domain
+        ),
+    }
+
+
 @app.get("/debug/cors", tags=["ops"])
 async def cors_debug(request: Request):
     """Returns CORS configuration — useful for diagnosing desktop binary issues."""

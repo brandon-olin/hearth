@@ -33,6 +33,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
 import { useAuth } from "@/lib/auth/context";
+import { useAppConfig } from "@/lib/app-config";
 import { $api } from "@/lib/api/query";
 import { apiBaseUrl } from "@/lib/api/client";
 import { useThemeCustomizer } from "@/lib/theme/context";
@@ -3151,6 +3152,7 @@ function HouseholdSection() {
 
   // ── Household name ───────────────────────────────────────────────────────────
   const { user } = useAuth();
+  const appConfig = useAppConfig();
   const [householdName, setHouseholdName] = useState(user?.household_name ?? "");
   const [nameSaving, setNameSaving]       = useState(false);
   const [nameError, setNameError]         = useState<string | null>(null);
@@ -3193,11 +3195,13 @@ function HouseholdSection() {
   );
 
   // ── Add member form ──────────────────────────────────────────────────────────
-  const [addingMember, setAddingMember] = useState(false);
-  const [newEmail, setNewEmail]         = useState("");
-  const [newRole, setNewRole]           = useState("member");
-  const [addSaving, setAddSaving]       = useState(false);
-  const [addError, setAddError]         = useState<string | null>(null);
+  const [addingMember, setAddingMember]   = useState(false);
+  const [newEmail, setNewEmail]           = useState("");
+  const [newRole, setNewRole]             = useState("member");
+  const [addSaving, setAddSaving]         = useState(false);
+  const [addError, setAddError]           = useState<string | null>(null);
+  // self_hosted only: temp password returned by the API, shown once to the admin
+  const [tempPassword, setTempPassword]   = useState<string | null>(null);
 
   async function submitAddMember(e: React.FormEvent) {
     e.preventDefault();
@@ -3205,6 +3209,7 @@ function HouseholdSection() {
     if (!email) return;
     setAddSaving(true);
     setAddError(null);
+    setTempPassword(null);
     try {
       const token = getAccessToken();
       const res = await fetch(`${apiBaseUrl}/households/members`, {
@@ -3219,10 +3224,15 @@ function HouseholdSection() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail ?? "Failed to add member");
       }
+      const data = await res.json() as { temp_password?: string | null };
       await qc.invalidateQueries({ queryKey: ["get", "/households/members"] });
       setNewEmail("");
       setNewRole("member");
       setAddingMember(false);
+      // self_hosted tier only — show the temp password once so the admin can share it
+      if (data.temp_password) {
+        setTempPassword(data.temp_password);
+      }
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to add member");
     } finally {
@@ -3284,11 +3294,49 @@ function HouseholdSection() {
               />
             ))}
 
-            {/* Add member button / form */}
-            {!addingMember ? (
+            {/* Temp password callout — shown once after a self_hosted invite */}
+            {tempPassword && (
+              <div className="border rounded-md p-3 bg-muted/40 space-y-2">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                  Member added — share this temporary password
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Share this with the new member. They&apos;ll be prompted to set their own
+                  password after their first login.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 font-mono text-sm bg-background border rounded px-3 py-1.5 select-all">
+                    {tempPassword}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(tempPassword)}
+                    className="h-8 px-3 text-xs rounded-md border bg-background hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTempPassword(null)}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Add member button / form — hidden on local tier */}
+            {appConfig.deployment_tier === "local" ? (
+              <p className="text-xs text-muted-foreground px-1 py-2">
+                Household invites are not available on local installs. To add members,
+                deploy with Docker (self-hosted) or use cloud hosting.
+              </p>
+            ) : !addingMember ? (
               <button
                 type="button"
-                onClick={() => setAddingMember(true)}
+                onClick={() => { setAddingMember(true); setTempPassword(null); }}
                 className="flex items-center gap-2 w-full px-3 py-2 rounded-md border border-dashed text-sm text-muted-foreground hover:text-foreground hover:border-border transition-colors cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
@@ -3323,7 +3371,9 @@ function HouseholdSection() {
                   </select>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Account will be created with the default password <code className="font-mono bg-muted px-1 rounded">password</code>. Change it after first login.
+                  {appConfig.deployment_tier === "cloud"
+                    ? "An invite email will be sent. The new member will be prompted to set their own password after first login."
+                    : "A temporary password will be generated and shown to you once. Share it with the new member — they'll set their own password on first login."}
                 </p>
                 {addError && (
                   <p className="text-xs text-destructive flex items-center gap-1.5">
@@ -3338,7 +3388,7 @@ function HouseholdSection() {
                     className="h-8 px-4 text-sm font-medium rounded-md bg-primary text-primary-foreground disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5"
                   >
                     {addSaving && <Loader2 className="h-3 w-3 animate-spin" />}
-                    Add member
+                    {appConfig.deployment_tier === "cloud" ? "Send invite" : "Add member"}
                   </button>
                   <button
                     type="button"

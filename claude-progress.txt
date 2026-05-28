@@ -3050,3 +3050,89 @@ Recommended next step:
     habit-002   — habit completion streaks
   Suggest starting with email-001 (unblocks password reset, invitations, notifications)
   using the existing Mailgun account via SMTP or Mailgun API.
+
+=== 2026-05-27 — Infrastructure session ===
+Status: complete
+Feature: Email verification (OTP 2FA on signup) + mandatory full-screen onboarding + cloud deployment polish
+Commits: session work committed; deployed to Vercel + Railway
+
+What was done:
+  Auth — email verification (OTP 2FA):
+    - Added EmailVerificationCode ORM model + Alembic migration 0038_email_verification
+    - Added email_verified BOOLEAN to users (server_default='true' for existing rows)
+    - Created auth/email.py — Mailgun API integration via httpx; falls back to console log in dev
+    - Added Mailgun settings to settings.py + .env.example
+    - New endpoints: POST /auth/verify-email, POST /auth/resend-verification
+    - POST /auth/register now returns RegistrationPendingResponse (no auto-login), sends OTP
+    - POST /setup now sends OTP instead of auto-logging in
+    - Rate limits: register/resend 3/hour, verify 5/15min
+    - schema.d.ts updated with all new types and operations
+
+  Frontend — verify-email page:
+    - New web/src/app/(auth)/verify-email/page.tsx: 6-digit OTP inputs with paste support,
+      auto-advance, resend with 60s cooldown, always redirects to /onboarding on success
+
+  Onboarding — mandatory full-screen flow:
+    - Created (onboarding) route group with its own layout (no Shell/sidebar, auth-guarded)
+    - Moved onboarding page to (onboarding)/onboarding/page.tsx — 3-step wizard:
+      display name + household name, theme picker, nav section toggles, done summary
+    - PATCH /auth/me sets onboarding_completed + theme + sidebar prefs on finish
+    - PATCH /households/name updates household name
+    - Deleted old (protected)/onboarding/page.tsx to remove duplicate route
+
+  Bug fix — asyncpg cached plan invalidation:
+    - Added connect_args={"statement_cache_size": 0} to Postgres engine in database.py
+    - Prevents InvalidCachedStatementError 500s after any schema-changing migration
+
+  Cloud deployment:
+    - Neon DB schema wiped and migrated cleanly (DROP SCHEMA / alembic upgrade head)
+    - Mailgun env vars added to Railway
+    - E2E tested: register → verify email → onboarding (full-screen, no sidebar) → dashboard
+
+What was NOT done:
+  - Forgot password / password reset flow (email-001) — Mailgun is now wired, this is next
+  - Household email invitations (household-001) — depends on email-001
+
+Recommended next feature: email-001 (forgot password + reset flow)
+  Mailgun is already integrated; add /auth/forgot-password + /auth/reset-password endpoints
+  and the frontend /forgot-password + /reset-password pages.
+
+=== 2026-05-28 — Coding session ===
+Feature areas: invite-001 (household invites), email-001 (password reset), subscription tier tracking
+
+What was worked on:
+- Deployment tier gating (DEPLOYMENT_TIER env var: local | self_hosted | cloud)
+- Household member invites with temp password + force_password_change flow
+- Password reset (forgot-password / reset-password) via Mailgun
+- Subscription tracking fields on households (subscription_status, stripe_customer_id, is_exempt)
+- Public /app/config endpoint for frontend tier detection
+
+Status: complete
+
+Commits to make this session:
+  - Migration 0039 (force_password_change, subscription fields, password_reset_tokens)
+  - api/core/settings.py — deployment_tier field
+  - api/auth/models.py — force_password_change on User, subscription fields on Household, PasswordResetToken model
+  - api/auth/schemas.py — force_password_change in UserResponse, new reset/invite schemas
+  - api/auth/service.py — create_password_reset_token, consume_password_reset_token
+  - api/auth/email.py — send_invite_email, send_password_reset_email
+  - api/auth/router.py — POST /auth/forgot-password, /auth/reset-password, /auth/me/set-initial-password
+  - api/households/router.py — tier-gated invite, random temp password, send_invite_email on cloud
+  - api/main.py — GET /app/config public endpoint
+  - web/src/lib/app-config.ts — useAppConfig() hook
+  - web/src/app/(auth)/set-password/page.tsx — force-change screen
+  - web/src/app/(auth)/forgot-password/page.tsx
+  - web/src/app/(auth)/reset-password/page.tsx
+  - web/src/app/(protected)/layout.tsx — redirect to /set-password if force_password_change
+  - web/src/app/(auth)/login/page.tsx — "Forgot password?" link on cloud tier
+  - web/src/app/(protected)/settings/page.tsx — tier-gated invite UI, temp password callout
+  - web/src/lib/api/schema.d.ts — manual patch for force_password_change
+
+What was left / known gaps:
+- Mailgun credentials (MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM_EMAIL) need to be set in Railway for email to send
+- DEPLOYMENT_TIER=cloud needs to be set in Railway env vars
+- Migration must be run against Neon before deploying: cd api && DATABASE_URL="..." alembic upgrade head
+- Stripe integration (checkout, webhook handler, subscription gating) not yet built — is_exempt + subscription_status columns are in place as stubs
+
+Recommended next feature: Mailgun setup + smoke test the invite/reset flow on hearth.zone
+  Then: onboarding-001 (first-run wizard for new cloud signups)

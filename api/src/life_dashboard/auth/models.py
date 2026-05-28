@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, Unique
 from sqlalchemy import Enum as SaEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+from typing import Optional
 
 from life_dashboard.core.database import Base
 
@@ -54,6 +55,18 @@ class Household(Base):
     # updated_at is maintained by the households_updated_at DB trigger.
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # ── Subscription (cloud tier only) ────────────────────────────────────────
+    # subscription_status: free | trialing | active | past_due | canceled
+    # Updated by Stripe webhook handler when payment events arrive.
+    # is_exempt: True bypasses subscription checks entirely (dev/test accounts).
+    subscription_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="free", default="free"
+    )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_exempt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+
     memberships: Mapped[list["HouseholdMembership"]] = relationship(
         back_populates="household", cascade="all, delete-orphan"
     )
@@ -71,6 +84,12 @@ class User(Base):
     # Verified via 6-digit OTP sent to the email address at registration.
     # Existing users (pre-feature) are backfilled to True in migration 0038.
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Set True when an admin creates an account on behalf of a new household member.
+    # The frontend blocks app access and forces the user to set their own password.
+    # Cleared to False once the user successfully sets a new password.
+    force_password_change: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preferences: Mapped[dict | None] = mapped_column(JSON)
 
@@ -138,3 +157,23 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+
+class PasswordResetToken(Base):
+    """Short-lived token for the forgot-password flow.
+
+    Only used on the cloud tier where email is available. On local/self_hosted
+    tiers the household admin can reset passwords directly via the invite flow.
+    The table exists on all tiers so the schema stays portable.
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # SHA-256 of the raw URL-safe token — same pattern as refresh tokens
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

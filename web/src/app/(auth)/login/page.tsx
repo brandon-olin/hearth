@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/context";
+import { useAppConfig } from "@/lib/app-config";
 import {
   Card,
   CardContent,
@@ -17,10 +18,12 @@ import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const router = useRouter();
-  const [email, setEmail] = useState("");
+  const router    = useRouter();
+  const appConfig = useAppConfig();
+
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]       = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -60,7 +63,17 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {appConfig.email_enabled && (
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs text-muted-foreground underline underline-offset-4 hover:text-primary"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 type="password"

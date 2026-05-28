@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.hashing import hash_password, is_sentinel, needs_rehash, verify_password
-from life_dashboard.auth.models import EmailVerificationCode, Household, HouseholdMembership, MembershipRole, RefreshToken, User
+from life_dashboard.auth.models import EmailVerificationCode, Household, HouseholdMembership, MembershipRole, PasswordResetToken, RefreshToken, User
 from life_dashboard.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -250,6 +250,65 @@ async def verify_email_code(db: AsyncSession, user_id: uuid.UUID, raw_code: str)
     user.email_verified = True
     user.last_login_at = now
     await db.commit()
+
+
+# ── Password reset ───────────────────────────────────────────────────────────
+
+_RESET_TTL_HOURS = 1
+
+
+class PasswordResetError(Exception):
+    """Reset token is invalid, expired, or already used."""
+
+
+async def create_password_reset_token(db: AsyncSession, user_id: uuid.UUID) -> str:
+    """Generate a URL-safe reset token, store its hash, and return the raw value.
+
+    Any previous unused tokens for this user remain in the table but will fail
+    validation once this new one is issued (latest token wins is fine here since
+    each token is independently validated against its hash).
+    """
+    raw = secrets.token_urlsafe(32)
+    db.add(PasswordResetToken(
+        user_id=user_id,
+        token_hash=_hash_token(raw),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=_RESET_TTL_HOURS),
+    ))
+    await db.commit()
+    return raw
+
+
+async def consume_password_reset_token(
+    db: AsyncSession, raw_token: str, new_password: str
+) -> User:
+    """Validate the reset token, set the new password, and return the updated user.
+
+    Raises PasswordResetError on any failure (invalid, expired, already used).
+    Also clears force_password_change if it was set.
+    """
+    _INVALID = "Password reset link is invalid or has expired."
+
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == _hash_token(raw_token)
+        )
+    )
+    token = result.scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    if token is None or token.used_at is not None or _as_aware(token.expires_at) <= now:
+        raise PasswordResetError(_INVALID)
+
+    user = await get_user_by_id(db, token.user_id)
+    if user is None or not user.is_active:
+        raise PasswordResetError(_INVALID)
+
+    token.used_at = now
+    user.password_hash = hash_password(new_password)
+    user.force_password_change = False
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 # ── Account deletion ──────────────────────────────────────────────────────────

@@ -18,8 +18,12 @@ export default function ProtectedLayout({
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (isLoading) return;
+    if (!user) {
       router.replace("/login");
+    } else if (user.force_password_change) {
+      // Admin-created accounts must set a real password before accessing the app.
+      router.replace("/set-password");
     }
   }, [isLoading, user, router]);
 

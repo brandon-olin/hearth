@@ -12,11 +12,14 @@ from life_dashboard.auth.models import Household, HouseholdMembership, Membershi
 from life_dashboard.auth.schemas import (
     ChangePasswordRequest,
     DeleteMeRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
     RegistrationPendingResponse,
     ResendVerificationRequest,
+    ResetPasswordRequest,
+    SetInitialPasswordRequest,
     TokenResponse,
     UpdateMeRequest,
     UserResponse,
@@ -24,9 +27,12 @@ from life_dashboard.auth.schemas import (
 )
 from life_dashboard.auth.service import (
     AuthenticationError,
+    PasswordResetError,
     TokenError,
     VerificationError,
     authenticate_user,
+    consume_password_reset_token,
+    create_password_reset_token,
     create_refresh_token,
     create_verification_code,
     delete_account,
@@ -362,6 +368,102 @@ async def delete_me(
 
     # Clear the auth cookie so the browser doesn't attempt a refresh.
     _clear_refresh_cookie(response)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("3/hour")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Request a password reset email.
+
+    Always returns 204 regardless of whether the email exists — prevents
+    email enumeration. Only sends the email on the cloud deployment tier;
+    on local/self_hosted the response is still 204 but no email is sent
+    (admins reset passwords by re-inviting or using impersonation).
+    """
+    from life_dashboard.auth.email import EmailSendError, send_password_reset_email
+
+    email = body.email.lower().strip()
+    result = await db.execute(
+        select(User).where(User.email == email, User.is_active == True)  # noqa: E712
+    )
+    user = result.scalar_one_or_none()
+
+    # Silently no-op for unknown emails or non-cloud tiers.
+    if user is None or settings.deployment_tier != "cloud":
+        return
+
+    raw_token = await create_password_reset_token(db, user.id)
+
+    # Build the reset URL from the request origin.
+    origin = request.headers.get("origin") or settings.allowed_origins.split(",")[0].strip()
+    reset_url = f"{origin}/reset-password?token={raw_token}"
+
+    try:
+        await send_password_reset_email(email, reset_url)
+    except EmailSendError:
+        # Don't expose the failure — return 204 so the UI shows "check your email".
+        pass
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/hour")
+async def reset_password(
+    body: ResetPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Consume a password reset token and set a new password.
+
+    Returns 400 if the token is invalid, expired, or already used.
+    Returns 422 if the new password is too short.
+    """
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password must be at least 8 characters.",
+        )
+    try:
+        await consume_password_reset_token(db, body.token, body.new_password)
+    except PasswordResetError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/me/set-initial-password", status_code=status.HTTP_204_NO_CONTENT)
+async def set_initial_password(
+    body: SetInitialPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Set a new password for accounts with force_password_change=True.
+
+    Used by newly invited household members on their first login — they
+    don't know their old password (the admin never shared it on cloud tier),
+    so this endpoint requires only authentication (active session) and the
+    new password.
+
+    Returns 403 if force_password_change is not set — use PATCH /auth/me/password
+    for voluntary password changes on established accounts.
+    """
+    if not current_user.force_password_change:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Use PATCH /auth/me/password to change your password.",
+        )
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password must be at least 8 characters.",
+        )
+    current_user.password_hash = hash_password(body.new_password)
+    current_user.force_password_change = False
+    await db.commit()
 
 
 _VALID_DATE_FORMATS = {"MM/DD/YY", "DD/MM/YYYY", "YYYY-MM-DD"}

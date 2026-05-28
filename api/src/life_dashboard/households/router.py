@@ -1,13 +1,16 @@
+import secrets
+import string
 import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.dependencies import get_current_user
+from life_dashboard.auth.email import EmailSendError, send_invite_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
 from life_dashboard.auth.tokens import create_access_token
@@ -18,6 +21,20 @@ from life_dashboard.core.permissions import (
     validate_permissions_config,
 )
 from life_dashboard.core.settings import settings
+
+
+def _generate_temp_password(length: int = 12) -> str:
+    """Generate a random, human-readable temp password.
+
+    Uses a mix of uppercase, lowercase, and digits — no ambiguous characters
+    (0/O, 1/l/I) so it's easier to read aloud or type from a screen.
+    """
+    alphabet = (
+        string.ascii_uppercase.replace("O", "").replace("I", "")
+        + string.ascii_lowercase.replace("l", "")
+        + string.digits.replace("0", "").replace("1", "")
+    )
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 router = APIRouter(prefix="/households", tags=["households"])
 
@@ -35,6 +52,9 @@ class MemberResponse(BaseModel):
     # ai-access-001: admin-controlled per-member gate for AI features.
     # True by default; admins can flip via PATCH /households/members/{user_id}.
     ai_features_enabled: bool = True
+    # Only populated for self_hosted tier invites — shown once in the UI so the
+    # admin can share it with the new member. Never returned on cloud tier.
+    temp_password: str | None = None
 
 
 class UpdateMemberRequest(BaseModel):
@@ -233,17 +253,39 @@ async def update_household_name(
 @router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
 async def add_member(
     body: AddMemberRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MemberResponse:
     """
     Add a new member to the current household.
 
-    Creates a new user account (password = "password") if the email is not
-    already registered, then adds them to the household with the given role.
+    Behaviour depends on DEPLOYMENT_TIER:
+      local       — blocked (single-user install; returns 403).
+      self_hosted — creates user with a random temp password; returns temp_password
+                    in the response so the admin can share it. No email sent.
+      cloud       — creates user with a random temp password, sends a Mailgun invite
+                    email; temp_password is NOT returned in the response.
+
+    In all tiers, newly created accounts have force_password_change=True so the
+    user is prompted to set their own password on first login.
+
+    Adding an already-registered email is supported — they join the household
+    without having their password changed.
 
     Admin/owner only. Allowed roles: admin, member, viewer.
     """
+    # Tier gate — local installs are single-user; invites aren't supported.
+    if settings.deployment_tier == "local":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Household invites are not available on local installs. "
+                "To add household members, upgrade to a self-hosted or cloud deployment."
+            ),
+        )
+
+    # Authorise: must be an owner or admin in the current household.
     membership_result = await db.execute(
         select(HouseholdMembership).where(
             HouseholdMembership.user_id == current_user.id,
@@ -270,6 +312,9 @@ async def add_member(
     existing_user_result = await db.execute(select(User).where(User.email == email))
     existing_user = existing_user_result.scalar_one_or_none()
 
+    temp_password: str | None = None
+    new_account_created = False
+
     if existing_user:
         # Check if they're already in this household.
         existing_membership_result = await db.execute(
@@ -285,16 +330,20 @@ async def add_member(
             )
         new_user = existing_user
     else:
-        # Create a new account with the default dev password.
+        # New account — generate a random temp password.
+        temp_password = _generate_temp_password()
         display = body.display_name or email.split("@")[0]
         new_user = User(
             email=email,
-            password_hash=hash_password("password"),
+            password_hash=hash_password(temp_password),
             display_name=display,
             is_active=True,
+            email_verified=True,  # admin created this — no verification needed
+            force_password_change=True,
         )
         db.add(new_user)
         await db.flush()
+        new_account_created = True
 
     role_enum = MembershipRole(body.role)
     new_membership = HouseholdMembership(
@@ -306,12 +355,36 @@ async def add_member(
     await db.commit()
     await db.refresh(new_membership)
 
+    # Cloud tier: send invite email. Suppress temp_password from the response.
+    if new_account_created and settings.deployment_tier == "cloud":
+        household_result = await db.execute(
+            select(Household).where(Household.id == current_user.household_id)
+        )
+        household = household_result.scalar_one_or_none()
+        household_name = household.name if household else "your household"
+
+        # Derive the app URL from the request origin or fall back to ALLOWED_ORIGINS.
+        origin = request.headers.get("origin") or settings.allowed_origins.split(",")[0].strip()
+        try:
+            await send_invite_email(
+                to_email=email,
+                invited_by_name=current_user.display_name or current_user.email,
+                household_name=household_name,
+                app_url=origin,
+            )
+        except EmailSendError:
+            # Log but don't fail — the account is created; admin can resend later.
+            pass
+
+        temp_password = None  # never expose the raw password on cloud tier
+
     return MemberResponse(
         user_id=new_user.id,
         display_name=new_user.display_name,
         email=new_user.email,
         role=role_enum.value,
         joined_at=new_membership.joined_at,
+        temp_password=temp_password,
     )
 
 

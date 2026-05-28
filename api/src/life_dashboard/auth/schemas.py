@@ -36,6 +36,10 @@ class UserResponse(BaseModel):
     # before this feature shipped (the server default backfills them).
     # Frontend hides AI surfaces when False.
     ai_features_enabled: bool = True
+    # invite-001: True when an admin created this account on the user's behalf.
+    # The frontend blocks app access and shows a "set your password" screen.
+    # Cleared once the user sets their own password.
+    force_password_change: bool = False
 
 
 class UpdateMeRequest(BaseModel):
@@ -89,3 +93,19 @@ class VerifyEmailRequest(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: str
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class SetInitialPasswordRequest(BaseModel):
+    """Used by newly invited users who have force_password_change=True."""
+    new_password: str
