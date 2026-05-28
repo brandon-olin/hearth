@@ -104,6 +104,9 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+    # When True the endpoint issues login tokens and returns LoginResponse instead
+    # of 204. Used by the accept-invite flow to skip the redundant login step.
+    auto_login: bool = False
 
 
 class SetInitialPasswordRequest(BaseModel):

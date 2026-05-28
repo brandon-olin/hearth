@@ -2,8 +2,8 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { apiBaseUrl } from "@/lib/api/client";
+import { setAccessToken } from "@/lib/auth/token";
 import { validatePassword } from "@/lib/auth/password-policy";
 import {
   Card,
@@ -49,11 +49,13 @@ function AcceptInviteForm() {
 
     setIsPending(true);
     try {
-      // Reuse the same reset-password endpoint — the token mechanism is identical.
+      // auto_login=true: the backend sets the password AND issues a session in
+      // one step so the user never sees a redundant login screen.
       const res = await fetch(`${apiBaseUrl}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: password }),
+        credentials: "include", // needed for the httpOnly refresh cookie
+        body: JSON.stringify({ token, new_password: password, auto_login: true }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -63,10 +65,11 @@ function AcceptInviteForm() {
         }
         throw new Error(detail ?? "Failed to set password. Please try again.");
       }
-      // Success — log the user in via the login page isn't needed; instead
-      // redirect to /onboarding. The app will prompt login if no session exists,
-      // so we redirect to /login with a flag so it can forward on after auth.
-      router.replace("/login?next=/onboarding&invited=1");
+      const data = await res.json() as { access_token: string };
+      // Store the access token so the protected layout sees an authenticated session.
+      setAccessToken(data.access_token);
+      // Hard-navigate to onboarding so the auth context re-initialises with the new session.
+      window.location.replace("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set password.");
     } finally {
@@ -83,11 +86,10 @@ function AcceptInviteForm() {
             id="password"
             type="password"
             autoComplete="new-password"
-            placeholder="At least 8 characters"
+            placeholder="8+ chars, number & symbol"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={8}
             autoFocus
           />
         </div>

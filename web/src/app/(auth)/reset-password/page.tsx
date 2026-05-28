@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiBaseUrl } from "@/lib/api/client";
+import { setAccessToken } from "@/lib/auth/token";
 import { validatePassword } from "@/lib/auth/password-policy";
 import {
   Card,
@@ -17,14 +18,12 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 function ResetPasswordForm() {
-  const router       = useRouter();
   const searchParams = useSearchParams();
   const token        = searchParams.get("token") ?? "";
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
   const [error, setError]       = useState<string | null>(null);
-  const [success, setSuccess]   = useState(false);
   const [isPending, setIsPending] = useState(false);
 
   if (!token) {
@@ -38,19 +37,6 @@ function ResetPasswordForm() {
             <Button variant="outline" className="w-full">Request new link</Button>
           </Link>
         </div>
-      </CardContent>
-    );
-  }
-
-  if (success) {
-    return (
-      <CardContent>
-        <p className="text-sm text-muted-foreground mb-4">
-          Your password has been updated. You can now sign in with your new password.
-        </p>
-        <Link href="/login">
-          <Button className="w-full">Sign in</Button>
-        </Link>
       </CardContent>
     );
   }
@@ -71,13 +57,16 @@ function ResetPasswordForm() {
       const res = await fetch(`${apiBaseUrl}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: password }),
+        credentials: "include",
+        body: JSON.stringify({ token, new_password: password, auto_login: true }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail ?? "Failed to reset password");
       }
-      setSuccess(true);
+      const data = await res.json() as { access_token: string };
+      setAccessToken(data.access_token);
+      window.location.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reset password");
     } finally {
@@ -94,10 +83,11 @@ function ResetPasswordForm() {
             id="password"
             type="password"
             autoComplete="new-password"
+            placeholder="8+ chars, number & symbol"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={8}
+            autoFocus
           />
         </div>
         <div className="space-y-1.5">

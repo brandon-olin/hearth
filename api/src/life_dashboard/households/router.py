@@ -13,7 +13,7 @@ from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.email import EmailSendError, send_invite_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
-from life_dashboard.auth.service import create_password_reset_token
+from life_dashboard.auth.service import create_password_reset_token, _INVITE_TTL_HOURS
 from life_dashboard.auth.tokens import create_access_token
 from life_dashboard.core.database import get_db
 from life_dashboard.core.permissions import (
@@ -372,7 +372,7 @@ async def add_member(
         # Generate a password-reset token for the new account and embed it in a
         # dedicated accept-invite URL. The /accept-invite page sets the password
         # and then routes the user to onboarding.
-        raw_token = await create_password_reset_token(db, new_user.id)
+        raw_token = await create_password_reset_token(db, new_user.id, ttl_hours=_INVITE_TTL_HOURS)
         set_password_url = f"{origin}/accept-invite?token={raw_token}"
 
         try:

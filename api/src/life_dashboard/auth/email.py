@@ -118,7 +118,7 @@ async def send_invite_email(
     text_body = (
         f"{invited_by_name} has invited you to join {household_name!r} on Hearth.\n\n"
         f"Click the link below to set your password and get started:\n{set_password_url}\n\n"
-        f"This link expires in 1 hour.\n\n"
+        f"This link expires in 72 hours.\n\n"
         f"If you weren't expecting this invitation, you can safely ignore this email."
     )
 
@@ -138,7 +138,7 @@ async def send_invite_email(
         Accept invitation
       </a>
       <p style="color:#888;font-size:13px;margin:24px 0 0">
-        This link expires in 1&nbsp;hour. Click it to set your password and get started.
+        This link expires in 72&nbsp;hours. Click it to set your password and get started.
       </p>
       <p style="color:#bbb;font-size:12px;margin:8px 0 0">
         If you weren&rsquo;t expecting this invitation, you can safely ignore this email.

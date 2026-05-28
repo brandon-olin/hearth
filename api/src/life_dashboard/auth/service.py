@@ -254,15 +254,23 @@ async def verify_email_code(db: AsyncSession, user_id: uuid.UUID, raw_code: str)
 
 # ── Password reset ───────────────────────────────────────────────────────────
 
-_RESET_TTL_HOURS = 1
+_RESET_TTL_HOURS  = 1   # forgot-password flow
+_INVITE_TTL_HOURS = 72  # household invite links
 
 
 class PasswordResetError(Exception):
     """Reset token is invalid, expired, or already used."""
 
 
-async def create_password_reset_token(db: AsyncSession, user_id: uuid.UUID) -> str:
+async def create_password_reset_token(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    ttl_hours: int = _RESET_TTL_HOURS,
+) -> str:
     """Generate a URL-safe reset token, store its hash, and return the raw value.
+
+    Pass ttl_hours to override the default TTL — e.g. invite links use a longer
+    window than standard password resets.
 
     Any previous unused tokens for this user remain in the table but will fail
     validation once this new one is issued (latest token wins is fine here since
@@ -272,7 +280,7 @@ async def create_password_reset_token(db: AsyncSession, user_id: uuid.UUID) -> s
     db.add(PasswordResetToken(
         user_id=user_id,
         token_hash=_hash_token(raw),
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=_RESET_TTL_HOURS),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=ttl_hours),
     ))
     await db.commit()
     return raw

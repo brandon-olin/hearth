@@ -405,15 +405,20 @@ async def forgot_password(
         pass
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/reset-password")
 @limiter.limit("10/hour")
 async def reset_password(
     body: ResetPasswordRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> LoginResponse | None:
     """
     Consume a password reset token and set a new password.
+
+    Returns 204 (no body) by default.
+    When auto_login=True, issues login tokens and returns LoginResponse (200) so
+    the client can skip the login screen — used by the accept-invite flow.
 
     Returns 400 if the token is invalid, expired, or already used.
     Returns 422 if the new password fails policy.
@@ -421,9 +426,38 @@ async def reset_password(
     if pw_error := validate_password(body.new_password):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=pw_error)
     try:
-        await consume_password_reset_token(db, body.token, body.new_password)
+        user = await consume_password_reset_token(db, body.token, body.new_password)
     except PasswordResetError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if not body.auto_login:
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+
+    # auto_login=True — hydrate membership context and issue tokens so the
+    # client can skip the manual login step.
+    membership_result = await db.execute(
+        select(HouseholdMembership).where(HouseholdMembership.user_id == user.id)
+    )
+    membership = membership_result.scalar_one_or_none()
+    if membership:
+        household_result = await db.execute(
+            select(Household).where(Household.id == membership.household_id)
+        )
+        household = household_result.scalar_one_or_none()
+        user.household_name = household.name if household else None  # type: ignore[attr-defined]
+        user.role = membership.role.value  # type: ignore[attr-defined]
+    else:
+        user.household_name = None  # type: ignore[attr-defined]
+        user.role = None  # type: ignore[attr-defined]
+
+    raw_refresh = await create_refresh_token(db, user.id, request.headers.get("User-Agent"))
+    _set_refresh_cookie(response, raw_refresh)
+
+    return LoginResponse(
+        access_token=create_access_token(str(user.id)),
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/me/set-initial-password", status_code=status.HTTP_204_NO_CONTENT)

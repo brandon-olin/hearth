@@ -23,6 +23,7 @@ import { useLoadingMessages } from "@/lib/hooks/use-loading-messages";
 import { HEARTH_LOADING_MESSAGES } from "@/components/ui/loading-screen";
 import {
   Check,
+  Loader2,
   PartyPopper,
   ChefHat,
   Dumbbell,
@@ -685,6 +686,7 @@ export default function OnboardingPage() {
   // Invite state (cloud only)
   const [invites, setInvites] = useState<InviteRow[]>([{ email: "", role: "member" }]);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   // Invited users (non-owners) get an abridged flow:
   // - household_name is read-only (they're joining an existing household)
@@ -753,20 +755,37 @@ export default function OnboardingPage() {
           return;
         }
         setInviteError(null);
-        // Fire invites; don't block on failures — move on regardless.
-        const token = getAccessToken();
-        await Promise.allSettled(
-          filled.map((r) =>
-            fetch(`${apiBaseUrl}/households/members`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify({ email: r.email.trim(), role: r.role }),
-            }),
-          ),
-        );
+        setInviting(true);
+        try {
+          // Save display_name (and household_name for owners) to the DB *before*
+          // sending invites so the backend reads the correct values when building
+          // the email body and subject line (e.g. "Brandon has invited you to join
+          // Casa Olin" rather than the auto-generated email prefix).
+          await apiClient.PATCH("/auth/me", {
+            body: { display_name: data.display_name.trim() },
+          });
+          if (!isInvited) {
+            await apiClient.PATCH("/households/name", {
+              body: { name: data.household_name.trim() },
+            });
+          }
+          // Fire invites; don't block on failures — move on regardless.
+          const token = getAccessToken();
+          await Promise.allSettled(
+            filled.map((r) =>
+              fetch(`${apiBaseUrl}/households/members`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ email: r.email.trim(), role: r.role }),
+              }),
+            ),
+          );
+        } finally {
+          setInviting(false);
+        }
       } else {
         setInviteError(null);
       }
@@ -892,14 +911,17 @@ export default function OnboardingPage() {
                   variant="outline"
                   onClick={() => { setError(null); setInviteError(null); setStepIndex((i) => i - 1); }}
                   className="flex-1"
+                  disabled={inviting}
                 >
                   Back
                 </Button>
               )}
               {/* On the invite step: button says "Invite user(s)" when emails are filled, else "Continue" */}
               {isInviteStep && isCloudTier ? (
-                <Button onClick={handleNext} className="flex-1">
-                  {invites.filter((r) => r.email.trim()).length > 1
+                <Button onClick={handleNext} className="flex-1" disabled={inviting}>
+                  {inviting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sending…</>
+                  ) : invites.filter((r) => r.email.trim()).length > 1
                     ? "Invite users"
                     : invites.filter((r) => r.email.trim()).length === 1
                     ? "Invite user"
@@ -917,7 +939,8 @@ export default function OnboardingPage() {
                 <button
                   type="button"
                   onClick={() => { setInviteError(null); setStepIndex((i) => i + 1); }}
-                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+                  disabled={inviting}
+                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-40 disabled:pointer-events-none"
                 >
                   Skip for now
                 </button>
