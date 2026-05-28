@@ -13,6 +13,7 @@ from life_dashboard.auth.dependencies import get_current_user
 from life_dashboard.auth.email import EmailSendError, send_invite_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
+from life_dashboard.auth.service import create_password_reset_token
 from life_dashboard.auth.tokens import create_access_token
 from life_dashboard.core.database import get_db
 from life_dashboard.core.permissions import (
@@ -355,7 +356,9 @@ async def add_member(
     await db.commit()
     await db.refresh(new_membership)
 
-    # Cloud tier: send invite email. Suppress temp_password from the response.
+    # Cloud tier: generate a one-time accept-invite link and email it.
+    # The link embeds a password-reset token so the invitee can set their own
+    # password without any temp password ever being shared. Suppress temp_password.
     if new_account_created and settings.deployment_tier == "cloud":
         household_result = await db.execute(
             select(Household).where(Household.id == current_user.household_id)
@@ -363,14 +366,21 @@ async def add_member(
         household = household_result.scalar_one_or_none()
         household_name = household.name if household else "your household"
 
-        # Derive the app URL from the request origin or fall back to ALLOWED_ORIGINS.
+        # Derive the app origin from the request or fall back to ALLOWED_ORIGINS.
         origin = request.headers.get("origin") or settings.allowed_origins.split(",")[0].strip()
+
+        # Generate a password-reset token for the new account and embed it in a
+        # dedicated accept-invite URL. The /accept-invite page sets the password
+        # and then routes the user to onboarding.
+        raw_token = await create_password_reset_token(db, new_user.id)
+        set_password_url = f"{origin}/accept-invite?token={raw_token}"
+
         try:
             await send_invite_email(
                 to_email=email,
                 invited_by_name=current_user.display_name or current_user.email,
                 household_name=household_name,
-                app_url=origin,
+                set_password_url=set_password_url,
             )
         except EmailSendError:
             # Log but don't fail — the account is created; admin can resend later.

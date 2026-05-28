@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { apiClient } from "@/lib/api/client";
+import { apiClient, apiBaseUrl } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
+import { getAccessToken } from "@/lib/auth/token";
+import { useAppConfig } from "@/lib/app-config";
 import { BUILTIN_NAV_ITEMS } from "@/lib/sidebar/nav-items";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
@@ -29,6 +31,9 @@ import {
   Calendar,
   Users,
   CheckSquare,
+  Plus,
+  X,
+  Mail,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -49,6 +54,7 @@ const STEPS = [
   { id: "purpose",   label: "Goals"     },
   { id: "sections",  label: "Nav"       },
   { id: "theme",     label: "Look"      },
+  { id: "invite",    label: "Invite"    },
   { id: "done",      label: "Done"      },
 ] as const;
 
@@ -82,14 +88,18 @@ function StepDots({ currentId }: { currentId: StepId }) {
 function HouseholdStep({
   data,
   onChange,
+  isInvited,
 }: {
   data: OnboardingData;
   onChange: (patch: Partial<OnboardingData>) => void;
+  isInvited: boolean;
 }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground leading-relaxed">
-        Everything in Hearth belongs to a household — a shared space for you and anyone you invite later.
+        {isInvited
+          ? `You've been invited to join ${data.household_name ? `"${data.household_name}"` : "a household"} on Hearth. Tell us a bit about yourself.`
+          : "Everything in Hearth belongs to a household — a shared space for you and anyone you invite later."}
       </p>
       <div className="space-y-1.5">
         <Label htmlFor="display_name">Your name</Label>
@@ -101,15 +111,17 @@ function HouseholdStep({
           autoFocus
         />
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="household_name">Household name</Label>
-        <Input
-          id="household_name"
-          placeholder="e.g. The Smiths, Our Home, Casa Brandon"
-          value={data.household_name}
-          onChange={(e) => onChange({ household_name: e.target.value })}
-        />
-      </div>
+      {!isInvited && (
+        <div className="space-y-1.5">
+          <Label htmlFor="household_name">Household name</Label>
+          <Input
+            id="household_name"
+            placeholder="e.g. The Smiths, Our Home, Casa Brandon"
+            value={data.household_name}
+            onChange={(e) => onChange({ household_name: e.target.value })}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -494,6 +506,97 @@ function SectionsStep({
   );
 }
 
+// ── Step: Invite ──────────────────────────────────────────────────────────────
+
+type InviteRow = { email: string; role: "admin" | "member" | "viewer" };
+
+const ROLE_OPTIONS: { value: InviteRow["role"]; label: string }[] = [
+  { value: "member", label: "Parent"  },
+  { value: "viewer", label: "Child"   },
+  { value: "admin",  label: "Admin"   },
+];
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function InviteStep({
+  invites,
+  onChange,
+  error,
+}: {
+  invites: InviteRow[];
+  onChange: (rows: InviteRow[]) => void;
+  error: string | null;
+}) {
+  function updateRow(i: number, patch: Partial<InviteRow>) {
+    const next = invites.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+    onChange(next);
+  }
+
+  function addRow() {
+    onChange([...invites, { email: "", role: "member" }]);
+  }
+
+  function removeRow(i: number) {
+    onChange(invites.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground leading-relaxed">
+        Invite the other people in your household. They&apos;ll receive an email to join.
+      </p>
+
+      <div className="space-y-3">
+        {invites.map((row, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className="flex-1 relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                type="email"
+                placeholder="name@example.com"
+                value={row.email}
+                onChange={(e) => updateRow(i, { email: e.target.value })}
+                className="pl-9"
+                autoComplete="off"
+              />
+            </div>
+            <select
+              value={row.role}
+              onChange={(e) => updateRow(i, { role: e.target.value as InviteRow["role"] })}
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring shrink-0"
+            >
+              {ROLE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {invites.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Remove"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <button
+        type="button"
+        onClick={addRow}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Plus className="h-4 w-4" />
+        Add another member
+      </button>
+    </div>
+  );
+}
+
 // ── Step: Done ────────────────────────────────────────────────────────────────
 
 function DoneStep({
@@ -501,15 +604,26 @@ function DoneStep({
   onSubmit,
   submitting,
   error,
+  isInvited,
 }: {
   data: OnboardingData;
   onSubmit: () => void;
   submitting: boolean;
   error: string | null;
+  isInvited: boolean;
 }) {
   const visibleCount = TOGGLEABLE_SECTIONS.length - data.hidden_sections.length;
   const baseTheme = BASE_THEMES.find((t) => t.id === data.themeConfig.baseThemeId);
   const accent    = ACCENT_COLORS.find((a) => a.id === data.themeConfig.accentId);
+
+  const summaryRows = [
+    { label: "Name", value: data.display_name },
+    ...(isInvited
+      ? [{ label: "Joining", value: data.household_name || "—" }]
+      : [{ label: "Household", value: data.household_name }]),
+    { label: "Theme",    value: `${baseTheme?.label ?? "—"} · ${accent?.label ?? "—"}` },
+    { label: "Sections", value: `${visibleCount} of ${TOGGLEABLE_SECTIONS.length} visible` },
+  ];
 
   return (
     <div className="text-center">
@@ -522,12 +636,7 @@ function DoneStep({
       <p className="text-sm text-muted-foreground mb-6">Here&apos;s what we&apos;ve set up:</p>
 
       <div className="text-left rounded-lg border bg-muted/30 divide-y divide-border mb-6">
-        {[
-          { label: "Name",      value: data.display_name  },
-          { label: "Household", value: data.household_name },
-          { label: "Theme",     value: `${baseTheme?.label ?? "—"} · ${accent?.label ?? "—"}` },
-          { label: "Sections",  value: `${visibleCount} of ${TOGGLEABLE_SECTIONS.length} visible` },
-        ].map(({ label, value }) => (
+        {summaryRows.map(({ label, value }) => (
           <div key={label} className="flex items-center justify-between px-4 py-2.5 text-sm">
             <span className="text-muted-foreground">{label}</span>
             <span className="font-medium">{value}</span>
@@ -549,6 +658,7 @@ function DoneStep({
 export default function OnboardingPage() {
   const { user, isLoading } = useAuth();
   const { setConfig } = useThemeCustomizer();
+  const appConfig = useAppConfig();
   const router = useRouter();
 
   // If onboarding is already done, skip straight to the app.
@@ -570,8 +680,26 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   // Track whether the sections step was pre-populated by purpose selections
   const [sectionsFromPurpose, setSectionsFromPurpose] = useState(false);
+  // Invite state (cloud only)
+  const [invites, setInvites] = useState<InviteRow[]>([{ email: "", role: "member" }]);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
+  // Invited users (non-owners) get an abridged flow:
+  // - household_name is read-only (they're joining an existing household)
+  // - invite step is skipped (only the household owner can invite)
+  const isInvited = !!user && user.role !== "owner";
+
+  // Auto-skip invite step when not on cloud tier, or when the user was invited
   const currentStep = STEPS[stepIndex];
+  useEffect(() => {
+    if (
+      currentStep.id === "invite" &&
+      (isInvited || (appConfig && appConfig.deployment_tier !== "cloud"))
+    ) {
+      setStepIndex((i) => i + 1);
+    }
+  }, [currentStep.id, appConfig, isInvited]);
+
   const isDone = currentStep.id === "done";
 
   function patch(update: Partial<OnboardingData>) {
@@ -582,12 +710,13 @@ export default function OnboardingPage() {
   function validate(): string | null {
     if (currentStep.id === "household") {
       if (!data.display_name.trim()) return "Please enter your name.";
-      if (!data.household_name.trim()) return "Please name your household.";
+      // Invited users join an existing household — don't require them to name it.
+      if (!isInvited && !data.household_name.trim()) return "Please name your household.";
     }
     return null;
   }
 
-  function handleNext() {
+  async function handleNext() {
     const err = validate();
     if (err) { setError(err); return; }
     setError(null);
@@ -612,6 +741,35 @@ export default function OnboardingPage() {
       }
     }
 
+    // When leaving the invite step, validate + send invites
+    if (currentStep.id === "invite") {
+      const filled = invites.filter((r) => r.email.trim() !== "");
+      if (filled.length > 0) {
+        const invalid = filled.find((r) => !EMAIL_RE.test(r.email.trim()));
+        if (invalid) {
+          setInviteError(`"${invalid.email}" doesn't look like a valid email address.`);
+          return;
+        }
+        setInviteError(null);
+        // Fire invites; don't block on failures — move on regardless.
+        const token = getAccessToken();
+        await Promise.allSettled(
+          filled.map((r) =>
+            fetch(`${apiBaseUrl}/households/members`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ email: r.email.trim(), role: r.role }),
+            }),
+          ),
+        );
+      } else {
+        setInviteError(null);
+      }
+    }
+
     setStepIndex((i) => i + 1);
   }
 
@@ -630,10 +788,13 @@ export default function OnboardingPage() {
       });
       if (meError) throw new Error("Failed to save your profile.");
 
-      const { error: hhError } = await apiClient.PATCH("/households/name", {
-        body: { name: data.household_name.trim() },
-      });
-      if (hhError) throw new Error("Failed to save household name.");
+      // Only the household owner can rename the household.
+      if (!isInvited) {
+        const { error: hhError } = await apiClient.PATCH("/households/name", {
+          body: { name: data.household_name.trim() },
+        });
+        if (hhError) throw new Error("Failed to save household name.");
+      }
 
       // If the user made purpose selections, apply visibility to seeded
       // collection/project items that aren't controlled by hidden_sections.
@@ -680,11 +841,16 @@ export default function OnboardingPage() {
   }
 
   const STEP_TITLES: Partial<Record<StepId, string>> = {
-    household: "Set up your home",
+    household: isInvited ? "Welcome to Hearth" : "Set up your home",
     purpose:   "What will you use Hearth for?",
     sections:  sectionsFromPurpose ? "Here's your navigation" : "Customize your navigation",
     theme:     "Choose your look",
+    invite:    "Invite your household",
   };
+
+  // On non-cloud tiers skip the invite step automatically
+  const isInviteStep = currentStep.id === "invite";
+  const isCloudTier  = appConfig?.deployment_tier === "cloud";
 
   return (
     <div className="flex items-center justify-center min-h-screen p-4">
@@ -698,14 +864,17 @@ export default function OnboardingPage() {
         )}
 
         <div className="mb-8">
-          {currentStep.id === "household" && <HouseholdStep data={data} onChange={patch} />}
+          {currentStep.id === "household" && <HouseholdStep data={data} onChange={patch} isInvited={isInvited} />}
           {currentStep.id === "purpose"   && <PurposeStep   data={data} onChange={patch} />}
           {currentStep.id === "sections"  && (
             <SectionsStep data={data} onChange={patch} fromPurpose={sectionsFromPurpose} />
           )}
           {currentStep.id === "theme"     && <ThemeStep     data={data} onChange={patch} />}
+          {currentStep.id === "invite"    && isCloudTier && (
+            <InviteStep invites={invites} onChange={setInvites} error={inviteError} />
+          )}
           {currentStep.id === "done"      && (
-            <DoneStep data={data} onSubmit={handleSubmit} submitting={submitting} error={error} />
+            <DoneStep data={data} onSubmit={handleSubmit} submitting={submitting} error={error} isInvited={isInvited} />
           )}
         </div>
 
@@ -714,15 +883,44 @@ export default function OnboardingPage() {
         )}
 
         {!isDone && (
-          <div className="flex items-center gap-3">
-            {stepIndex > 0 && (
-              <Button variant="outline" onClick={() => { setError(null); setStepIndex((i) => i - 1); }} className="flex-1">
-                Back
-              </Button>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              {stepIndex > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setError(null); setInviteError(null); setStepIndex((i) => i - 1); }}
+                  className="flex-1"
+                >
+                  Back
+                </Button>
+              )}
+              {/* On the invite step: button says "Invite user(s)" when emails are filled, else "Continue" */}
+              {isInviteStep && isCloudTier ? (
+                <Button onClick={handleNext} className="flex-1">
+                  {invites.filter((r) => r.email.trim()).length > 1
+                    ? "Invite users"
+                    : invites.filter((r) => r.email.trim()).length === 1
+                    ? "Invite user"
+                    : "Continue"}
+                </Button>
+              ) : (
+                <Button onClick={handleNext} className="flex-1">
+                  Continue
+                </Button>
+              )}
+            </div>
+            {/* Skip link on invite step */}
+            {isInviteStep && isCloudTier && (
+              <p className="text-center">
+                <button
+                  type="button"
+                  onClick={() => { setInviteError(null); setStepIndex((i) => i + 1); }}
+                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+                >
+                  Skip for now
+                </button>
+              </p>
             )}
-            <Button onClick={handleNext} className="flex-1">
-              Continue
-            </Button>
           </div>
         )}
       </div>

@@ -96,13 +96,13 @@ async def send_invite_email(
     to_email: str,
     invited_by_name: str,
     household_name: str,
-    app_url: str,
+    set_password_url: str,
 ) -> None:
     """Send a household invitation email.
 
-    The invited user clicks the link and logs in with the email address + temp
-    password set by the admin. After first login, force_password_change=True
-    drives them to the set-password screen.
+    The invited user clicks set_password_url, sets their password, and is
+    directed into the onboarding flow. The link embeds a one-time reset token
+    so no temp password ever needs to be shared.
 
     Raises EmailSendError if Mailgun is not configured or the send fails.
     """
@@ -115,13 +115,10 @@ async def send_invite_email(
             "and MAILGUN_FROM_EMAIL in your environment."
         )
 
-    login_url = f"{app_url}/login"
-
     text_body = (
         f"{invited_by_name} has invited you to join {household_name!r} on Hearth.\n\n"
-        f"Log in at: {login_url}\n\n"
-        f"Use your email address ({to_email}) and the temporary password your admin shared with you.\n"
-        f"You'll be prompted to set a new password after your first login.\n\n"
+        f"Click the link below to set your password and get started:\n{set_password_url}\n\n"
+        f"This link expires in 1 hour.\n\n"
         f"If you weren't expecting this invitation, you can safely ignore this email."
     )
 
@@ -137,12 +134,11 @@ async def send_invite_email(
         <strong>{invited_by_name}</strong> has invited you to join
         <strong>{household_name}</strong>.
       </p>
-      <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
-        Log in to Hearth
+      <a href="{set_password_url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">
+        Accept invitation
       </a>
       <p style="color:#888;font-size:13px;margin:24px 0 0">
-        Use your email address and the temporary password your admin provided.
-        You&rsquo;ll be prompted to set a new password after your first login.
+        This link expires in 1&nbsp;hour. Click it to set your password and get started.
       </p>
       <p style="color:#bbb;font-size:12px;margin:8px 0 0">
         If you weren&rsquo;t expecting this invitation, you can safely ignore this email.
