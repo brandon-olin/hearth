@@ -26,16 +26,16 @@
       "category": "Infrastructure",
       "priority": 1,
       "phase": "v1",
-      "title": "Transactional email — Resend integration + forgot password flow",
-      "description": "Wire up transactional email using Resend (resend.com — generous free tier, excellent developer experience, simple Python SDK). Required for: password reset, household invitations (household-001), and future digest emails. Backend: add resend to requirements.txt; add RESEND_API_KEY and EMAIL_FROM env vars to settings.py; create core/email.py with a send_email(to, subject, html) helper that calls resend.Emails.send(); create an email template for password reset. Auth domain: add a POST /auth/forgot-password endpoint that generates a signed time-limited reset token (HMAC of user_id + expiry stored in a password_reset_tokens table or as a signed JWT), sends a reset email, and returns 204 (no indication of whether the email exists). Add POST /auth/reset-password that validates the token and updates the password hash. Frontend: add 'Forgot password?' link on the login page, a /forgot-password page with email input, and a /reset-password?token=... page with new-password form.",
+      "title": "Transactional email — Mailgun integration + forgot password flow",
+      "description": "Transactional email via Mailgun (already integrated in auth/email.py). Requires MAILGUN_API_KEY, MAILGUN_DOMAIN, and MAILGUN_FROM_EMAIL env vars in Railway. DEPLOYMENT_TIER=cloud must also be set. Backend: POST /auth/forgot-password generates a password_reset_tokens row (SHA-256 hashed, 1hr TTL), sends a Mailgun email with a reset link, always returns 204. POST /auth/reset-password validates the token and sets the new password. POST /auth/me/set-initial-password for force_password_change users (no current password needed). Frontend: 'Forgot password?' link appears on login page only when email_enabled=true (from /app/config). /forgot-password and /reset-password pages built. Code complete as of 2026-05-28; pending end-to-end smoke test with live Mailgun credentials.",
       "steps": [
-        "Add RESEND_API_KEY and EMAIL_FROM to api/.env and settings.py",
-        "pip install resend — verify import in a Python shell",
-        "POST /auth/forgot-password with a real email — verify no 500, verify the email arrives",
-        "Click the reset link in the email — verify the /reset-password page loads with the token pre-filled",
+        "Set MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM_EMAIL, and DEPLOYMENT_TIER=cloud in Railway — redeploy",
+        "On hearth.zone, click 'Forgot password?' — verify the link appears and the /forgot-password page loads",
+        "Submit a real email — verify no 500 and the reset email arrives in inbox",
+        "Click the reset link — verify /reset-password?token=... loads correctly",
         "Submit a new password — verify login with the new password succeeds",
         "Submit POST /auth/forgot-password with a non-existent email — verify 204 (no user enumeration)",
-        "Use the reset link a second time — verify it is rejected (token is single-use or expired)"
+        "Use the reset link a second time — verify 400 (token is single-use)"
       ],
       "passes": false
     },
@@ -349,14 +349,16 @@
       "id": "household-001",
       "category": "Household",
       "priority": 2,
-      "title": "Email-based household invitations",
-      "description": "Household admins can invite new members by email. The invitee receives an email with a signup link pre-scoped to the household. Currently, new members are added directly (no email flow). Requires email-001 to be completed first.",
+      "phase": "v1",
+      "title": "Household member invites — tier-gated with temp password + email flow",
+      "description": "Tier-gated invite flow built as of 2026-05-28. local tier: invite button hidden, single-user only. self_hosted tier: admin adds member → temp password shown once in the UI → member logs in with it and is forced to set their own password (force_password_change=True). cloud tier: same flow but Mailgun invite email sent instead of showing the temp password. Backend: POST /households/members generates a random temp password, sets force_password_change=True, sends invite email on cloud tier. POST /auth/me/set-initial-password clears the flag. Frontend: Settings → Household → Members shows invite form (hidden on local), temp password callout for self_hosted, invite email confirmation for cloud. Depends on email-001 (Mailgun) being configured for the cloud email path.",
       "steps": [
-        "Navigate to Settings → Household",
-        "Click 'Invite member' and enter an email address",
-        "The invitee receives an email with a join link",
-        "Following the link creates an account and joins the household",
-        "The new member appears in the member list"
+        "On local install: verify invite button is hidden in Settings → Household",
+        "On cloud (hearth.zone): add a new member email — verify invite email arrives",
+        "Log in as the new member — verify force-password-change screen appears before dashboard",
+        "Set a new password — verify the dashboard loads normally",
+        "Verify the member appears in Settings → Household → Members",
+        "On self_hosted: add a member — verify temp password shown once in UI, no email sent"
       ],
       "passes": false
     },
@@ -1387,6 +1389,39 @@
         "Stop and restart the stack — verify data persists (Postgres volume is mounted correctly)",
         "Follow the Synology Container Manager steps in NAS-DEPLOYMENT.md on a real Synology — verify the stack runs",
         "Verify the first-run setup script generates valid SECRET_KEY and FIELD_ENCRYPTION_KEY values"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invite-001",
+      "category": "Infrastructure",
+      "priority": 1,
+      "phase": "v1",
+      "title": "Force-password-change gate for admin-created accounts",
+      "description": "When an admin creates a household member account, force_password_change=True is set on the user. The protected layout detects this flag and redirects to /set-password before allowing access to any app route. POST /auth/me/set-initial-password (auth required, no current password needed) sets the new password and clears the flag. Also clears force_password_change when a password reset token is consumed. Schema: migration 0039 adds force_password_change boolean to users table.",
+      "steps": [
+        "Log in as an admin-created account — verify /set-password appears before the dashboard",
+        "Submit a password shorter than 8 chars — verify validation error",
+        "Submit mismatched passwords — verify validation error",
+        "Set a valid new password — verify redirect to dashboard succeeds",
+        "Log out and log back in with the new password — verify normal access",
+        "Verify force_password_change=false in the user record after setting password",
+        "Verify navigating directly to /set-password when force_password_change=false redirects to /"
+      ],
+      "passes": false
+    },
+    {
+      "id": "subscription-001",
+      "category": "Infrastructure",
+      "priority": 1,
+      "phase": "v1",
+      "title": "Subscription tier tracking — schema stubs for Stripe integration",
+      "description": "Schema and settings groundwork for payment gating. Migration 0039 adds subscription_status (free|trialing|active|past_due|canceled), stripe_customer_id, and is_exempt to the households table. DEPLOYMENT_TIER env var (local|self_hosted|cloud) controls whether subscription checks are enforced. is_exempt=true bypasses all subscription checks (for dev/test accounts — set manually in DB). Actual Stripe checkout, webhook handler, and feature gating are not yet built; this entry tracks the schema stubs only.",
+      "steps": [
+        "Run migration 0039 — verify households table has subscription_status, stripe_customer_id, is_exempt columns",
+        "Verify new households default to subscription_status='free', is_exempt=false",
+        "Set is_exempt=true on the owner account in Neon — verify it persists",
+        "Verify DEPLOYMENT_TIER=cloud is set in Railway and /app/config returns {deployment_tier: 'cloud'}"
       ],
       "passes": false
     }

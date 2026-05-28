@@ -17,7 +17,19 @@ import {
   applyThemeConfig,
   type ThemeConfig,
 } from "@/lib/theme/presets";
-import { Check, Loader2, PartyPopper } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  PartyPopper,
+  ChefHat,
+  Dumbbell,
+  Wallet,
+  FolderKanban,
+  BookOpen,
+  Calendar,
+  Users,
+  CheckSquare,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -27,14 +39,16 @@ type OnboardingData = {
   household_name: string;
   themeConfig: ThemeConfig;
   hidden_sections: string[];
+  selectedPurposes: string[];
 };
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
 
 const STEPS = [
   { id: "household", label: "Home"      },
+  { id: "purpose",   label: "Goals"     },
+  { id: "sections",  label: "Nav"       },
   { id: "theme",     label: "Look"      },
-  { id: "sections",  label: "Dashboard" },
   { id: "done",      label: "Done"      },
 ] as const;
 
@@ -100,6 +114,146 @@ function HouseholdStep({
   );
 }
 
+// ── Step: Purpose ─────────────────────────────────────────────────────────────
+
+type PurposeOption = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  description: string;
+  /** Built-in nav hrefs to reveal when this purpose is selected */
+  reveals: string[];
+};
+
+const PURPOSE_OPTIONS: PurposeOption[] = [
+  {
+    id: "kitchen",
+    label: "Kitchen & Cooking",
+    icon: ChefHat,
+    description: "Recipes, groceries & meal planning",
+    reveals: ["/recipes", "/grocery-lists"],
+  },
+  {
+    id: "health",
+    label: "Health & Fitness",
+    icon: Dumbbell,
+    description: "Workouts and activity tracking",
+    reveals: ["/workouts"],
+  },
+  {
+    id: "finance",
+    label: "Budget & Finance",
+    icon: Wallet,
+    description: "Track spending and household budgets",
+    reveals: ["/budget"],
+  },
+  {
+    id: "projects",
+    label: "House Projects",
+    icon: FolderKanban,
+    description: "Renovations, repairs & long-term projects",
+    reveals: ["/projects"],
+  },
+  {
+    id: "notes",
+    label: "Notes & Journaling",
+    icon: BookOpen,
+    description: "Personal notes, documents & journaling",
+    reveals: ["/notes", "/documents"],
+  },
+  {
+    id: "planning",
+    label: "Planning & Goals",
+    icon: Calendar,
+    description: "Calendar, goals & habit tracking",
+    reveals: ["/calendar", "/goals", "/habits"],
+  },
+  {
+    id: "tasks",
+    label: "Chores & Tasks",
+    icon: CheckSquare,
+    description: "To-do lists and household chores",
+    // To-dos is a system project, not a built-in nav item — handled separately
+    // in handleSubmit via the projects API.
+    reveals: [],
+  },
+  {
+    id: "contacts",
+    label: "Contacts",
+    icon: Users,
+    description: "Manage household contacts & relationships",
+    reveals: ["/contacts"],
+  },
+];
+
+function PurposeStep({
+  data,
+  onChange,
+}: {
+  data: OnboardingData;
+  onChange: (patch: Partial<OnboardingData>) => void;
+}) {
+  function toggle(id: string) {
+    const next = data.selectedPurposes.includes(id)
+      ? data.selectedPurposes.filter((p) => p !== id)
+      : [...data.selectedPurposes, id];
+    onChange({ selectedPurposes: next });
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Select everything that applies — we&apos;ll set up your navigation accordingly.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {PURPOSE_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          const selected = data.selectedPurposes.includes(opt.id);
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => toggle(opt.id)}
+              className={cn(
+                "flex flex-col items-start gap-2 p-3 rounded-lg border-2 text-left transition-all",
+                selected
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-muted-foreground/40 hover:bg-muted/30",
+              )}
+            >
+              <div className="flex items-center justify-between w-full">
+                <div className={cn(
+                  "h-8 w-8 rounded-md flex items-center justify-center transition-colors",
+                  selected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                )}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className={cn(
+                  "h-4 w-4 rounded border-2 flex items-center justify-center transition-colors shrink-0",
+                  selected
+                    ? "border-primary bg-primary"
+                    : "border-muted-foreground/30 bg-transparent",
+                )}>
+                  {selected && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold leading-tight">{opt.label}</p>
+                <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.description}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {data.selectedPurposes.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center pt-1">
+          Skip to show all sections, or select the ones that fit you.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Step: Theme ───────────────────────────────────────────────────────────────
 
 function ThemeStep({
@@ -125,56 +279,144 @@ function ThemeStep({
 
   const lightThemes = BASE_THEMES.filter((t) => t.category === "light");
   const darkThemes  = BASE_THEMES.filter((t) => t.category === "dark");
+  const activeBase  = BASE_THEMES.find((t) => t.id === data.themeConfig.baseThemeId);
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         Changes apply live. Fine-tune further in Settings.
       </p>
+
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Light</p>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {lightThemes.map((t) => (
-            <BaseThemeSwatch key={t.id} theme={t} selected={data.themeConfig.baseThemeId === t.id} onSelect={() => pickBase(t.id)} />
-          ))}
-        </div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1">Dark</p>
-        <div className="flex gap-2">
-          {darkThemes.map((t) => (
-            <BaseThemeSwatch key={t.id} theme={t} selected={data.themeConfig.baseThemeId === t.id} onSelect={() => pickBase(t.id)} />
+            <BaseThemeCard
+              key={t.id}
+              theme={t}
+              selected={data.themeConfig.baseThemeId === t.id}
+              onSelect={() => pickBase(t.id)}
+            />
           ))}
         </div>
       </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Dark</p>
+        <div className="grid grid-cols-3 gap-2">
+          {darkThemes.map((t) => (
+            <BaseThemeCard
+              key={t.id}
+              theme={t}
+              selected={data.themeConfig.baseThemeId === t.id}
+              onSelect={() => pickBase(t.id)}
+            />
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Accent</p>
         <div className="flex flex-wrap gap-2">
-          {ACCENT_COLORS.map((a) => (
-            <AccentSwatch key={a.id} accent={a} selected={data.themeConfig.accentId === a.id} onSelect={() => pickAccent(a.id)} />
-          ))}
+          {ACCENT_COLORS.map((a) => {
+            const isDark = activeBase?.category === "dark";
+            const accentVars = isDark ? a.dark : a.light;
+            return (
+              <AccentSwatch
+                key={a.id}
+                accent={a}
+                primaryColor={accentVars["--primary"]}
+                selected={data.themeConfig.accentId === a.id}
+                onSelect={() => pickAccent(a.id)}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-function BaseThemeSwatch({ theme, selected, onSelect }: { theme: (typeof BASE_THEMES)[number]; selected: boolean; onSelect: () => void }) {
+function BaseThemeCard({
+  theme,
+  selected,
+  onSelect,
+}: {
+  theme: (typeof BASE_THEMES)[number];
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <button type="button" onClick={onSelect} title={theme.label} className="flex flex-col items-center gap-1.5 group">
-      <div
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex flex-col items-center gap-2 p-2 rounded-lg border-2 transition-all cursor-pointer",
+        selected
+          ? "border-primary"
+          : "border-transparent hover:border-muted-foreground/30",
+      )}
+    >
+      <span
+        className="w-full h-10 rounded-md relative overflow-hidden"
+        style={{
+          background: theme.vars["--background"],
+          border: `1px solid ${theme.category === "dark" ? "rgba(255,255,255,0.1)" : theme.vars["--border"]}`,
+        }}
+      >
+        {/* Sidebar strip */}
+        <span
+          className="absolute inset-y-0 left-0 w-[28%]"
+          style={{ background: theme.vars["--sidebar"] }}
+        />
+        {/* Foreground "text" line */}
+        <span
+          className="absolute h-1 rounded-full"
+          style={{
+            background: theme.vars["--foreground"],
+            opacity: theme.category === "dark" ? 0.6 : 0.45,
+            left: "36%",
+            right: "10%",
+            top: "28%",
+          }}
+        />
+        {/* Muted "secondary text" line */}
+        <span
+          className="absolute h-1 rounded-full"
+          style={{
+            background: theme.category === "dark"
+              ? theme.vars["--muted-foreground"]
+              : theme.vars["--muted-foreground"],
+            opacity: theme.category === "dark" ? 0.35 : 0.4,
+            left: "36%",
+            right: "22%",
+            top: "56%",
+          }}
+        />
+      </span>
+      <span
         className={cn(
-          "w-10 h-10 rounded-lg border-2 transition-all",
-          selected ? "border-primary scale-110 shadow-md" : "border-transparent hover:border-muted-foreground/40",
+          "text-[10px] font-medium transition-colors",
+          selected ? "text-foreground" : "text-muted-foreground",
         )}
-        style={{ background: theme.swatch }}
-      />
-      <span className={cn("text-[10px] font-medium transition-colors", selected ? "text-foreground" : "text-muted-foreground")}>
+      >
         {theme.label}
       </span>
     </button>
   );
 }
 
-function AccentSwatch({ accent, selected, onSelect }: { accent: (typeof ACCENT_COLORS)[number]; selected: boolean; onSelect: () => void }) {
+function AccentSwatch({
+  accent,
+  primaryColor,
+  selected,
+  onSelect,
+}: {
+  accent: (typeof ACCENT_COLORS)[number];
+  primaryColor: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <button type="button" onClick={onSelect} title={accent.label} className="flex flex-col items-center gap-1.5">
       <div
@@ -182,7 +424,7 @@ function AccentSwatch({ accent, selected, onSelect }: { accent: (typeof ACCENT_C
           "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
           selected ? "border-foreground scale-110 shadow-md" : "border-transparent hover:border-muted-foreground/40",
         )}
-        style={{ background: accent.swatch }}
+        style={{ background: primaryColor }}
       >
         {selected && <Check className="h-3.5 w-3.5 text-white drop-shadow" />}
       </div>
@@ -200,9 +442,11 @@ const TOGGLEABLE_SECTIONS = BUILTIN_NAV_ITEMS.filter((item) => item.href !== "/"
 function SectionsStep({
   data,
   onChange,
+  fromPurpose,
 }: {
   data: OnboardingData;
   onChange: (patch: Partial<OnboardingData>) => void;
+  fromPurpose: boolean;
 }) {
   function toggle(href: string) {
     const hidden = data.hidden_sections.includes(href)
@@ -214,7 +458,13 @@ function SectionsStep({
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground mb-3">
-        Choose which sections appear in your sidebar. You can change this any time in Settings.
+        {fromPurpose
+          ? "Here's your customized navigation — adjust as you like."
+          : "Choose which sections appear in your sidebar."}
+        {" "}
+        <span className="text-muted-foreground/70">
+          You can always change this in Settings, and every section is still reachable via search.
+        </span>
       </p>
       {TOGGLEABLE_SECTIONS.map((item) => {
         const Icon = item.icon as LucideIcon;
@@ -314,9 +564,12 @@ export default function OnboardingPage() {
     household_name: user?.household_name ?? "",
     themeConfig: DEFAULT_CONFIG,
     hidden_sections: [],
+    selectedPurposes: [],
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Track whether the sections step was pre-populated by purpose selections
+  const [sectionsFromPurpose, setSectionsFromPurpose] = useState(false);
 
   const currentStep = STEPS[stepIndex];
   const isDone = currentStep.id === "done";
@@ -338,6 +591,27 @@ export default function OnboardingPage() {
     const err = validate();
     if (err) { setError(err); return; }
     setError(null);
+
+    // When leaving the purpose step, pre-compute hidden_sections from selections
+    if (currentStep.id === "purpose") {
+      if (data.selectedPurposes.length === 0) {
+        // Nothing selected → show everything (current default)
+        patch({ hidden_sections: [] });
+        setSectionsFromPurpose(false);
+      } else {
+        const revealedHrefs = new Set(
+          data.selectedPurposes.flatMap(
+            (pid) => PURPOSE_OPTIONS.find((p) => p.id === pid)?.reveals ?? [],
+          ),
+        );
+        const hidden = TOGGLEABLE_SECTIONS.map((s) => s.href).filter(
+          (href) => !revealedHrefs.has(href),
+        );
+        patch({ hidden_sections: hidden });
+        setSectionsFromPurpose(true);
+      }
+    }
+
     setStepIndex((i) => i + 1);
   }
 
@@ -361,6 +635,39 @@ export default function OnboardingPage() {
       });
       if (hhError) throw new Error("Failed to save household name.");
 
+      // If the user made purpose selections, apply visibility to seeded
+      // collection/project items that aren't controlled by hidden_sections.
+      if (data.selectedPurposes.length > 0) {
+        const wantsNotes = data.selectedPurposes.includes("notes");
+        const wantsTasks = data.selectedPurposes.includes("tasks");
+
+        if (!wantsNotes) {
+          // Hide the seeded Journal collection from the sidebar.
+          const { data: cols } = await apiClient.GET("/collections");
+          const journal = cols?.items?.find((c) => c.kind === "journal");
+          if (journal) {
+            await apiClient.PATCH("/collections/{collection_id}", {
+              params: { path: { collection_id: journal.id } },
+              body: { show_in_nav: false },
+            });
+          }
+        }
+
+        if (!wantsTasks) {
+          // Hide the seeded To-dos system project from the sidebar.
+          const { data: projects } = await apiClient.GET("/projects", {
+            params: { query: { show_in_nav: true } },
+          });
+          const todos = projects?.items?.find((p) => p.is_system);
+          if (todos) {
+            await apiClient.PATCH("/projects/{project_id}", {
+              params: { path: { project_id: todos.id } },
+              body: { show_in_nav: false },
+            });
+          }
+        }
+      }
+
       setConfig(data.themeConfig);
       applyThemeConfig(data.themeConfig, false);
 
@@ -374,8 +681,9 @@ export default function OnboardingPage() {
 
   const STEP_TITLES: Partial<Record<StepId, string>> = {
     household: "Set up your home",
+    purpose:   "What will you use Hearth for?",
+    sections:  sectionsFromPurpose ? "Here's your navigation" : "Customize your navigation",
     theme:     "Choose your look",
-    sections:  "Customize your dashboard",
   };
 
   return (
@@ -391,8 +699,11 @@ export default function OnboardingPage() {
 
         <div className="mb-8">
           {currentStep.id === "household" && <HouseholdStep data={data} onChange={patch} />}
+          {currentStep.id === "purpose"   && <PurposeStep   data={data} onChange={patch} />}
+          {currentStep.id === "sections"  && (
+            <SectionsStep data={data} onChange={patch} fromPurpose={sectionsFromPurpose} />
+          )}
           {currentStep.id === "theme"     && <ThemeStep     data={data} onChange={patch} />}
-          {currentStep.id === "sections"  && <SectionsStep  data={data} onChange={patch} />}
           {currentStep.id === "done"      && (
             <DoneStep data={data} onSubmit={handleSubmit} submitting={submitting} error={error} />
           )}

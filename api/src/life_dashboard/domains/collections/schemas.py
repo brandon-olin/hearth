@@ -44,6 +44,7 @@ class CollectionResponse(BaseModel):
     name: str
     icon: str | None
     domain: CollectionDomain
+    kind: str | None
     default_tags: list[uuid.UUID]
     auto_create_rule: AutoCreateRule | None
     show_in_nav: bool

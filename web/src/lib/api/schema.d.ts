@@ -2710,6 +2710,8 @@ export interface components {
              * @enum {string}
              */
             domain: "notes" | "documents";
+            /** Kind */
+            kind: string | null;
             /** Default Tags */
             default_tags: string[];
             auto_create_rule: components["schemas"]["AutoCreateRule"] | null;

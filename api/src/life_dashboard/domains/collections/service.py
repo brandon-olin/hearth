@@ -38,6 +38,7 @@ def _to_response(col: Collection) -> CollectionResponse:
         name=col.name,
         icon=col.icon,
         domain=col.domain,  # type: ignore[arg-type]
+        kind=col.kind,
         default_tags=[uuid.UUID(t) for t in (col.default_tags or [])],
         auto_create_rule=AutoCreateRule(**col.auto_create_rule) if col.auto_create_rule else None,
         show_in_nav=col.show_in_nav,
@@ -185,7 +186,7 @@ async def backfill_journal_kind(db: AsyncSession) -> dict[str, int]:
                 kind="journal",
                 default_tags=[],
                 auto_create_rule=_DEFAULT_JOURNAL_AUTO_CREATE,
-                show_in_nav=False,
+                show_in_nav=True,
                 sort_order=0,
             )
             db.add(col)
@@ -230,7 +231,7 @@ async def seed_default_journal_collection(
         kind="journal",
         default_tags=[],
         auto_create_rule=_DEFAULT_JOURNAL_AUTO_CREATE,
-        show_in_nav=False,
+        show_in_nav=True,
         sort_order=0,
     )
     db.add(col)
