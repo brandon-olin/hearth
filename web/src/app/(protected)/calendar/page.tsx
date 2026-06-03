@@ -99,6 +99,16 @@ function formatTime(iso: string): string {
   return m === 0 ? `${hh}${ampm}` : `${hh}:${String(m).padStart(2, "0")}${ampm}`;
 }
 
+/** Format a "HH:MM" cadence.scheduled_time string for display (12h, no am/pm padding). */
+function formatHHMM(hhmm: string): string {
+  const [hStr, mStr] = hhmm.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  const ampm = h >= 12 ? "pm" : "am";
+  const hh = h % 12 || 12;
+  return m === 0 ? `${hh}${ampm}` : `${hh}:${String(m).padStart(2, "0")}${ampm}`;
+}
+
 function eventDateStr(ev: CalendarEvent): string {
   return toDateStr(new Date(normalizeIso(ev.starts_at)));
 }
@@ -264,10 +274,13 @@ function DayCell({
       label: t.title,
       isDone: t.status === "done",
     })),
-    ...habits.map((h) => ({
-      kind: "habit" as const,
-      label: h.name,
-    })),
+    ...habits.map((h) => {
+      const st = ((h.cadence ?? {}) as Record<string, unknown>).scheduled_time as string | null;
+      return {
+        kind: "habit" as const,
+        label: st ? `${formatHHMM(st)} ${h.name}` : h.name,
+      };
+    }),
   ];
 
   const shown = allItems.slice(0, 3);
@@ -731,25 +744,42 @@ function DayView({
             </button>
           ))}
 
-          {dayHabits.map((h) => (
-            <button
-              key={h.id}
-              type="button"
-              onClick={() => onEditHabit(h)}
-              className="w-full text-left flex items-start gap-4 rounded-xl border bg-card px-5 py-4 hover:bg-accent transition-colors"
-            >
-              <div className="w-20 shrink-0 text-right">
-                <span className="text-xs text-muted-foreground capitalize">{h.frequency}</span>
-              </div>
-              <div className="w-1 self-stretch rounded-full cal-chip-habit shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold">{h.name}</p>
-                {h.description && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{h.description}</p>
-                )}
-              </div>
-            </button>
-          ))}
+          {[...dayHabits]
+            .sort((a, b) => {
+              const aTime = ((a.cadence ?? {}) as Record<string, unknown>).scheduled_time as string | null;
+              const bTime = ((b.cadence ?? {}) as Record<string, unknown>).scheduled_time as string | null;
+              if (aTime && bTime) return aTime.localeCompare(bTime);
+              if (aTime) return -1;
+              if (bTime) return 1;
+              return 0;
+            })
+            .map((h) => {
+              const scheduledTime = ((h.cadence ?? {}) as Record<string, unknown>).scheduled_time as string | null;
+              return (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => onEditHabit(h)}
+                  className="w-full text-left flex items-start gap-4 rounded-xl border bg-card px-5 py-4 hover:bg-accent transition-colors"
+                >
+                  <div className="w-20 shrink-0 text-right">
+                    {scheduledTime ? (
+                      <span className="text-xs font-medium text-foreground">{formatHHMM(scheduledTime)}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground capitalize">{h.frequency}</span>
+                    )}
+                  </div>
+                  <div className="w-1 self-stretch rounded-full cal-chip-habit shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">{h.name}</p>
+                    {h.description && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{h.description}</p>
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          }
         </div>
       )}
     </div>

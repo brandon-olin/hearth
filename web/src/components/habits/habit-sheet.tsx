@@ -16,13 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Info, Loader2 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { AppLinkPicker, type AppLinkValue } from "@/components/ui/app-link-picker";
 import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
@@ -225,9 +219,10 @@ type FormState = {
   name: string;
   description: string;
   frequency: Frequency;
-  days_of_week: number[]; // empty = no day restriction
-  times_per_period: string;
-  start_date: string;
+  days_of_week: number[]; // weekly only
+  day_of_month: string;   // monthly: "1"–"31"
+  scheduled_time: string; // optional "HH:MM" for all cadences
+  start_date: string;     // daily/weekly only
   is_active: boolean;
   link: AppLinkValue | null;
 };
@@ -238,7 +233,8 @@ function blankForm(): FormState {
     description: "",
     frequency: "daily",
     days_of_week: [],
-    times_per_period: "1",
+    day_of_month: "1",
+    scheduled_time: "",
     start_date: toLocalDateString(new Date()),
     is_active: true,
     link: null,
@@ -248,13 +244,19 @@ function blankForm(): FormState {
 function formFromHabit(habit: Habit): FormState {
   const c = (habit.cadence ?? {}) as Record<string, unknown>;
   const linkRaw = c.link as { path: string; label: string } | null | undefined;
+  const startDate = (c.start_date as string | undefined) ?? habit.start_date ?? "";
+  const freq = (habit.frequency === "custom" ? "monthly" : habit.frequency) as Frequency;
+  const dayOfMonth = freq === "monthly" && startDate
+    ? String(new Date(startDate + "T00:00:00").getDate())
+    : "1";
   return {
     name: habit.name,
     description: habit.description ?? "",
-    frequency: (habit.frequency === "custom" ? "monthly" : habit.frequency) as Frequency,
+    frequency: freq,
     days_of_week: (c.days_of_week as number[] | undefined) ?? [],
-    times_per_period: String(c.times_per_period ?? habit.times_per_period ?? 1),
-    start_date: (c.start_date as string | undefined) ?? habit.start_date ?? "",
+    day_of_month: dayOfMonth,
+    scheduled_time: (c.scheduled_time as string | undefined) ?? "",
+    start_date: freq !== "monthly" ? startDate : "",
     is_active: habit.status === "active",
     link: linkRaw?.path && linkRaw?.label ? { path: linkRaw.path, label: linkRaw.label } : null,
   };
@@ -312,13 +314,22 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
     try {
       // Pack cadence sub-fields into the JSONB cadence blob the API expects
       const cadence: Record<string, unknown> = {
-        days_of_week: form.days_of_week.length > 0 ? [...form.days_of_week].sort() : null,
-        times_per_period: showTimesPerPeriod && form.times_per_period
-          ? Number(form.times_per_period)
-          : null,
-        start_date: form.start_date || null,
         link: form.link ?? null,
+        scheduled_time: form.scheduled_time || null,
       };
+
+      if (form.frequency === "weekly") {
+        cadence.days_of_week = form.days_of_week.length > 0 ? [...form.days_of_week].sort() : null;
+        cadence.start_date = form.start_date || null;
+      } else if (form.frequency === "monthly") {
+        const day = Math.max(1, Math.min(31, parseInt(form.day_of_month || "1", 10)));
+        cadence.start_date = `2020-01-${String(day).padStart(2, "0")}`;
+        cadence.days_of_week = null;
+      } else {
+        // daily
+        cadence.start_date = form.start_date || null;
+        cadence.days_of_week = null;
+      }
 
       const body = {
         name: form.name.trim(),
@@ -362,14 +373,12 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
     }
   }
 
-  // Day picker only makes sense for sub-weekly scheduling
-  const showDayPicker = form.frequency === "daily" || form.frequency === "weekly";
-  // times_per_period is redundant when specific days are chosen (count is implied)
-  const showTimesPerPeriod =
-    (form.frequency === "weekly" && form.days_of_week.length === 0) ||
-    form.frequency === "monthly";
-  const timesPerPeriodLabel =
-    form.frequency === "monthly" ? "Times per month" : "Times per week";
+  // Day-of-week picker: only for weekly frequency
+  const showDayPicker = form.frequency === "weekly";
+  // Day-of-month picker: only for monthly
+  const showDayOfMonth = form.frequency === "monthly";
+  // Start date: only for daily/weekly (monthly uses day_of_month instead)
+  const showStartDate = form.frequency !== "monthly";
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -408,46 +417,30 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
             />
           </div>
 
-          {/* Frequency + times per period */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="habit-freq">Frequency</Label>
-              <Select
-                id="habit-freq"
-                value={form.frequency}
-                onChange={(e) => {
-                  const f = e.target.value as Frequency;
-                  setForm((prev) => ({
-                    ...prev,
-                    frequency: f,
-                    // Clear day selection when switching to a frequency where it's hidden
-                    days_of_week: f === "monthly" ? [] : prev.days_of_week,
-                  }));
-                }}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </Select>
-            </div>
-
-            {showTimesPerPeriod && (
-              <div className="space-y-1.5">
-                <Label htmlFor="habit-times">{timesPerPeriodLabel}</Label>
-                <Input
-                  id="habit-times"
-                  type="number"
-                  min={1}
-                  value={form.times_per_period}
-                  onChange={(e) => set("times_per_period", e.target.value)}
-                />
-              </div>
-            )}
+          {/* Frequency */}
+          <div className="space-y-1.5">
+            <Label htmlFor="habit-freq">Frequency</Label>
+            <Select
+              id="habit-freq"
+              value={form.frequency}
+              onChange={(e) => {
+                const f = e.target.value as Frequency;
+                setForm((prev) => ({
+                  ...prev,
+                  frequency: f,
+                  days_of_week: f !== "weekly" ? [] : prev.days_of_week,
+                }));
+              }}
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </Select>
           </div>
 
-          {/* Day-of-week picker — only for daily/weekly */}
+          {/* Day-of-week picker — weekly only */}
           {showDayPicker && <div className="space-y-1.5">
-            <Label className="text-sm">Active days</Label>
+            <Label className="text-sm">Which days?</Label>
             <div className="flex gap-1.5">
               {DAY_LABELS.map((label, i) => {
                 const dayValue = DAY_DISPLAY_ORDER[i]; // backend weekday value
@@ -478,7 +471,7 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
             </div>
             <p className="text-xs text-muted-foreground">
               {form.days_of_week.length === 0
-                ? "Every day (no restriction)"
+                ? "Every day of the week"
                 : form.days_of_week.length === 7
                 ? "Every day"
                 : form.days_of_week.length === 5 &&
@@ -489,29 +482,55 @@ export function HabitSheet({ open, habit, onClose }: HabitSheetProps) {
             </p>
           </div>}
 
-          {/* Start date */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="habit-start">Start date</Label>
-              {form.frequency === "monthly" && form.start_date && (
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      Repeats on day {new Date(form.start_date + "T00:00:00").getDate()} of each month
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
+          {/* Day of month — monthly only */}
+          {showDayOfMonth && (
+            <div className="space-y-1.5">
+              <Label htmlFor="habit-day">Day of month</Label>
+              <Select
+                id="habit-day"
+                value={form.day_of_month}
+                onChange={(e) => set("day_of_month", e.target.value)}
+              >
+                {Array.from({ length: 31 }, (_, i) => {
+                  const n = i + 1;
+                  const suffix = n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th";
+                  return (
+                    <option key={n} value={String(n)}>
+                      {n}{suffix}
+                    </option>
+                  );
+                })}
+              </Select>
             </div>
+          )}
+
+          {/* Start date — daily/weekly only */}
+          {showStartDate && (
+            <div className="space-y-1.5">
+              <Label htmlFor="habit-start">Start date</Label>
+              <Input
+                id="habit-start"
+                type="date"
+                value={form.start_date}
+                onChange={(e) => set("start_date", e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* Scheduled time */}
+          <div className="space-y-1.5">
+            <Label htmlFor="habit-time">Scheduled time (optional)</Label>
             <Input
-              id="habit-start"
-              type="date"
-              value={form.start_date}
-              onChange={(e) => set("start_date", e.target.value)}
+              id="habit-time"
+              type="time"
+              value={form.scheduled_time}
+              onChange={(e) => set("scheduled_time", e.target.value)}
             />
+            {form.scheduled_time && (
+              <p className="text-xs text-muted-foreground">
+                Appears at {new Date(`2000-01-01T${form.scheduled_time}`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} on the calendar
+              </p>
+            )}
           </div>
 
           {/* Page link */}
