@@ -156,6 +156,15 @@ class BudgetAccount(Base):
     current_balance: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     balance_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # scheduler-001: weekly balance anchor for Teller-linked accounts.
+    # balance_at_last_sync: ledger balance from the last Teller balance API call.
+    # balance_synced_at:    when that balance was fetched (used as the cutoff for
+    #                       running-balance computation: current = anchor + SUM(txns since this time)).
+    # The weekly balance job resets these fields; transaction sync recomputes
+    # current_balance incrementally from the anchor.
+    balance_at_last_sync: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    balance_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Teller bank sync — all nullable; NULL means the account is not linked to Teller.
     # teller_enrollment_id: Teller enrollment ID from the Teller Connect callback.
     # teller_access_token:  per-enrollment access token; used as Basic-auth username.

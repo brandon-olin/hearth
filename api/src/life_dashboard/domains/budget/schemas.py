@@ -106,6 +106,9 @@ class BudgetAccountResponse(BaseModel):
     # budget-017: manually-maintained balance
     current_balance: float | None = None
     balance_updated_at: datetime | None = None
+    # scheduler-001: weekly balance anchor (Teller-linked accounts only)
+    balance_at_last_sync: float | None = None
+    balance_synced_at: datetime | None = None
     # Teller bank sync — all None when account is not linked
     teller_enrollment_id: str | None = None
     teller_account_id: str | None = None

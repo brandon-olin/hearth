@@ -3170,3 +3170,63 @@ What was NOT done / left for next session:
 Recommended next feature: onboarding-001 (first-run wizard — guided module selection)
   The onboarding page exists but the feature needs full verification against the
   feature steps. Alternatively: coach-005 (silent profile + auto-bootstrap on API key save).
+
+=== 2026-06-03 — Cowork session ===
+Status: complete
+Feature: scheduler-001 (APScheduler — Teller balance reconciliation)
+Commits this session:
+  (local edits — no commit made; run `git add -A && git commit` to commit)
+
+What was done:
+  scheduler-001 redesigned and implemented around a weekly balance anchor approach
+  to keep Teller API costs manageable at scale.
+
+  Context for design decisions:
+  - Teller charges $0.10/call for live balance API
+  - Daily balance syncs = $3.00/account/month; weekly = $0.40/account/month
+  - Budget tier ($10/month, 3 accounts): weekly cost $1.20 vs daily $9.90
+  - Running balance approach: weekly API anchor + incremental update from new
+    transactions — avoids daily balance calls while keeping displayed balance accurate
+  - Silent weekly reconciliation corrects any drift (no YNAB-style "unaccounted
+    difference" displayed to users)
+
+  Files changed:
+
+  api/src/life_dashboard/domains/budget/models.py
+  - Added balance_at_last_sync (Numeric 14,2, nullable) to BudgetAccount
+  - Added balance_synced_at (DateTime tz-aware, nullable) to BudgetAccount
+  - These are the weekly anchor; current_balance = anchor + SUM(txns since anchor)
+
+  api/migrations/versions/0041_budget_account_balance_anchor.py
+  - New migration (0041, revises 0040) adding the two anchor columns
+
+  api/src/life_dashboard/domains/budget/service.py
+  - sync_teller_account(): removed live balance API call; now calls
+    _update_running_balance() after each transaction sync instead
+  - _update_running_balance(): new helper — queries SUM(txn.amount) WHERE
+    created_at > balance_synced_at and adds to balance_at_last_sync
+  - sync_teller_account_balance(): new function — fetches live Teller balance,
+    resets balance_at_last_sync, balance_synced_at, current_balance
+  - sync_all_teller_balances_globally(): new scheduler entry point — iterates all
+    households/accounts, calls sync_teller_account_balance() per account
+
+  api/src/life_dashboard/domains/budget/schemas.py
+  - BudgetAccountResponse: added balance_at_last_sync and balance_synced_at fields
+
+  api/src/life_dashboard/main.py
+  - Added import of sync_all_teller_balances_globally
+  - Added teller_balance_sync job: CronTrigger(day_of_week="mon", hour=4, minute=0)
+  - Updated startup log message to include new job
+
+  feature_list.json
+  - scheduler-001: updated description to reflect actual implementation, passes=true
+
+What was NOT done / left for next session:
+  - Migration not yet run — user must run: cd api && alembic upgrade head
+  - Smoke test of balance anchor flow requires a live Teller-linked account
+  - budget-021 (data retention purge) is still pending; depends on BudgetMonthlySummary
+    model which hasn't been built yet
+
+Recommended next feature: email-001 (forgot-password smoke test on hearth.zone)
+  Just needs manual verification steps — no code changes expected.
+  After that: onboarding-001 (first-run wizard) or pwa-001 (PWA manifest).

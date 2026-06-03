@@ -2955,18 +2955,15 @@ async def sync_teller_account(
     if posted:
         account.teller_cursor = posted[0].id
 
-    # Fetch and store the current account balance
-    balance = await teller_client.get_balance(
-        access_token=account.teller_access_token,
-        teller_account_id=account.teller_account_id,
-    )
-    if balance is not None and balance.ledger is not None:
-        account.current_balance = balance.ledger
-        account.balance_updated_at = datetime.now(timezone.utc)
-
     now = datetime.now(timezone.utc)
     account.teller_last_synced_at = now
     account.updated_at = now
+
+    # Recompute running balance from the weekly anchor + newly imported transactions.
+    # The live Teller balance API is NOT called here; that happens in the weekly
+    # balance reconciliation job (sync_all_teller_balances_globally) to keep costs low.
+    await _update_running_balance(db, account)
+
     await db.commit()
 
     auto_categorized = 0
@@ -3075,6 +3072,129 @@ async def sync_all_teller_accounts_globally() -> None:
     _log.info(
         "Teller background sync done: households=%d accounts=%d inserted=%d errors=%d",
         len(household_ids), total_accounts, total_inserted, errors,
+    )
+
+
+# ── Balance reconciliation (scheduler-001) ────────────────────────────────────
+
+async def _update_running_balance(db: AsyncSession, account: BudgetAccount) -> None:
+    """
+    Recompute account.current_balance as the weekly balance anchor plus the
+    net sum of all transactions imported after balance_synced_at.
+
+    Called after every transaction sync so the displayed balance stays current
+    without calling the Teller balance endpoint on each sync.  If no anchor
+    has been set yet (balance_at_last_sync is NULL), this is a no-op — the
+    weekly balance job must run first to establish the anchor.
+    """
+    if account.balance_at_last_sync is None or account.balance_synced_at is None:
+        return
+
+    stmt = select(func.sum(BudgetTransaction.amount)).where(
+        BudgetTransaction.account_id == account.id,
+        BudgetTransaction.created_at > account.balance_synced_at,
+        BudgetTransaction.archived_at.is_(None),
+    )
+    net = (await db.execute(stmt)).scalar() or 0.0
+    account.current_balance = float(account.balance_at_last_sync) + float(net)
+    account.balance_updated_at = datetime.now(timezone.utc)
+
+
+async def sync_teller_account_balance(
+    db: AsyncSession,
+    account: BudgetAccount,
+) -> None:
+    """
+    Fetch the live ledger balance from Teller and reset the weekly anchor.
+
+    Sets balance_at_last_sync, balance_synced_at, current_balance, and
+    balance_updated_at.  Subsequent transaction syncs will recompute
+    current_balance as this anchor + net of new transactions.
+
+    Called by the weekly balance scheduler job; can also be triggered manually.
+    """
+    if not account.teller_account_id or not account.teller_access_token:
+        raise ValueError(f"Account {account.id} is not linked to Teller.")
+
+    balance = await teller_client.get_balance(
+        access_token=account.teller_access_token,
+        teller_account_id=account.teller_account_id,
+    )
+    if balance is None or balance.ledger is None:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Teller balance returned None for account %s (%s) — skipping anchor update",
+            account.id, account.name,
+        )
+        return
+
+    now = datetime.now(timezone.utc)
+    account.balance_at_last_sync = balance.ledger
+    account.balance_synced_at = now
+    account.current_balance = balance.ledger
+    account.balance_updated_at = now
+    account.updated_at = now
+    await db.commit()
+
+
+async def sync_all_teller_balances_globally() -> None:
+    """
+    Scheduler entry point: fetch the live balance for every Teller-linked
+    account across all households and reset the balance anchor.
+
+    Runs weekly (Monday 04:00) so each account incurs ~4 Teller balance API
+    calls per month ($0.40/account/month) rather than daily ($3.00/account/month).
+    Errors on individual accounts are logged and skipped.
+    """
+    import logging as _logging
+    from life_dashboard.core.database import AsyncSessionLocal
+
+    _log = _logging.getLogger(__name__)
+    _log.info("Teller weekly balance sync starting")
+
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import distinct
+        stmt = (
+            select(distinct(BudgetAccount.household_id))
+            .where(
+                BudgetAccount.teller_account_id.isnot(None),
+                BudgetAccount.teller_access_token.isnot(None),
+                BudgetAccount.archived_at.is_(None),
+            )
+        )
+        household_ids = list((await db.execute(stmt)).scalars().all())
+
+    total_accounts = 0
+    errors = 0
+
+    for hid in household_ids:
+        async with AsyncSessionLocal() as db:
+            stmt = select(BudgetAccount).where(
+                BudgetAccount.household_id == hid,
+                BudgetAccount.teller_account_id.isnot(None),
+                BudgetAccount.teller_access_token.isnot(None),
+                BudgetAccount.archived_at.is_(None),
+            )
+            accounts = list((await db.execute(stmt)).scalars().all())
+
+            for account in accounts:
+                try:
+                    await sync_teller_account_balance(db, account)
+                    total_accounts += 1
+                    _log.info(
+                        "Balance anchor updated for account %s (%s): %.2f",
+                        account.id, account.name, account.balance_at_last_sync or 0,
+                    )
+                except Exception as exc:
+                    errors += 1
+                    _log.warning(
+                        "Balance sync failed for account %s (%s): %s",
+                        account.id, account.name, exc,
+                    )
+
+    _log.info(
+        "Teller weekly balance sync done: accounts=%d errors=%d",
+        total_accounts, errors,
     )
 
 

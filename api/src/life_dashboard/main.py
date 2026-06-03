@@ -14,7 +14,10 @@ from starlette.types import ASGIApp as _ASGIApp, Receive as _Receive, Scope as _
 
 from life_dashboard.ai.router import router as ai_router
 from life_dashboard.ai.coach_service import run_scheduled_digests
-from life_dashboard.domains.budget.service import sync_all_teller_accounts_globally
+from life_dashboard.domains.budget.service import (
+    sync_all_teller_accounts_globally,
+    sync_all_teller_balances_globally,
+)
 from life_dashboard.auth.router import router as auth_router
 from life_dashboard.households.router import router as households_router
 from life_dashboard.uploads.router import router as uploads_router
@@ -357,7 +360,8 @@ async def lifespan(app: FastAPI):
         )
 
         # Teller background sync: pull new bank transactions every 4 hours
-        # for all households with linked accounts.  Runs at :00 on hours
+        # Transaction sync: pull new posted transactions for all Teller-linked
+        # accounts for all households with linked accounts.  Runs at :00 on hours
         # 0, 4, 8, 12, 16, 20 — staggered 30 min from digests to avoid
         # simultaneous DB load.
         scheduler.add_job(
@@ -368,10 +372,23 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,
         )
 
+        # Weekly balance anchor: fetch live Teller balances and reset the anchor
+        # used for running-balance computation.  Running weekly keeps API costs
+        # to ~4 calls/account/month ($0.40) instead of daily ($3.00).
+        # Runs Monday 04:00 — distinct from transaction sync to avoid DB contention.
+        scheduler.add_job(
+            sync_all_teller_balances_globally,
+            CronTrigger(day_of_week="mon", hour=4, minute=0),
+            id="teller_balance_sync",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         scheduler.start()
         logger.info(
             "AI coach scheduler started (morning=07:00, evening=17:30, "
-            "weekly=Fri 17:00, profile_refresh=Sun 03:00, teller_sync=*/4h:30)"
+            "weekly=Fri 17:00, profile_refresh=Sun 03:00, "
+            "teller_sync=*/4h:30, teller_balance=Mon 04:00)"
         )
     except ImportError:
         logger.warning(

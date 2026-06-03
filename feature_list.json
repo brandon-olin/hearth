@@ -44,16 +44,16 @@
       "category": "Infrastructure",
       "priority": 1,
       "phase": "v1",
-      "title": "APScheduler background jobs \u2014 Teller sync, profile refresh, data retention",
-      "description": "Set up APScheduler (already a dependency from coach-007) as a shared background scheduler wired into the FastAPI lifespan. Three initial jobs: (1) Teller daily sync \u2014 POST /budget/teller/sync-all equivalent run as a background job daily at 04:00 local; iterates all households with linked Teller accounts; (2) Weekly profile refresh \u2014 already designed in coach-007 as run_scheduled_profile_refresh_all(), fires Sunday at 03:00; (3) Monthly data retention purge \u2014 runs the purge_old_transactions() function from budget-021 on the first day of each month. Each job is wrapped in its own try/except and logs aggregate results. Job runner logs to a structured log line per job completion. For cloud deployment (Railway), the scheduler runs in the same process as the API \u2014 no separate worker needed at this scale. Note: the coach digest scheduler already exists for per-user digest delivery; this feature adds the household-level background infrastructure jobs.",
+      "title": "APScheduler background jobs \u2014 Teller sync, balance reconciliation, profile refresh",
+      "description": "APScheduler is wired into the FastAPI lifespan with 6 jobs: (1) coach_morning: morning digest 07:00 daily; (2) coach_evening: evening digest 17:30 daily; (3) coach_weekly: weekly digest Fri 17:00; (4) profile_scheduled_refresh: profile refresh Sun 03:00; (5) teller_background_sync: transaction sync */4h:30 \u2014 pulls new posted transactions for all linked accounts without calling the balance API; (6) teller_balance_sync: weekly balance anchor Mon 04:00 \u2014 fetches live Teller balance, stores balance_at_last_sync + balance_synced_at on budget_accounts, resets current_balance. Between weekly syncs, current_balance = balance_at_last_sync + SUM(transactions since balance_synced_at), keeping displayed balance accurate without per-sync API calls. Silent weekly reconciliation corrects drift. Cost: ~4 balance API calls/account/month ($0.40) vs daily ($3.00).",
       "steps": [
-        "Restart the API \u2014 verify the boot log shows all three jobs registered with their cron schedules",
-        "Manually invoke the Teller sync job function from a Python shell \u2014 verify it runs and logs results",
-        "Manually invoke run_scheduled_profile_refresh_all() \u2014 verify it logs {users, applied, skip, error} counts",
-        "Verify no job failure blocks API boot or request handling \u2014 kill a job mid-run and confirm the API continues serving",
-        "Verify each job's try/except catches per-item errors without aborting the whole run"
+        "Restart the API \u2014 verify the boot log shows all 6 jobs registered with their cron schedules",
+        "Run migration 0041 \u2014 verify budget_accounts gains balance_at_last_sync and balance_synced_at columns",
+        "Manually invoke sync_all_teller_balances_globally() from a Python shell \u2014 verify balance anchor is set on linked accounts",
+        "Manually invoke sync_all_teller_accounts_globally() \u2014 verify current_balance updates as anchor + new transactions",
+        "Verify each job's try/except catches per-account errors without aborting the whole run"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "pwa-001",
@@ -360,7 +360,7 @@
         "Verify the member appears in Settings \u2192 Household \u2192 Members",
         "On self_hosted: add a member \u2014 verify temp password shown once in UI, no email sent"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "goals-001",
@@ -1408,7 +1408,7 @@
         "Verify force_password_change=false in the user record after setting password",
         "Verify navigating directly to /set-password when force_password_change=false redirects to /"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "subscription-001",
