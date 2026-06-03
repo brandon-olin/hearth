@@ -3136,3 +3136,37 @@ What was left / known gaps:
 
 Recommended next feature: Mailgun setup + smoke test the invite/reset flow on hearth.zone
   Then: onboarding-001 (first-run wizard for new cloud signups)
+
+=== 2026-06-03 — Coding session ===
+Feature worked on: habit-002 — Habit cadence UX cleanup + optional scheduled_time
+Status: complete
+Commits this session:
+  - 60a56c1 feat(habits): habit-002 cadence UX cleanup + scheduled_time
+
+What was done:
+  Frontend-only changes to web/src/components/habits/habit-sheet.tsx and
+  web/src/app/(protected)/calendar/page.tsx. No backend changes needed
+  (cadence is JSONB, so scheduled_time stores as a new sub-field without migration).
+
+  habit-sheet.tsx:
+  - Fixed daily frequency: removed the days-of-week picker (was incorrectly showing)
+  - Fixed weekly frequency: removed times_per_period number input entirely; show only
+    the M T W T F S S chip selector (completion count implied by selected days)
+  - Added monthly day-of-month selector: replaces date picker with a 1–31 select;
+    saves as start_date="2020-01-{day}" (always-past date, day extracted by calendar)
+  - Added optional scheduled_time field (type="time", all frequencies); stored as
+    cadence.scheduled_time "HH:MM" string; shows 12h preview text when set
+  - Added formatHHMM() helper to parse HH:MM for 12h display
+
+  calendar/page.tsx:
+  - DayView habits section: shows scheduled_time in time column when set
+    (instead of frequency label); habits sorted by scheduled_time before untimed
+  - Month view day chips: habits with scheduled_time get "6:30am Name" prefix
+  - Added formatHHMM() helper for cadence.scheduled_time display
+
+What was NOT done / left for next session:
+  nothing — feature fully verified
+
+Recommended next feature: onboarding-001 (first-run wizard — guided module selection)
+  The onboarding page exists but the feature needs full verification against the
+  feature steps. Alternatively: coach-005 (silent profile + auto-bootstrap on API key save).
