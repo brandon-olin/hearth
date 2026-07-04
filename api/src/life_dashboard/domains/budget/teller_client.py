@@ -21,7 +21,10 @@ Teller transaction amount convention:
     In practice: float(teller_amount) maps directly to our convention.
 """
 
+import base64
 import logging
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -33,6 +36,52 @@ from life_dashboard.core.settings import settings
 logger = logging.getLogger(__name__)
 
 TELLER_BASE_URL = "https://api.teller.io"
+
+# Cache for temp files decoded from TELLER_CERT / TELLER_KEY base64 env vars.
+# Keyed on the base64 values so a settings change (cert rotation) invalidates it.
+_decoded_cert_cache: tuple[tuple[str, str], tuple[str, str]] | None = None
+
+
+def resolve_cert_paths() -> tuple[str, str] | None:
+    """
+    Return (cert_path, key_path) for mTLS, or None if not configured.
+
+    Two sources, in precedence order:
+    1. TELLER_CERT / TELLER_KEY — base64-encoded pem contents, decoded to
+       temp files on first use. For hosts with ephemeral filesystems
+       (e.g. Railway) where mounting secret files isn't practical.
+    2. TELLER_CERT_PATH / TELLER_KEY_PATH — absolute paths to pem files.
+       For local dev and self-hosted installs.
+    """
+    global _decoded_cert_cache
+
+    if settings.teller_cert and settings.teller_key:
+        cache_key = (settings.teller_cert, settings.teller_key)
+        if _decoded_cert_cache is not None and _decoded_cert_cache[0] == cache_key:
+            paths = _decoded_cert_cache[1]
+            if os.path.exists(paths[0]) and os.path.exists(paths[1]):
+                return paths
+        try:
+            cert_bytes = base64.b64decode(settings.teller_cert)
+            key_bytes = base64.b64decode(settings.teller_key)
+        except Exception:
+            logger.error("TELLER_CERT/TELLER_KEY are set but not valid base64; bank sync disabled")
+            return None
+        tmp_dir = tempfile.mkdtemp(prefix="teller-mtls-")
+        cert_path = os.path.join(tmp_dir, "certificate.pem")
+        key_path = os.path.join(tmp_dir, "private_key.pem")
+        with open(cert_path, "wb") as f:
+            f.write(cert_bytes)
+        with open(key_path, "wb") as f:
+            f.write(key_bytes)
+        os.chmod(key_path, 0o600)
+        _decoded_cert_cache = (cache_key, (cert_path, key_path))
+        return (cert_path, key_path)
+
+    if settings.teller_cert_path and settings.teller_key_path:
+        return (settings.teller_cert_path, settings.teller_key_path)
+
+    return None
 
 
 @dataclass
@@ -106,18 +155,20 @@ class TellerClient:
     """
 
     def is_configured(self) -> bool:
-        """Return True if cert, key, and app_id are all set in settings."""
-        return bool(
-            settings.teller_app_id
-            and settings.teller_cert_path
-            and settings.teller_key_path
-        )
+        """Return True if app_id is set and a cert/key source is available."""
+        return bool(settings.teller_app_id and resolve_cert_paths() is not None)
 
     def _client(self, access_token: str) -> httpx.AsyncClient:
         """Build an httpx client with mTLS and Basic auth for one access token."""
+        cert_paths = resolve_cert_paths()
+        if cert_paths is None:
+            raise RuntimeError(
+                "Teller mTLS credentials are not configured "
+                "(set TELLER_CERT/TELLER_KEY or TELLER_CERT_PATH/TELLER_KEY_PATH)"
+            )
         return httpx.AsyncClient(
             base_url=TELLER_BASE_URL,
-            cert=(settings.teller_cert_path, settings.teller_key_path),
+            cert=cert_paths,
             auth=(access_token, ""),   # Basic auth: token as username, empty password
             timeout=30.0,
         )

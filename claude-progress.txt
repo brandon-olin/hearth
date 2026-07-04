@@ -3230,3 +3230,43 @@ What was NOT done / left for next session:
 Recommended next feature: email-001 (forgot-password smoke test on hearth.zone)
   Just needs manual verification steps — no code changes expected.
   After that: onboarding-001 (first-run wizard) or pwa-001 (PWA manifest).
+
+=== 2026-07-04 — Infrastructure session ===
+Worked on: Teller mTLS credentials via base64 env vars (TELLER_CERT / TELLER_KEY)
+Status: complete (code); user still needs to set Railway env vars
+Commits: none yet (uncommitted working-tree changes)
+
+Context: user set TELLER_APP_ID in the Neon UI — wrong place (Neon is only the
+DB; API env vars belong in Railway). Worse, infra/CLAUDE.md documented base64
+TELLER_CERT/TELLER_KEY vars for Railway's ephemeral filesystem, but the code
+only supported TELLER_CERT_PATH/TELLER_KEY_PATH file paths — so bank sync was
+impossible to enable on the cloud tier. The budget empty state's "Connect bank"
+button (already implemented, gated on /budget/teller/config → enabled) was
+therefore always hidden in cloud deploys.
+
+What was done:
+  api/src/life_dashboard/core/settings.py
+  - Added teller_cert / teller_key fields (base64-encoded pem contents)
+
+  api/src/life_dashboard/domains/budget/teller_client.py
+  - New resolve_cert_paths(): base64 vars take precedence, decoded to temp
+    files (key chmod 600) with cache keyed on the base64 values so cert
+    rotation invalidates; falls back to *_path vars; None if neither set
+  - is_configured() and _client() now use resolve_cert_paths()
+
+  api/.env.example
+  - Documented the TELLER_CERT / TELLER_KEY base64 variants
+
+Verification: stubbed-settings functional test — 7 checks covering unset,
+path variant, base64 precedence + decode + perms, cache hit, rotation,
+invalid base64 (graceful disable), and missing app_id. All passed. Both
+files compile clean.
+
+What was left:
+  - User must set TELLER_APP_ID, TELLER_CERT, TELLER_KEY (base64) in the
+    Railway API service env vars (not Neon), then redeploy
+  - Optional follow-up: budget empty state could surface a disabled
+    "Connect bank" explainer when Teller is unconfigured (discoverability
+    for self-hosted installs)
+
+Recommended next feature: unchanged — email-001, then onboarding-001/pwa-001.

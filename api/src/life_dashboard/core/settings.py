@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     teller_app_id: str = ""
     teller_cert_path: str = ""        # absolute path to certificate.pem
     teller_key_path: str = ""         # absolute path to private_key.pem
+    # Base64 variants for hosts with ephemeral filesystems (e.g. Railway).
+    # base64-encode the pem files: `base64 -i certificate.pem`. When set,
+    # they take precedence over the *_path variants and are decoded to temp
+    # files on first use (see teller_client.resolve_cert_paths).
+    teller_cert: str = ""             # base64-encoded certificate.pem contents
+    teller_key: str = ""              # base64-encoded private_key.pem contents
     teller_signing_secret: str = ""   # webhook payload verification secret
     teller_environment: str = "sandbox"  # sandbox | development | production
 
