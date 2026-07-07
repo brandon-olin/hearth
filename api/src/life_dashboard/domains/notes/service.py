@@ -90,20 +90,23 @@ async def _resolve_backlinks(
     if not titles:
         return
 
-    # Resolve titles → note IDs (case-insensitive ILIKE per title)
-    title_to_note: dict[str, Note] = {}
-    for title in titles:
-        result = await db.execute(
-            select(Note).where(
-                Note.household_id == household_id,
-                Note.id != source.id,
-                Note.archived_at.is_(None),
-                func.lower(Note.title) == title.lower(),
-            )
+    # Resolve all titles in one query, then map case-insensitively. A single
+    # IN query replaces the former per-title N+1 (one round-trip per wikilink);
+    # see .claude/rules/performance.md.
+    lowered = [t.lower() for t in titles]
+    result = await db.execute(
+        select(Note).where(
+            Note.household_id == household_id,
+            Note.id != source.id,
+            Note.archived_at.is_(None),
+            func.lower(Note.title).in_(lowered),
         )
-        note = result.scalars().first()
-        if note:
-            title_to_note[title.lower()] = note
+    )
+    title_to_note: dict[str, Note] = {}
+    for note in result.scalars().all():
+        # setdefault preserves the old "first match wins" semantics when two
+        # notes share a title case-insensitively.
+        title_to_note.setdefault(note.title.lower(), note)
 
     # Insert resolved backlinks
     for title in titles:
