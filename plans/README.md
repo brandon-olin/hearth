@@ -23,7 +23,7 @@ below.
 | 005 | Stop leaking internal exception details to clients | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `cf6c54f` via merge `e8423a7`) |
 | 006 | Characterize recurring-todo completion (tests) | P1 | S | 002 | DONE (branch `advisor/006-characterize-recurring-todo-completion`; `api/tests/test_todo_recurrence_completion.py`, 3 tests; full suite 16 passed, ruff clean; no `src/` change; unmerged) |
 | 007 | Make recurring-todo completion atomic & idempotent | P1 | S | 006 (→002) | DONE (branch `advisor/007-atomic-recurring-todo-completion`; `update_todo` now takes `with_for_update()` row lock + gates spawn on `prev_status != "done"`; `test_todo_completion_idempotency.py` regression test; full suite 17 passed, 006 tests still green; changed files lint-clean. *Note: the `ruff check src tests → exit 0` criterion is unmet due to ~419 pre-existing `src/` lint errors — out of scope, tracked under the lint-debt follow-up; my diff adds zero new errors, matching the CI gate which lints `api/tests` only.*) — unmerged |
-| 008 | Batch note backlink resolution (N+1) | P2 | S | 002 | TODO |
+| 008 | Batch note backlink resolution (N+1) | P2 | S | 002 | DONE (branch `advisor/008-batch-note-backlink-resolution`; `_resolve_backlinks` now resolves all wikilinks in one `IN` query instead of one per link, `setdefault` for first-match-wins; `test_note_backlinks.py` 2 tests; full suite 19 passed; diff lint-clean, same pre-existing-`src`-debt caveat as 007) — unmerged |
 | 009 | Batch auto-budget aggregation (N+1) | P2 | S | 002 | TODO |
 | 010 | Unify income classification on `is_income` flag | P2 | S | 002 | TODO |
 
