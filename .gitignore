@@ -63,3 +63,6 @@ api/*.db
 .claude/memory/corrections.jsonl
 .claude/memory/violations.jsonl
 .claude/memory/sessions.jsonl
+
+# Agent worktrees — transient, must never be tracked as gitlinks
+.claude/worktrees/
