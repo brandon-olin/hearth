@@ -3379,3 +3379,44 @@ Left / operator follow-ups:
 Recommended next: plans 006 then 007 (recurring-todo characterization then
 atomicity), then 008/009/010 (N+1 + income classification). All unblocked now
 that 002 is on main.
+
+=== 2026-07-07 — Planning session (financial-integrity batch) ===
+
+Worked on: reviewed plans/README.md; verified advisor branches 006-010 are all
+merged to main (merges a90e326, a5424e1, 44be507, 5148b3d, 6ddaa9f — README
+rows said "unmerged", now corrected); authored the next batch of plans from the
+audit backlog.
+
+Status: complete (planning only; no src/ changes this session).
+
+Commits this session: none yet (plans 011-013 + README/progress updates to be
+committed by operator or next session).
+
+Done:
+  - plans/011-db-unique-constraint-import-dedup.md   (audit #13, P1/M):
+    partial unique index (account_id, external_id) WHERE external_id IS NOT
+    NULL on budget_transactions — model __table_args__ + migration 0042 with
+    duplicate pre-check that fails loudly; begin_nested()/IntegrityError
+    skip-handling in bulk_import_transactions; 3 tests.
+  - plans/012-create-transaction-retry-guard.md      (audit #19, P1/S):
+    120s retry-window guard on dedup_hash in create_transaction — double-
+    submit returns existing row; deliberate same-day duplicates preserved
+    (no unique constraint on dedup_hash, by design); 3 tests.
+  - plans/013-threshold-check-rollback.md            (audit #15, P2/S):
+    await db.rollback() in _maybe_check_thresholds except block; 2 tests
+    (monkeypatched failure leaves session usable).
+  - plans/README.md: rows 006-010 marked MERGED with commit hashes; rows
+    011-013 added (TODO); sequencing section extended; backlog items
+    #13/#15/#19 struck through as planned.
+
+Left:
+  - Execute 011, 012, 013 (independent; 011 first recommended — it has the
+    migration). All unblocked; 002 harness on main.
+  - Operator: after 011 merges, run `alembic upgrade head` on live DBs.
+  - Still-open operator items from previous session (history purge, .env.example
+    doc line, branch cleanup, push to origin) remain open.
+
+Recommended next: execute plan 011 (highest-severity hole: overlapping Teller
+syncs can duplicate money rows), then 012/013 in parallel. After this batch,
+next backlog candidates: #14 list_habits unbounded, #16 auto_categorize perf,
+#17 python-jose → PyJWT.
