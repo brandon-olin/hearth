@@ -410,7 +410,9 @@ async def create_category(
     current_user: User = Depends(get_current_user),
 ) -> BudgetCategoryResponse:
     try:
-        return await service.create_category(db, current_user.household_id, data)
+        return await service.create_category(
+            db, current_user.household_id, data, user_id=current_user.id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

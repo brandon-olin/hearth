@@ -3270,3 +3270,76 @@ What was left:
     for self-hosted installs)
 
 Recommended next feature: unchanged — email-001, then onboarding-001/pwa-001.
+
+=== 2026-07-04 — Coding session (budget loading state) ===
+Worked on: budget page initial loading state
+Status: complete (pending user visual verification)
+Commits: none yet
+
+What was done:
+  web/src/app/(protected)/budget/page.tsx
+  - Added loading gate before empty-state check: centered Loader2 spinner
+    (matches workouts page convention) while accountsLoading, and — when no
+    accounts — while tellerConfigLoading, so the page no longer flashes the
+    full $0 layout and the empty-state buttons no longer pop in one at a time.
+  - tellerConfig query now also exposes isLoading.
+
+Verification: npx tsc --noEmit clean.
+
+Left: user reports Teller Connect error "application needs payment setup
+before it can be used in production" despite having just added payment —
+Teller-side issue, debugging in progress (check app_id matches the billing-
+enabled application, propagation delay, or use TELLER_ENVIRONMENT=development
+for free real-bank testing).
+
+=== 2026-07-04 — Coding session (budget profile self-heal) ===
+Worked on: 400 on POST /budget/categories for fresh cloud households
+Status: complete pending smoke test (cannot execute endpoint from this
+  environment — needs live DB; see verification below)
+Commits: none yet
+
+Root cause: seed_default_profiles docstring claims it runs "on household
+creation" but nothing calls it except the manual endpoint — neither
+auth/router.py nor setup/router.py signup paths seed budget profiles. Fresh
+cloud households therefore have no Personal/Household profiles;
+create_category raises ValueError → 400. Teller connect masked this by
+deliberately leaving profile_id NULL on created accounts (service.py
+connect_teller_enrollment docstring), so the user's cloud accounts are
+currently orphaned.
+
+What was done:
+  api/src/life_dashboard/domains/budget/service.py
+  - New _ensure_default_profiles(): idempotently seeds default profiles AND
+    adopts orphaned accounts (profile_id NULL) into the Personal profile
+  - create_category(): optional user_id param; on failed profile resolution,
+    self-heals via _ensure_default_profiles and retries
+  - connect_teller_enrollment(): calls _ensure_default_profiles before
+    resolving, so new enrollments never create orphaned accounts
+  api/src/life_dashboard/domains/budget/router.py
+  - POST /categories passes current_user.id through
+
+Verification done: ast.parse clean on both files.
+Verification REQUIRED before marking passed (endpoint smoke-test rule):
+  1. Deploy (or run locally against a household with no budget profiles)
+  2. Click "Load defaults" on /budget/categories — should now 201 all
+  3. Confirm previously-orphaned Teller accounts got profile_id set
+     (SELECT id, name, profile_id FROM budget_accounts WHERE profile_id IS NULL
+      should return 0 rows for the household)
+
+Consider next: wire seed_default_profiles into both signup paths so new
+households start correct rather than relying on lazy self-heal.
+
+=== 2026-07-07 — Infrastructure session (Windows agent environment roadmap) ===
+Worked on: docs/windows-agent-setup.md — roadmap for autonomous Claude Code
+  runs on the Windows gaming PC (WSL 2, sandboxing, /goal + auto mode,
+  tmux-based 4-hour unattended runs, later cloud routines via /schedule).
+Status: complete (documentation only, no code changes)
+Commits: none this session (doc pending commit)
+What was done: verified current Claude Code docs (setup, /goal, routines,
+  loops blog post); corrected stale third-party advice (npm install, custom
+  orchestration frameworks); mapped existing agent harness (agent/coding.md,
+  init.sh, feature_list.json) onto /goal loop primitives.
+Left: execute Phase 1–2 on the Windows machine; write
+  .claude/skills/verify-hearth-change skill during Phase 3.
+Recommended next: after env bring-up, first supervised /goal run on a small
+  feature_list.json entry.

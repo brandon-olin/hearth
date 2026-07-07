@@ -2756,7 +2756,7 @@ export default function BudgetPage() {
     queryKey: ["budget", "accounts"],
     queryFn: fetchAccounts,
   });
-  const { data: tellerConfig } = useQuery({
+  const { data: tellerConfig, isLoading: tellerConfigLoading } = useQuery({
     queryKey: ["budget", "teller", "config"],
     queryFn: fetchTellerConfig,
     staleTime: 60_000 * 10, // config rarely changes; cache for 10 min
@@ -3315,6 +3315,19 @@ export default function BudgetPage() {
   const summaryIncome = summary?.total_income ?? 0;
   const summaryNet = summaryIncome - summaryExpenses;
   const summaryLoaded = !summaryLoading;
+
+  // ── Loading state ─────────────────────────────────────────────────────────────
+  // Gate the whole page until we know whether accounts exist (avoids flashing
+  // the full $0 layout) and whether Teller is enabled (avoids the empty-state
+  // buttons popping in one at a time).
+
+  if (accountsLoading || (!hasAccounts && tellerConfigLoading)) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   // ── Empty state ───────────────────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ import uuid
 from datetime import date as date_type, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, case, delete, func, or_, select, text
+from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.domains.budget.models import (
@@ -443,6 +443,31 @@ async def _get_household_profile(
     return result.scalar_one_or_none()
 
 
+async def _ensure_default_profiles(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    owner_user_id: uuid.UUID,
+) -> None:
+    """
+    Self-heal for households created before profile seeding was wired into
+    signup: idempotently seed the default Personal/Household profiles, then
+    adopt any orphaned accounts (profile_id NULL — e.g. Teller enrollments
+    that ran while no profiles existed) into the Personal profile.
+    """
+    await seed_default_profiles(db, household_id, owner_user_id)
+    personal = await _get_personal_profile(db, household_id)
+    if personal is not None:
+        await db.execute(
+            update(BudgetAccount)
+            .where(
+                BudgetAccount.household_id == household_id,
+                BudgetAccount.profile_id.is_(None),
+            )
+            .values(profile_id=personal.id)
+        )
+        await db.commit()
+
+
 async def list_accounts(
     db: AsyncSession,
     household_id: uuid.UUID,
@@ -585,16 +610,24 @@ async def create_category(
     db: AsyncSession,
     household_id: uuid.UUID,
     data: BudgetCategoryCreate,
+    user_id: uuid.UUID | None = None,
 ) -> BudgetCategoryResponse:
     # Resolve profile
-    profile_id = data.profile_id
-    if profile_id is None:
+    async def _resolve_profile() -> uuid.UUID | None:
         if data.default_scope == "shared":
             p = await _get_household_profile(db, household_id)
         else:
             p = await _get_personal_profile(db, household_id)
-        if p is not None:
-            profile_id = p.id
+        return p.id if p is not None else None
+
+    profile_id = data.profile_id
+    if profile_id is None:
+        profile_id = await _resolve_profile()
+    if profile_id is None and user_id is not None:
+        # Self-heal: households created before profile seeding existed have
+        # no Personal/Household profiles — seed them and retry.
+        await _ensure_default_profiles(db, household_id, user_id)
+        profile_id = await _resolve_profile()
     if profile_id is None:
         raise ValueError("No profile found for this household. Run seed-defaults first.")
 
@@ -2820,6 +2853,11 @@ async def connect_teller_enrollment(
     # Apply account_ids filter if provided
     if data.account_ids:
         teller_accounts = [a for a in teller_accounts if a.id in data.account_ids]
+
+    # Self-heal: make sure default profiles exist before resolving, so new
+    # accounts are never created with profile_id NULL (fresh cloud households
+    # have no profiles seeded at signup).
+    await _ensure_default_profiles(db, household_id, user_id)
 
     # Resolve default Personal profile for this user
     profile_id: uuid.UUID | None = None
