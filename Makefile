@@ -6,7 +6,7 @@
         test lint check
 
 api:
-	cd api && .venv/bin/uvicorn life_dashboard.main:app --reload --port 1339
+	cd api && ENVIRONMENT=development .venv/bin/uvicorn life_dashboard.main:app --reload --port 1339
 
 test:
 	cd api && .venv/bin/python -m pytest
