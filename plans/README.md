@@ -21,7 +21,7 @@ below.
 | 003 | Fix cross-household budget-category write (goals) | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `8963eb7` via merge `a3835a0`) |
 | 004 | Harden `environment` default to fail-safe | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `bff2e38` via merge `fa41316`); *`api/.env.example` doc line still deferred to operator (blocked by repo `.env.*` deny rule)* |
 | 005 | Stop leaking internal exception details to clients | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `cf6c54f` via merge `e8423a7`) |
-| 006 | Characterize recurring-todo completion (tests) | P1 | S | 002 | TODO |
+| 006 | Characterize recurring-todo completion (tests) | P1 | S | 002 | DONE (branch `advisor/006-characterize-recurring-todo-completion`; `api/tests/test_todo_recurrence_completion.py`, 3 tests; full suite 16 passed, ruff clean; no `src/` change; unmerged) |
 | 007 | Make recurring-todo completion atomic & idempotent | P1 | S | 006 (→002) | TODO |
 | 008 | Batch note backlink resolution (N+1) | P2 | S | 002 | TODO |
 | 009 | Batch auto-budget aggregation (N+1) | P2 | S | 002 | TODO |
