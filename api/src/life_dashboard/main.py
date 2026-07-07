@@ -75,6 +75,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting life_dashboard API  environment=%s", settings.environment)
 
+    if settings.environment not in ("development", "production"):
+        raise RuntimeError(
+            f"Invalid ENVIRONMENT={settings.environment!r}; expected 'development' or 'production'"
+        )
+    if settings.environment == "development":
+        logger.warning(
+            "Running in DEVELOPMENT mode — API docs, dev impersonation, and non-Secure "
+            "cookies are ENABLED. Never use this in a deployed environment."
+        )
+
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))

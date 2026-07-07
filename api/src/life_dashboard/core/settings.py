@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     field_encryption_key: str = ""
 
     # App
-    environment: str = "development"
+    environment: str = "production"
     log_level: str = "info"
     host: str = "0.0.0.0"
     port: int = 1338
