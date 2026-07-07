@@ -24,6 +24,12 @@ dist/
 *.key
 *.pem
 
+# Secrets / local artifacts that must never be committed
+cookies.txt
+*.crt
+*.db
+*.db-journal
+
 # Local data and artifacts
 data/
 api/uploads/
