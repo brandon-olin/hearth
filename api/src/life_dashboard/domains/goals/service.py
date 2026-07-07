@@ -16,6 +16,7 @@ from life_dashboard.domains.goals.schemas import (
 
 async def _sync_financial_link(
     db: AsyncSession,
+    household_id: uuid.UUID,
     financial_link: dict | None,
 ) -> None:
     """
@@ -35,7 +36,12 @@ async def _sync_financial_link(
         return
 
     from life_dashboard.domains.budget.models import BudgetCategory
-    result = await db.execute(select(BudgetCategory).where(BudgetCategory.id == category_id))
+    result = await db.execute(
+        select(BudgetCategory).where(
+            BudgetCategory.id == category_id,
+            BudgetCategory.household_id == household_id,
+        )
+    )
     category = result.scalar_one_or_none()
     if category is not None:
         category.default_monthly_amount = float(monthly_limit)
@@ -68,7 +74,7 @@ async def create_goal(
         financial_link=data.financial_link,
     )
     db.add(goal)
-    await _sync_financial_link(db, data.financial_link)
+    await _sync_financial_link(db, household_id, data.financial_link)
     await db.commit()
     await db.refresh(goal)
     return _to_response(goal)
@@ -135,7 +141,7 @@ async def update_goal(
 
     # Sync spending_cap to budget category if financial_link was updated
     if "financial_link" in data.model_fields_set:
-        await _sync_financial_link(db, data.financial_link)
+        await _sync_financial_link(db, household_id, data.financial_link)
 
     await db.commit()
     await db.refresh(goal)
