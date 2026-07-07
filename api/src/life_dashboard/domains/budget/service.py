@@ -2740,7 +2740,12 @@ async def get_spending_trends(
         last_day = date_type(year, month, calendar.monthrange(year, month)[1])
 
         # Aggregate income + expenses for this month.
-        # Income is scoped to categories in a group named "Income" (matches get_analytics/get_summary).
+        # Income is scoped to categories whose group has is_income=True — the
+        # explicit user-controllable flag, matching get_analytics/get_summary.
+        # (Previously a hardcoded group-name match "income", which diverged from
+        # those surfaces whenever a household renamed its income group.) The
+        # group join is an outer join, so a NULL is_income (no category/group)
+        # coalesces to False → treated as expense, as before.
         agg_stmt = (
             select(
                 func.sum(
@@ -2748,7 +2753,7 @@ async def get_spending_trends(
                         (
                             and_(
                                 BudgetTransaction.amount > 0,
-                                func.lower(BudgetCategoryGroup.name) == "income",
+                                BudgetCategoryGroup.is_income.is_(True),
                             ),
                             BudgetTransaction.amount,
                         ),
@@ -2761,7 +2766,7 @@ async def get_spending_trends(
                         (
                             and_(
                                 BudgetTransaction.amount > 0,
-                                func.lower(func.coalesce(BudgetCategoryGroup.name, "")) != "income",
+                                func.coalesce(BudgetCategoryGroup.is_income, False).is_(False),
                             ),
                             BudgetTransaction.amount,
                         ),
