@@ -16,11 +16,11 @@ below.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Remove committed secrets & data files, rotate credential | P1 | S | — | DONE (branch `advisor/001-remove-committed-secrets`, commit `6cdce31`; unmerged; **operator must rotate token**) |
-| 002 | Establish verification baseline (tests + CI) | P1 | M | — | DONE (branch `advisor/002-verification-baseline`, commit `2b3102d`; unmerged) |
-| 003 | Fix cross-household budget-category write (goals) | P1 | S | 002 | DONE (worktree branch `worktree-agent-a81b9af19827ccb38`, commit `8963eb7`; includes 002; unmerged) |
-| 004 | Harden `environment` default to fail-safe | P1 | S | 002 | DONE* (worktree branch `worktree-agent-a17f63364308afd62`, commit `bff2e38`; includes 002; unmerged) — *code complete & tested; `api/.env.example` doc line deferred to operator (blocked by repo `.env.*` deny rule; no agent can edit it) |
-| 005 | Stop leaking internal exception details to clients | P1 | S | 002 | DONE (worktree branch `worktree-agent-ad7d6e0c01ee59251`, commit `cf6c54f`; includes 002; unmerged) |
+| 001 | Remove committed secrets & data files, rotate credential | P1 | S | — | DONE & MERGED to `main` 2026-07-07 (commit `6cdce31` via merge `668f6bf`); leaked refresh token REVOKED by operator 2026-07-07 (`UPDATE refresh_tokens SET revoked_at = now()` on live DBs); token was also already past its 30-day TTL. History-purge deferred (low urgency now token is dead). |
+| 002 | Establish verification baseline (tests + CI) | P1 | M | — | MERGED to `main` 2026-07-07 (commit `2b3102d` via merge `ef55b12`); 13 tests green |
+| 003 | Fix cross-household budget-category write (goals) | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `8963eb7` via merge `a3835a0`) |
+| 004 | Harden `environment` default to fail-safe | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `bff2e38` via merge `fa41316`); *`api/.env.example` doc line still deferred to operator (blocked by repo `.env.*` deny rule)* |
+| 005 | Stop leaking internal exception details to clients | P1 | S | 002 | MERGED to `main` 2026-07-07 (commit `cf6c54f` via merge `e8423a7`) |
 | 006 | Characterize recurring-todo completion (tests) | P1 | S | 002 | TODO |
 | 007 | Make recurring-todo completion atomic & idempotent | P1 | S | 006 (→002) | TODO |
 | 008 | Batch note backlink resolution (N+1) | P2 | S | 002 | TODO |

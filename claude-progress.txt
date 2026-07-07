@@ -3343,3 +3343,39 @@ Left: execute Phase 1–2 on the Windows machine; write
   .claude/skills/verify-hearth-change skill during Phase 3.
 Recommended next: after env bring-up, first supervised /goal run on a small
   feature_list.json entry.
+
+=== 2026-07-07 — Infrastructure session (merge advisor/improve branches) ===
+Worked on: merging the 5 completed improve-skill plan branches into main.
+Status: complete (merged, tests green); one operator follow-up outstanding.
+Commits: 5 merge commits on main (ef55b12, a3835a0, fa41316, e8423a7, 668f6bf);
+  main now at 668f6bf. Safety tag backup/pre-merge-2026-07-07 at 49057f8.
+
+What was done:
+  Merged --no-ff, in dependency order, all sharing base 1977b97 and the
+  identical 002 commit 2b3102d (so no conflicts except a trivial main.py
+  auto-merge in 005):
+    002 advisor/002-verification-baseline   (pytest baseline + CI gate)
+    003 worktree-agent-a81b9af19827ccb38     (cross-household budget fix)
+    004 worktree-agent-a17f63364308afd62     (environment fail-safe default)
+    005 worktree-agent-ad7d6e0c01ee59251     (generic 500, no exc leak)
+    001 advisor/001-remove-committed-secrets (untrack cookies.txt, *.db, *.crt;
+        broaden .gitignore)
+  Verified: plans/ survived the 001 merge (added-on-main vs untouched-on-branch);
+  no sensitive files tracked; working tree clean; `pytest tests/` = 13 passed.
+  Updated plans/README.md status rows 001-005 to MERGED.
+
+Left / operator follow-ups:
+  - ROTATE the leaked JWT refresh token (was in cookies.txt): revoke the
+    refresh_tokens row or rotate JWT_SECRET_KEY. Merge only stopped future
+    tracking; the token is still live in git history. THIS IS STILL OPEN.
+  - Optional: git-history purge (filter-repo/BFG) of the four ex-secret files.
+  - Check life_dashboard.db / api/test_boot.db contents weren't real PII.
+  - api/.env.example ENVIRONMENT doc line (plan 004) — blocked by .env.* deny
+    rule; operator edit.
+  - Delete merged local branches + worktrees (advisor/00{1,2}, the 3 worktree-
+    agent-* fix branches) once satisfied.
+  - Not pushed to origin/main yet — awaiting user.
+
+Recommended next: plans 006 then 007 (recurring-todo characterization then
+atomicity), then 008/009/010 (N+1 + income classification). All unblocked now
+that 002 is on main.
