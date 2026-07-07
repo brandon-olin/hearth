@@ -182,13 +182,22 @@ async def update_todo(
     actor_id: uuid.UUID | None = None,
 ) -> TodoResponse | None:
     result = await db.execute(
-        select(Todo).where(Todo.id == todo_id, Todo.household_id == household_id)
+        select(Todo)
+        .where(Todo.id == todo_id, Todo.household_id == household_id)
+        .with_for_update()
     )
     todo = result.scalar_one_or_none()
     if todo is None:
         return None
 
-    # Capture the previous assignee before we apply the update.
+    # Capture prior state BEFORE the setattr loop overwrites it. The prior
+    # status gates the recurrence spawn below so a repeated status="done" PATCH
+    # (mobile double-tap, retried request, background refetch) can't spawn a
+    # second next instance. The row lock above serialises concurrent completers
+    # on Postgres, so only the first — the one that still sees a not-yet-done
+    # prior status — spawns. (SQLite ignores the lock; the prior-status gate
+    # alone fixes the double-submit case there.)
+    prev_status = todo.status
     prev_assignee = todo.assigned_to_user_id
 
     for field in data.model_fields_set:
@@ -209,6 +218,7 @@ async def update_todo(
     if (
         "status" in data.model_fields_set
         and data.status == "done"
+        and prev_status != "done"  # only on a real pending → done transition
         and todo.recurring
     ):
         rule = todo.recurring
