@@ -3420,3 +3420,30 @@ Recommended next: execute plan 011 (highest-severity hole: overlapping Teller
 syncs can duplicate money rows), then 012/013 in parallel. After this batch,
 next backlog candidates: #14 list_habits unbounded, #16 auto_categorize perf,
 #17 python-jose → PyJWT.
+
+=== 2026-07-07 — Coding session (plan 011 — import dedup DB constraint) ===
+Worked on: plan 011 (audit #13) — race-safe import dedup at the DB.
+Status: complete (branch advisor/011-db-unique-import-dedup, unmerged at commit
+  time; operator must run `alembic upgrade head` on live DBs).
+What was done:
+  - budget/models.py: BudgetTransaction.__table_args__ adds partial unique index
+    uq_budget_txn_account_external_id on (account_id, external_id) WHERE
+    external_id IS NOT NULL (postgresql_where + sqlite_where). Declared on the
+    model so create_all builds it in tests. Imported Index, text.
+  - migrations/versions/0042_transaction_external_id_unique.py (down_revision
+    0041): duplicate pre-check raises RuntimeError listing dup pairs BEFORE
+    create_index — never deletes money rows. downgrade drops the index.
+  - budget/service.py: bulk_import_transactions now inserts each row inside
+    `async with db.begin_nested():` + flush, converting IntegrityError → skip so
+    a race on one row doesn't abort the batch. Imported IntegrityError.
+  - tests/test_import_dedup_constraint.py: 3 tests (DB rejects duplicate
+    external_id; bulk import skips a conflict; NULL external_id unconstrained).
+Verification: new tests 3 passed; full suite 26 passed; alembic heads → single
+  head 0042 (0040→0041→0042); ruff tests clean; src ruff unchanged (service
+  32→32, models 11→11).
+Left / operator: run `alembic upgrade head` on local + cloud DBs (migration
+  aborts loudly if pre-existing (account_id, external_id) dupes exist — resolve
+  manually first). The IntegrityError→skip conversion is review-verified (true
+  cross-session race not unit-testable single-threaded).
+Recommended next: plan 012 (create_transaction double-submit guard, audit #19)
+  then 013 (_maybe_check_thresholds rollback, #15).
