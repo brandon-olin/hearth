@@ -447,7 +447,7 @@ async def _log_unhandled_exception(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=500,
-        content={"detail": f"{type(exc).__name__}: {exc}"},
+        content={"detail": "Internal server error"},
     )
 
 _cors_origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
