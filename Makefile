@@ -2,10 +2,21 @@
         service-install service-uninstall service-start service-stop service-restart service-status service-logs \
         bot-install bot-uninstall bot-start bot-stop bot-restart bot-status bot-logs \
         hook-install hook-uninstall sync-todos \
-        desktop desktop-dev desktop-api desktop-web
+        desktop desktop-dev desktop-api desktop-web \
+        test lint check
 
 api:
 	cd api && .venv/bin/uvicorn life_dashboard.main:app --reload --port 1339
+
+test:
+	cd api && .venv/bin/python -m pytest
+
+lint:
+	cd api && .venv/bin/python -m ruff check tests
+	-cd web && npm run lint
+
+check: lint test
+	cd web && npx tsc --noEmit
 
 web:
 	@if lsof -ti:1337 >/dev/null 2>&1; then \
