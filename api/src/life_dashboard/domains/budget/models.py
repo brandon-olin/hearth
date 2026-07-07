@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, Numeric, String, Text, Uuid
+from sqlalchemy import Index, text
 from sqlalchemy import Enum as SaEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -326,6 +327,22 @@ class BudgetTransaction(Base):
     used as a secondary dedup key when available.
     """
     __tablename__ = "budget_transactions"
+    __table_args__ = (
+        # Enforce per-account uniqueness of the bank's transaction id at the DB,
+        # so two racing imports can't both insert the same bank txn (the in-memory
+        # set check in bulk_import_transactions is not race-safe). Partial index:
+        # manual/CSV rows have NULL external_id and are intentionally unconstrained
+        # (dedup_hash is app-level only — see bulk_import_transactions). Declared on
+        # the model so create_all builds it in tests, mirroring migration 0042.
+        Index(
+            "uq_budget_txn_account_external_id",
+            "account_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+            sqlite_where=text("external_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(

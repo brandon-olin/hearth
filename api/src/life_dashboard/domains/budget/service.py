@@ -24,6 +24,7 @@ from datetime import date as date_type, datetime, timezone
 from typing import Any
 
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.domains.budget.models import (
@@ -2388,7 +2389,17 @@ async def bulk_import_transactions(
             dedup_hash=dedup_hash,
             running_balance=t.running_balance,
         )
-        db.add(txn)
+        # Insert inside a SAVEPOINT so a unique-index hit on this one row (a
+        # concurrent import already wrote the same account_id/external_id — the
+        # race the in-memory set above can't catch) rolls back just this row and
+        # is treated as a skip, without aborting the whole batch.
+        try:
+            async with db.begin_nested():
+                db.add(txn)
+                await db.flush()
+        except IntegrityError:
+            skipped += 1
+            continue
 
         if t.external_id:
             existing_external_ids.add(t.external_id)
