@@ -3467,3 +3467,35 @@ Verification: 3 new tests pass; full suite 29 passed; ruff tests exit 0; src
 Also: marked plan 011 row MERGED + migration 0042 applied to Railway (operator
   confirmed alembic current → 0042 head); local SQLite path noted.
 Left: plan 013 (_maybe_check_thresholds rollback, audit #15) — next.
+
+=== 2026-07-07 — Coding session (plan 013 — threshold-check session safety) ===
+Worked on: plan 013 (audit #15) — _maybe_check_thresholds must not corrupt the
+  caller's session when the (best-effort) threshold check fails.
+Status: complete WITH DEVIATION from the plan (see below); branch
+  advisor/013-threshold-check-rollback.
+DEVIATION (important): the plan prescribed `await db.rollback()` in the except
+  block. Verified that regresses the real callers: a bare rollback expires ALL
+  ORM objects in the session, so create_transaction's just-committed `txn`
+  becomes expired and the subsequent `model_validate(txn)` raises (probed live —
+  create_transaction RAISED ValidationError on the threshold-failure path).
+  Instead wrapped the threshold check in `async with db.begin_nested()` (a
+  SAVEPOINT): a failure rolls back only the savepoint, leaving the outer
+  transaction clean and the caller's committed objects intact. Confirmed
+  check_budget_thresholds does not commit/rollback internally, so the savepoint
+  wrap is safe. This meets the plan's actual goal ("helper never affects the
+  caller's session state") without the regression.
+What was done:
+  - budget/service.py _maybe_check_thresholds: try body now
+    `async with db.begin_nested(): await check_budget_thresholds(...)` then
+    `await db.commit()`; except only logs (no db.rollback()).
+  - tests/test_threshold_check_rollback.py: 3 tests — (1) helper leaves session
+    usable after a failure; (2) happy path still runs + commits; (3) REAL guard:
+    create_transaction returns a valid response and persists the row despite a
+    threshold failure (the regression the plan's approach would have shipped).
+Verification: 3 new tests pass; full suite 32 passed; ruff tests exit 0; src
+  ruff unchanged 32→32.
+Left: none for this batch. All planned audit items (001-013) now complete.
+Recommended next: fresh planning pass over remaining "Findings not yet planned"
+  (habits N+1 #14, auto_categorize #16, python-jose→PyJWT #17, get_spending_trends
+  2-queries/month #9, project progress waterfall #18, budget god-module split #20,
+  the lint-debt cleanup).
