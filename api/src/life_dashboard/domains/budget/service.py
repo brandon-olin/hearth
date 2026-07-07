@@ -1057,6 +1057,7 @@ async def auto_budget_fixed_categories(
         return []
 
     # Accumulate monthly expense totals per category
+    category_ids = [cat.id for cat in categories]
     period_totals: dict[uuid.UUID, list[float]] = {cat.id: [] for cat in categories}
 
     for yr, mo in periods:
@@ -1065,19 +1066,27 @@ async def auto_budget_fixed_categories(
         date_from = _d2(yr, mo, 1)
         date_to   = _d2(yr, mo, last_day)
 
-        for cat in categories:
-            stmt = select(func.sum(BudgetTransaction.amount)).where(
+        # One grouped query per period sums every category at once, replacing a
+        # per-category N+1 (periods × categories round-trips → periods). Same
+        # filters and abs()/skip-zero logic as before; see performance.md.
+        stmt = (
+            select(
+                BudgetTransaction.category_id,
+                func.sum(BudgetTransaction.amount).label("total"),
+            )
+            .where(
                 BudgetTransaction.household_id == household_id,
-                BudgetTransaction.category_id == cat.id,
+                BudgetTransaction.category_id.in_(category_ids),
                 BudgetTransaction.date >= date_from,
                 BudgetTransaction.date <= date_to,
                 BudgetTransaction.amount < 0,          # expenses only (negative = spend)
                 BudgetTransaction.is_transfer == False,  # noqa: E712
             )
-            result = await db.execute(stmt)
-            total = result.scalar_one_or_none()
+            .group_by(BudgetTransaction.category_id)
+        )
+        for cat_id, total in (await db.execute(stmt)).all():
             if total is not None and total != 0:
-                period_totals[cat.id].append(abs(float(total)))
+                period_totals[cat_id].append(abs(float(total)))
 
     # Compute averages and persist
     updated: list[dict] = []
