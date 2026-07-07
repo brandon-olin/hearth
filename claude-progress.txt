@@ -3447,3 +3447,23 @@ Left / operator: run `alembic upgrade head` on local + cloud DBs (migration
   cross-session race not unit-testable single-threaded).
 Recommended next: plan 012 (create_transaction double-submit guard, audit #19)
   then 013 (_maybe_check_thresholds rollback, #15).
+
+=== 2026-07-07 — Coding session (plan 012 — create_transaction retry guard) ===
+Worked on: plan 012 (audit #19) — double-submit guard on manual transaction create.
+Status: complete (branch advisor/012-create-transaction-retry-guard).
+What was done:
+  - budget/service.py: new module constant CREATE_TXN_RETRY_WINDOW_SECONDS=120.
+    create_transaction now, after computing dedup_hash, queries for an existing
+    non-archived txn with the same (account_id, dedup_hash) created within the
+    window and returns it (idempotent) instead of inserting a duplicate money
+    row. No unique constraint on dedup_hash — deliberate same-day duplicates
+    outside the window still insert (two same-price coffees). Added UTC to the
+    datetime import; window uses datetime.now(UTC) (ruff-clean, keeps src count).
+  - tests/test_create_transaction_retry_guard.py: 3 tests (double-submit → same
+    id / 1 row; distinct amounts → 2 rows; identical row older than window does
+    not block a new insert).
+Verification: 3 new tests pass; full suite 29 passed; ruff tests exit 0; src
+  ruff count unchanged (service 32→32).
+Also: marked plan 011 row MERGED + migration 0042 applied to Railway (operator
+  confirmed alembic current → 0042 head); local SQLite path noted.
+Left: plan 013 (_maybe_check_thresholds rollback, audit #15) — next.

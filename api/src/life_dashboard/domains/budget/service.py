@@ -20,7 +20,7 @@ import hashlib
 import io
 import re
 import uuid
-from datetime import date as date_type, datetime, timezone
+from datetime import UTC, date as date_type, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
@@ -83,6 +83,12 @@ from life_dashboard.core.settings import settings
 # Maximum profiles per household on the free tier (Personal + Household = 2).
 # Additional profiles (e.g. Business) are a paid-tier feature.
 FREE_TIER_MAX_PROFILES = 2
+
+# Window within which an identical manual create is treated as a client retry
+# (double-tap / network retry / background refetch) rather than a deliberate
+# duplicate. Two genuinely-identical manual transactions are almost never
+# entered twice within this window; retries always are.
+CREATE_TXN_RETRY_WINDOW_SECONDS = 120
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1931,6 +1937,28 @@ async def create_transaction(
         scope = "private" if account.scope == "personal" else "shared"
 
     dedup_hash = _compute_dedup_hash(data.account_id, data.date, data.amount, data.description)
+
+    # Retry guard: an identical create on the same account within the window is
+    # a double-submit (double-tap / retry / refetch), not a deliberate
+    # duplicate — return the existing row instead of inserting a second money
+    # row. Deliberate same-day duplicates are still possible outside the window,
+    # so this is a window guard, not a unique constraint on dedup_hash.
+    window_start = datetime.now(UTC) - timedelta(
+        seconds=CREATE_TXN_RETRY_WINDOW_SECONDS
+    )
+    recent_stmt = (
+        select(BudgetTransaction)
+        .where(
+            BudgetTransaction.account_id == data.account_id,
+            BudgetTransaction.dedup_hash == dedup_hash,
+            BudgetTransaction.created_at >= window_start,
+            BudgetTransaction.archived_at.is_(None),
+        )
+        .limit(1)
+    )
+    existing = (await db.execute(recent_stmt)).scalar_one_or_none()
+    if existing is not None:
+        return BudgetTransactionResponse.model_validate(existing)
 
     txn = BudgetTransaction(
         household_id=household_id,
