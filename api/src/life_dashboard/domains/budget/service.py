@@ -1906,7 +1906,14 @@ async def _maybe_check_thresholds(
     if txn_date is None or txn_date.year != today.year or txn_date.month != today.month:
         return
     try:
-        await check_budget_thresholds(db, household_id)
+        # Contain the threshold check in a SAVEPOINT so that if it raises after
+        # issuing SQL, only its partial work is rolled back — the outer
+        # transaction stays clean and the caller's already-committed objects are
+        # left intact. A bare `await db.rollback()` here would expire the
+        # caller's just-created txn, breaking its serialization on return
+        # (e.g. create_transaction's `model_validate(txn)`). See plan 013.
+        async with db.begin_nested():
+            await check_budget_thresholds(db, household_id)
         await db.commit()
     except Exception as exc:
         import logging as _logging
