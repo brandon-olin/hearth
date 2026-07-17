@@ -88,12 +88,22 @@ MAILGUN_DOMAIN=...
 
 ### Migrations
 
-Run against Neon **before** deploying new API code:
+**Automated on cloud (as of 2026-07-17):** `api/railway.json` sets Railway's
+`preDeployCommand` to `alembic upgrade head`. On every push to main, Railway builds the
+image, runs pending migrations against Neon (in a one-off container with the service's env
+vars, so `DATABASE_URL` is present), and only then swaps in the new deploy. A failed
+migration aborts the deploy — old code keeps serving. Note: config-as-code overrides
+dashboard settings for the fields it defines.
+
+Manual fallback (also the self-hosted Docker Compose pattern):
 
 ```bash
 cd api
 DATABASE_URL="postgresql+asyncpg://..." alembic upgrade head
 ```
+
+Local tier already auto-migrates: `infra/scripts/run-api.sh` runs `alembic upgrade head`
+before starting uvicorn.
 
 Railway's filesystem is ephemeral — never reference local file paths in env vars for cloud deploys.
 
