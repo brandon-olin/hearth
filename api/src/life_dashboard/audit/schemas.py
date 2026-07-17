@@ -10,10 +10,12 @@ class AuditSource(str, Enum):
 
     web    — a logged-in browser session (token_id is NULL).
     mcp    — an MCP tool call authenticated by a PAT.
+    voice  — an Alexa (or other voice-platform) intent authenticated by a PAT.
     script — a maintenance/seed script authenticated by a PAT.
     """
     web = "web"
     mcp = "mcp"
+    voice = "voice"
     script = "script"
 
 

@@ -9,6 +9,7 @@ import { FocusOverlay } from "@/components/focus/focus-overlay";
 import { LocaleDetectedBanner } from "@/components/locale-detected-banner";
 import { CurrentResourceProvider } from "@/lib/chat-context/current-resource";
 import { LoadingScreen } from "@/components/ui/loading-screen";
+import { InvalidationStream } from "@/lib/realtime/invalidation-stream";
 
 export default function ProtectedLayout({
   children,
@@ -37,6 +38,9 @@ export default function ProtectedLayout({
   return (
     <FocusModeProvider>
       <CurrentResourceProvider>
+        {/* realtime-001: subscribe to the SSE invalidation stream so writes on
+            other devices refetch here. Renders nothing. */}
+        <InvalidationStream />
         <Shell>{children}</Shell>
         <FocusOverlay />
         {localeAutoDetected && (

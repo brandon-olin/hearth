@@ -3883,3 +3883,181 @@ Left / next: frontend consent screen at /oauth/authorize (web) and a token-
   now unblocked (its account-linking dependency on security-007 is satisfied).
 Recommended next: voice-002 (Alexa skill) or the settings household-agent
   provisioning UI.
+
+=== 2026-07-17 — Coding session ===
+Feature: realtime-001 — internal event bus + SSE invalidation stream for
+  real-time UI. Status: COMPLETE (feature_list passes=true).
+
+What was built (backend — new events/ package):
+  - bus.py    — in-process asyncio pub/sub keyed by household_id. EventBus fans
+                an InvalidationEvent out to per-connection asyncio.Queues.
+                Publishing is synchronous/non-blocking (put_nowait) so it is
+                safe to call from a SQLAlchemy after_commit handler in the loop
+                thread. On a full queue (stalled client) it evicts the oldest
+                item and injects a RESYNC sentinel so the client refetches
+                broadly on recovery rather than silently missing an event.
+                Skinny wire form = {type, id, action}; the visibility descriptor
+                (visibility/created_by/shared_with) rides on the event object
+                server-side only and is NEVER serialised to a client.
+  - scope.py  — can_see(event, user_id): the Python mirror of
+                core.visibility.apply_visibility_filter. household → everyone;
+                personal → creator; members → creator or listed. Unknown
+                visibility denies (conservative).
+  - emit.py   — the UNIVERSAL producer: after_flush captures household-scoped
+                inserts/updates/deletes as descriptors; after_commit publishes
+                them (deduped by entity, last action wins); after_rollback
+                discards. Zero per-service wiring — every one of the 25
+                household_id-bearing tables emits automatically. Deny-set skips
+                audit_log. Caveat documented: child tables scoped only via a
+                parent (grocery_items, habit_occurrences, taggings) have no
+                household_id and don't emit directly.
+  - router.py — GET /realtime/stream: authenticated (web session; PATs are
+                denied by deny-by-default since /realtime maps to no PAT scope).
+                StreamingResponse of text/event-stream, per-connection scope
+                filter, 25s heartbeat, resync translation, unsubscribe in
+                finally. Mounted at /realtime (NOT /events — that's the calendar
+                router + calendar PAT scope).
+  Wired in main.py: importing events.router installs the after_commit producer
+  as a side effect; router included after auth/oauth.
+
+What was built (frontend):
+  - lib/realtime/invalidation-map.ts — entity table name -> React Query path
+    prefixes; the hook invalidates any cached query whose path startsWith a
+    prefix (covers list + detail + sub-routes; budget_* -> "/budget").
+  - lib/realtime/invalidation-stream.tsx — <InvalidationStream/> client
+    component. Opens the SSE stream via a fetch ReadableStream reader (EventSource
+    can't send the Bearer header; token from getAccessToken(), url from
+    apiBaseUrl so it works in web-proxy AND Tauri-direct builds). Parses frames,
+    invalidates on `invalidate`, invalidates all on `resync`, reconnects with
+    1s→30s backoff, aborts on unmount / user change. Mounted once in the
+    (protected) layout. The Next.js /api proxy already pipes text/event-stream
+    unbuffered.
+
+Commits this session: none yet (working tree; awaiting Brandon to commit/push).
+
+Tests: tests/test_realtime.py — 16 tests (bus fan-out/unsubscribe/full-queue-
+  resync/no-subscriber-noop; can_see for all visibilities incl. unknown-denies;
+  skinny wire form; after_commit publishes on real Tag commit; rollback emits
+  nothing; denylist + non-household tables skipped; SSE generator driven
+  directly — visible skinny frame, personal-event-of-another-member filtered,
+  resync translation, auth-gate 401). Full backend suite 189 passed. Frontend
+  tsc --noEmit clean. ruff F/E/I clean on events/ + test.
+  NOTE: SSE tests drive _event_stream directly rather than via httpx
+  ASGITransport — an infinite text/event-stream generator DEADLOCKS
+  ASGITransport (it buffers the whole body). Rule: never test an SSE/streaming
+  endpoint through httpx.ASGITransport; drive the generator or use a live server.
+
+Live end-to-end smoke (real uvicorn + curl, temp SQLite): opened
+  /realtime/stream, POSTed /todos (201), and the stream delivered
+  `event: invalidate  data: {"type":"todos","id":<the new id>,"action":"created"}`
+  — the full write→after_commit→bus→SSE chain over real HTTP, skinny payload,
+  no scope leak.
+
+Design notes:
+  - In-process bus is per-worker. On a multi-worker cloud deployment a write on
+    worker A won't reach an SSE client on worker B until the bus is swapped to
+    Postgres LISTEN/NOTIFY (the documented next step; publish/subscribe surface
+    is unchanged by that swap). Fine for local/self-hosted (single process).
+  - after_flush-capture + after_commit-publish guarantees no event is emitted
+    for a change that rolls back, and avoids touching expired attributes.
+
+Left / next: swap the in-process bus for Postgres LISTEN/NOTIFY for the cloud
+  tier (multi-worker fan-out); feed the same bus into the Home Assistant inbound
+  track (plans/open-hearth.md track 4) and notifications/automations; optionally
+  emit for high-value child writes (grocery item add, habit check-in).
+Recommended next: Home Assistant inbound track, or the LISTEN/NOTIFY swap.
+
+=== 2026-07-17 — Coding session ===
+Feature: voice-002 (Amazon Alexa skill — household voice control). Status: code
+  COMPLETE + automated-test verified; feature_list passes stays FALSE because the
+  remaining verification steps are external (Alexa Developer Console skill
+  creation, account-linking in the Alexa app, speaking to a physical Echo) and
+  can only be performed by Brandon. Unblocked by security-007 (OAuth 2.1), which
+  landed earlier today.
+
+Built (new package api/src/life_dashboard/voice/ — an integration surface like
+  mcp/ and oauth/, not a data domain):
+  - schemas.py — lenient Pydantic models for the Alexa Skills Kit request
+    envelope (PascalCase/camelCase keys via Field aliases, extra="ignore" so
+    Amazon's larger envelope never breaks the parser) + access_token/
+    application_id accessors + spoken-response builders (speak, link_account).
+  - auth.py — resolves the account-linking PAT to a PatIdentity and enforces the
+    SAME two-layer model as mcp/auth (token scope ∩ owning-member ceiling), incl.
+    cloud-tier per-token rate limiting. Its own VoiceAuthError carries a reason
+    (unauthenticated | invalid_token | denied) the router turns into speech.
+    Reuses public primitives (authenticate_token, check_scope, check_permission,
+    load_household_permissions, SCOPE_TO_PERMISSION_DOMAIN) and the PatIdentity
+    dataclass; parallels mcp/auth deliberately (that reads a Bearer header, this
+    reads the token from the request JSON).
+  - signature.py — Alexa request verification: applicationId match (cheap, always
+    on when alexa_skill_id set), timestamp freshness (±150s), and RSA-SHA1
+    signature over the raw body against the SignatureCertChainUrl cert (validates
+    the S3 URL to block SSRF, cert validity window + echo-api.amazon.com SAN,
+    caches the key). Full RSA path gated by settings.alexa_verify_signature
+    (needs S3 egress → off local/self-hosted, on cloud).
+  - service.py — dispatch() + the four intents (AddGroceryItem, CreateTodo,
+    CheckInHabit, QueryTodos) plus Launch/Help/Stop/Cancel/Fallback. Each intent
+    calls the SAME idempotent domain-service functions the MCP write tools use
+    (create_todo_idempotent, add_grocery_item_idempotent, check_in_habit,
+    list_todos) so idempotency + the visibility model come for free; a genuine
+    write records a source="voice" audit row (actor null for a household-agent
+    pseudo-member, mirroring mcp.audit_hook). Voice only ever creates SHARED
+    to-dos, never personal. Missing slots / unknown habits / empty lists all get
+    a spoken explanation, never an error (no screen to fall back to).
+  - router.py — POST /voice/alexa: raw-body signature check (when enabled) →
+    parse → applicationId/timestamp gate → service.dispatch. Security failures
+    return a bare non-200 (Amazon treats as failure); user-facing outcomes are
+    200s with speech. No IP rate limit (all Alexa traffic shares AWS egress IPs);
+    abuse is bounded per-token in auth instead.
+
+Hooks / edits:
+  - core/settings.py — added alexa_skill_id (default None) and
+    alexa_verify_signature (default False).
+  - audit/schemas.py — added AuditSource.voice (additive; source column is
+    String(16), read side is a plain str, so non-breaking).
+  - main.py — import + include voice_router (ruff also re-sorted the first-party
+    import block, which had a latent isort issue once the new import was added).
+  - No migration needed (no schema change).
+
+Docs: docs/alexa-skill-setup.md — the self-build guide the feature requires:
+  console skill creation, interaction-model JSON (4 intents + slots), HTTPS
+  endpoint config, request-verification env vars, OAuth account linking on the
+  cloud tier (+ /oauth/register curl) and PAT-paste caveats on self-hosted,
+  test-without-an-Echo (simulator + curl), private-skill submission, revocation,
+  and a troubleshooting table.
+
+Tests: api/tests/test_voice_alexa.py — 23 tests. Account-linking (no token →
+  LinkAccount card; revoked token → graceful "trouble connecting" + card, nothing
+  written), all four intents + idempotency, missing-slot spoken not errored,
+  Launch/Help/Stop/unknown-fallback, scope+ceiling gating (read-only token can
+  query but not write), audit attribution (source="voice", deduped write logs no
+  2nd row), applicationId gate (wrong id → 400, match → 200), malformed body →
+  400, and pure verifier unit tests (applicationId, timestamp window, cert-URL
+  SSRF rejections). Full backend suite: 189 passed (~5s), ruff clean on all new
+  files (E/F/I). Kept timezone.utc for codebase consistency (UP017 is not
+  enforced — committed code violates it project-wide).
+
+Note: the working tree already contained uncommitted realtime-001 work (events/,
+  tests/test_realtime.py, its main.py lines) before this session — NOT part of
+  voice-002; left untouched. (An intermittent full-suite hang seen once was a
+  stuck leftover pytest process from iterative runs, not reproducible: 6+ clean
+  189-passed runs afterward.)
+
+Commits this session: none (working tree; awaiting Brandon to commit/push).
+
+Left / next: voice-002's external verification (Alexa console + Echo) is Brandon's
+  to run per docs/alexa-skill-setup.md; flip feature_list passes:true once the
+  physical account-linking + Echo steps check out. Recommended next: the settings
+  household-agent provisioning UI, or budget-023 (GoCardless bank linking).
+Addendum (same session, post-review): reviewer caught two issues, both fixed.
+  (1) CRITICAL subscriber leak — bus.subscribe() and the first `yield
+  ": connected"` were OUTSIDE the try/finally, so a teardown at that first
+  suspension point (the frontend AbortController races this on every unmount/
+  reconnect) skipped unsubscribe → permanent per-household subscriber leak +
+  publish churn. Fixed by moving subscribe + first yield inside the try.
+  Regression test asserts subscriber_count==0 after aclose-at-first-yield.
+  (2) Membership revocation mid-stream — auth was only checked at connect. Added
+  a periodic (30s) HouseholdMembership re-check inside the loop that closes the
+  stream if the member was removed; exposure to skinny type+id events is bounded
+  to 30s (and the data endpoints still 403/404 on refetch). Test covers
+  _still_a_member true→false on membership delete. Suite now 191 passed.

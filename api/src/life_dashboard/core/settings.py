@@ -93,5 +93,19 @@ class Settings(BaseSettings):
     # local/self-hosted tiers, where the caller is a trusted household.
     pat_rate_limit_per_minute: int = 300
 
+    # ── Amazon Alexa skill (voice-002) ────────────────────────────────────────
+    # The custom skill's application id (amzn1.ask.skill.…). When set, the Alexa
+    # webhook rejects any request whose applicationId does not match, so another
+    # person's skill can never drive this endpoint. Leave unset on local dev,
+    # where the skill id may not be known yet.
+    alexa_skill_id: str | None = None
+
+    # Cryptographically verify each Alexa request (Signature + SignatureCert-
+    # ChainUrl headers) and its timestamp freshness before trusting it. Requires
+    # outbound HTTPS to Amazon's S3 cert host, so it is off by default (local /
+    # self-hosted) and should be enabled on the internet-facing cloud tier where
+    # the endpoint is reachable from anyone who learns its URL.
+    alexa_verify_signature: bool = False
+
 
 settings = Settings()

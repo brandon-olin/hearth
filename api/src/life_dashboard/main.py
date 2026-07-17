@@ -46,12 +46,17 @@ from life_dashboard.domains.templates.router import collections_template_router
 from life_dashboard.domains.templates.router import router as templates_router
 from life_dashboard.domains.todos.router import router as todos_router
 from life_dashboard.domains.workouts.router import router as workouts_router
+
+# realtime-001: importing events installs the after_commit invalidation
+# producer (events/emit.py) as a side effect; the router is the SSE consumer.
+from life_dashboard.events.router import router as realtime_router
 from life_dashboard.households.router import router as households_router
 from life_dashboard.mcp import mcp_routes, mcp_server
 from life_dashboard.oauth.metadata import authorization_server_metadata
 from life_dashboard.oauth.router import router as oauth_router
 from life_dashboard.setup.router import router as setup_router
 from life_dashboard.uploads.router import router as uploads_router
+from life_dashboard.voice import router as voice_router
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +560,14 @@ app.include_router(auth_router)
 # registers the oauth_* tables on Base.metadata for the dev/sqlite create_all
 # path. Real deployments get those tables from migration 0045.
 app.include_router(oauth_router)
+# realtime-001: SSE invalidation stream at /realtime/stream. Web-session only
+# (deny-by-default keeps PATs out); the after_commit producer is installed by
+# the events import above.
+app.include_router(realtime_router)
+# voice-002: Alexa skill webhook at /voice/alexa. Authenticates via the account-
+# linking PAT (minted by the OAuth grant on the cloud tier, or pasted directly on
+# self-hosted) and drives the same domain services as the MCP write tools.
+app.include_router(voice_router)
 app.include_router(households_router)
 app.include_router(uploads_router)
 app.include_router(calendar_events_router)

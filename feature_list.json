@@ -1523,7 +1523,7 @@
         "Verify a write on one device triggers a React Query invalidation and refetch on another device",
         "Verify a member never receives an event for data outside their scope"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }
