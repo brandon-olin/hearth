@@ -20,6 +20,24 @@ class GroceryItemData(BaseModel):
     recipe_ingredient_id: uuid.UUID | None = None
 
 
+class GroceryItemAdd(BaseModel):
+    """Input for POST /grocery-lists/{id}/items — the single-item append route.
+
+    Deliberately narrower than GroceryItemData: it omits recipe_id /
+    recipe_ingredient_id. Those are FK columns set server-side by the
+    recipe→list flow; accepting them from an external caller (a Home Assistant
+    rest_command, an agent holding a scoped PAT) would let a bogus UUID trip an
+    FK constraint into an uncaught 500. Appending a plain shopping item never
+    needs recipe linkage.
+    """
+    name: str = Field(min_length=1)
+    quantity: Decimal | None = None
+    unit: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=200)
+    is_checked: bool = False
+    notes: str | None = None
+
+
 class GroceryItemResponse(GroceryItemData):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

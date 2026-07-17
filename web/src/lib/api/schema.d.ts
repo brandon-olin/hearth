@@ -1554,6 +1554,23 @@ export interface paths {
         patch: operations["update_grocery_list_grocery_lists__list_id__patch"];
         trace?: never;
     };
+    "/grocery-lists/{list_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Grocery Item */
+        post: operations["add_grocery_item_grocery_lists__list_id__items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/grocery-lists/{list_id}/items/{item_id}": {
         parameters: {
             query?: never;
@@ -5166,6 +5183,34 @@ export interface components {
             financial_link?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * GroceryItemAdd
+         * @description Input for POST /grocery-lists/{id}/items — the single-item append route.
+         *
+         *     Deliberately narrower than GroceryItemData: it omits recipe_id /
+         *     recipe_ingredient_id. Those are FK columns set server-side by the
+         *     recipe→list flow; accepting them from an external caller (a Home Assistant
+         *     rest_command, an agent holding a scoped PAT) would let a bogus UUID trip an
+         *     FK constraint into an uncaught 500. Appending a plain shopping item never
+         *     needs recipe linkage.
+         */
+        GroceryItemAdd: {
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity?: number | string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Category */
+            category?: string | null;
+            /**
+             * Is Checked
+             * @default false
+             */
+            is_checked: boolean;
+            /** Notes */
+            notes?: string | null;
         };
         /** GroceryItemData */
         GroceryItemData: {
@@ -10599,6 +10644,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GroceryListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_grocery_item_grocery_lists__list_id__items_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroceryItemAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroceryItemResponse"];
                 };
             };
             /** @description Validation Error */

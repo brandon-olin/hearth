@@ -28,9 +28,11 @@ import {
   LogOut,
   Shield,
   KeyRound,
+  Plug,
 } from "lucide-react";
 import { VisibilitySettingsSection } from "@/components/settings/visibility-settings-section";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
+import { HomeAssistantSection } from "@/components/settings/home-assistant-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
@@ -60,13 +62,14 @@ import {
 
 // ── Left nav ──────────────────────────────────────────────────────────────────
 
-type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections" | "tokens";
+type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections" | "tokens" | "integrations";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "household",   label: "Household",   icon: Home          },
   { id: "visibility",  label: "Visibility",  icon: Shield        },
   { id: "account",     label: "Account",     icon: User          },
   { id: "tokens",      label: "Access tokens", icon: KeyRound     },
+  { id: "integrations", label: "Integrations", icon: Plug        },
   { id: "navigation",  label: "Navigation",  icon: GripVertical  },
   { id: "appearance",  label: "Appearance",  icon: Palette       },
   { id: "templates",    label: "Templates",   icon: BookOpen      },
@@ -4490,6 +4493,7 @@ export default function SettingsPage() {
         {active === "navigation"  && <NavigationSection />}
         {active === "account"     && <AccountSection />}
         {active === "tokens"      && <AccessTokensSection />}
+        {active === "integrations" && <HomeAssistantSection />}
         {active === "household"   && isAdmin && <HouseholdSection />}
         {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}
         {active === "templates"   && <TemplatesSection />}
