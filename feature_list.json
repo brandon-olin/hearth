@@ -1322,7 +1322,7 @@
       "priority": 3,
       "phase": "later",
       "title": "Home Assistant integration \u2014 voice commands via REST API",
-      "description": "Expose a Home Assistant-compatible REST API that allows HA automations and the HA Assist voice assistant to interact with Hearth. Actions available via HA: add item to active grocery list, create a todo, check in a habit for today, query today's todo count. Each action maps to an existing Hearth API endpoint; HA calls them via a long-lived API token (new token type: integration_token with a restricted scope). Setup guide: users generate an integration token in Settings \u2192 Integrations, paste the Hearth base URL + token into a HA RESTful integration YAML block, then use HA automations or voice commands to trigger actions. No HA-side custom component needed \u2014 plain RESTful calls. Example: 'Hey Google, ask Home Assistant to add milk to the shopping list' \u2192 HA automation \u2192 POST /grocery-lists/{active_list_id}/items.",
+      "description": "Expose a Home Assistant-compatible REST API that allows HA automations and the HA Assist voice assistant to interact with Hearth. Actions available via HA: add item to active grocery list, create a todo, check in a habit for today, query today's todo count. Each action maps to an existing Hearth API endpoint; HA calls them via a long-lived API token (new token type: integration_token with a restricted scope). Setup guide: users generate an integration token in Settings \u2192 Integrations, paste the Hearth base URL + token into a HA RESTful integration YAML block, then use HA automations or voice commands to trigger actions. No HA-side custom component needed \u2014 plain RESTful calls. Example: 'Hey Google, ask Home Assistant to add milk to the shopping list' \u2192 HA automation \u2192 POST /grocery-lists/{active_list_id}/items. UPDATE (2026-07-17, reconstructed): the bespoke integration_token described above is superseded by Personal Access Tokens (security-006) \u2014 use a scoped PAT as the HA Bearer credential instead of a new token type. Testing note: exercise HA via a local Docker container (Home Assistant OS), no hardware required.",
       "steps": [
         "Navigate to Settings \u2192 Integrations \u2192 Home Assistant",
         "Generate an integration token \u2014 verify it appears once and cannot be retrieved again",
@@ -1340,7 +1340,7 @@
       "priority": 3,
       "phase": "later",
       "title": "Amazon Alexa skill \u2014 household voice control (self-build guide included)",
-      "description": "A custom Alexa skill that exposes core Hearth actions to Alexa voice commands. Supported intents: AddGroceryItem, CreateTodo, CheckInHabit, QueryTodos ('Alexa, ask Hearth to add milk to the shopping list', 'Alexa, ask Hearth how many todos I have today'). Architecture: the Alexa skill calls a Lambda function (or a public Hearth endpoint directly via HTTPS) which authenticates via an integration token (same token system as voice-001). Account linking uses Alexa's account linking flow to associate the user's Hearth account with their Alexa account. The skill must be submitted to the Alexa Skill Store for certification before it can be used on consumer Echo devices. IMPORTANT: the skill is self-published by the developer \u2014 it does not need to be listed publicly; it can be submitted as a 'private' skill available only to the developer's Amazon account for testing. Self-build guide in docs/alexa-skill-setup.md covers: creating the skill in the Alexa Developer Console, deploying the Lambda, and testing on a physical Echo without HA hardware.",
+      "description": "A custom Alexa skill that exposes core Hearth actions to Alexa voice commands. Supported intents: AddGroceryItem, CreateTodo, CheckInHabit, QueryTodos ('Alexa, ask Hearth to add milk to the shopping list', 'Alexa, ask Hearth how many todos I have today'). Architecture: the Alexa skill calls a Lambda function (or a public Hearth endpoint directly via HTTPS) which authenticates via an integration token (same token system as voice-001). Account linking uses Alexa's account linking flow to associate the user's Hearth account with their Alexa account. The skill must be submitted to the Alexa Skill Store for certification before it can be used on consumer Echo devices. IMPORTANT: the skill is self-published by the developer \u2014 it does not need to be listed publicly; it can be submitted as a 'private' skill available only to the developer's Amazon account for testing. Self-build guide in docs/alexa-skill-setup.md covers: creating the skill in the Alexa Developer Console, deploying the Lambda, and testing on a physical Echo without HA hardware. UPDATE (2026-07-17, reconstructed): the integration_token referenced here is superseded by Personal Access Tokens (security-006); Alexa account linking depends on security-007 (OAuth 2.1 in front of PATs) for the consumer account-linking flow.",
       "steps": [
         "Follow docs/alexa-skill-setup.md to create the skill in the Alexa Developer Console",
         "Deploy the Lambda function with the Hearth integration token",
@@ -1422,6 +1422,106 @@
         "Verify new households default to subscription_status='free', is_exempt=false",
         "Set is_exempt=true on the owner account in Neon \u2014 verify it persists",
         "Verify DEPLOYMENT_TIER=cloud is set in Railway and /app/config returns {deployment_tier: 'cloud'}"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-006",
+      "category": "Security",
+      "priority": 1,
+      "phase": "v1.1",
+      "title": "Personal Access Tokens (PATs) — long-lived scoped API tokens per member",
+      "description": "Foundation for the open-hearth initiative (plans/open-hearth/mcp-server.md): long-lived, revocable, scoped tokens so agents (MCP clients, Home Assistant, feeds) can authenticate without short-lived session JWTs. New personal_access_tokens table: id, user_id, name, token_hash (store hash only, never plaintext), prefix (display, e.g. hearth_pat_XXXX), scopes JSONB (domain -> read|write), created_at, expires_at, last_used_at, revoked_at. Token shown once at creation with hearth_pat_ prefix. Auth dependency accepts PATs alongside JWTs (detect by prefix); effective permission = member permission INTERSECT token scopes. Management endpoints under /auth/tokens (create/list/revoke) + settings UI page. Pattern references: Home Assistant long-lived access tokens, Gitea scoped tokens.",
+      "steps": [
+        "Run migration — verify personal_access_tokens table exists with hash-only storage (no plaintext column)",
+        "POST /auth/tokens — verify response returns full token exactly once, with hearth_pat_ prefix, and DB row stores only the hash",
+        "Call a protected read endpoint with the PAT as Bearer token — verify it authenticates and last_used_at updates",
+        "Call an endpoint outside the token's scopes — verify 403",
+        "Verify a PAT cannot exceed its owning member's permissions (restricted member's token cannot write shared/sensitive data)",
+        "GET /auth/tokens — verify list shows prefix, name, last_used_at but never the secret",
+        "DELETE /auth/tokens/{id} — verify revoked token immediately fails auth",
+        "Verify expired token fails auth with 401",
+        "Smoke-test all new endpoints end-to-end per project discipline before marking passes=true"
+      ],
+      "passes": true
+    },
+    {
+      "id": "security-007",
+      "category": "Security",
+      "priority": 2,
+      "phase": "cloud",
+      "title": "OAuth 2.1 in front of PATs — consumer agent connection & account linking",
+      "description": "RECONSTRUCTED (working-tree copy lost 2026-07-17). Cloud-tier follow-up to security-006. Hosted agent UIs and consumer voice platforms (the 'Connect Hearth' button, Alexa/Google account linking) increasingly expect OAuth 2.1 with dynamic client registration rather than a pasted Bearer token. Put an OAuth 2.1 authorization-code layer in front of the existing PAT primitive: the OAuth grant mints a scoped PAT under the hood, so downstream authorization stays identical (member ceiling INTERSECT token scope). Needed for voice-002 (Alexa account linking) and any hosted 'connect an agent' flow. Cloud-tier only; local/self-hosted continues to paste a PAT directly. Also needs per-token rate limiting on the cloud tier.",
+      "steps": [
+        "Implement the OAuth 2.1 authorization-code + PKCE flow with dynamic client registration",
+        "Verify a completed grant mints a scoped PAT and that requests authorize identically to a directly-issued PAT",
+        "Verify Alexa/Google account-linking completes against the flow and associates the household account",
+        "Verify per-token rate limiting is enforced on the cloud tier",
+        "Verify local/self-hosted tiers still accept a directly-pasted PAT with no OAuth requirement"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-008",
+      "category": "Security",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "Audit log — attributed record of agent and script writes",
+      "description": "RECONSTRUCTED (working-tree copy lost 2026-07-17). Bootstraps the currently-empty audit/ package. New audit_log table: id, household_id, actor_user_id (nullable for the household-agent pseudo-member), token_id (nullable — null = web session), source (web|mcp|script), action, entity_type, entity_id, payload JSONB (a summary, not the full row), created_at. audit.service.record(...) is called from a decorator wrapped around every MCP write tool so tool authors cannot forget it; web routes can adopt the same call later. get_current_user already attaches auth_source and pat_id (added in security-006) so writes can be attributed to a specific token. Surface is a settings 'Activity' page eventually; until then it is queryable. Pairs with mcp-002 (write tools) and the household-agent pseudo-member.",
+      "steps": [
+        "Run migration — verify audit_log table exists with nullable actor_user_id and token_id",
+        "Verify audit.service.record writes a row with source, action, entity_type, entity_id, and a payload summary",
+        "Verify the MCP write decorator records an audit row for every write tool call, attributed to the calling token",
+        "Verify a web-session write records source='web' with token_id null",
+        "Verify a household-agent pseudo-member write records actor_user_id null with the correct token_id"
+      ],
+      "passes": false
+    },
+    {
+      "id": "mcp-001",
+      "category": "Integrations",
+      "priority": 1,
+      "phase": "v1.1",
+      "title": "MCP server — read-only tool surface over household data",
+      "description": "RECONSTRUCTED (working-tree copy lost 2026-07-17). First track of the open-hearth initiative (plans/open-hearth/mcp-server.md). In-process FastMCP (official Python SDK) mounted into the existing FastAPI app as a sub-application — a /mcp streamable-HTTP endpoint on the API port. No separate daemon. MCP tools live in api/src/life_dashboard/mcp/ and call domain services directly (same rule as routers). Auth via Personal Access Tokens (security-006): the PAT is the Bearer credential and its scopes gate the tools. v1 is read-only: list_todos, list_habits (with streaks), get_grocery_list, list_calendar_events, get_household_summary. Budget, documents, and notes are excluded from v1 (sensitive-data concentration). Data-scope model is the agent permission model: an agent acting for a member sees shared + that member's personal data, never sensitive or other members' personal scope.",
+      "steps": [
+        "Mount FastMCP at /mcp in the FastAPI app — verify the streamable-HTTP endpoint responds",
+        "Authenticate an MCP client with a PAT — verify a token lacking the relevant scope cannot call the tool",
+        "Call list_todos / list_habits / get_grocery_list / list_calendar_events / get_household_summary — verify each returns household-scoped data via the domain services",
+        "Verify budget, documents, and notes are not exposed by any v1 tool",
+        "Verify an agent sees shared + owning-member personal scope only, never sensitive or other members' personal data"
+      ],
+      "passes": false
+    },
+    {
+      "id": "mcp-002",
+      "category": "Integrations",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "MCP write tools + household-agent pseudo-member",
+      "description": "RECONSTRUCTED (working-tree copy lost 2026-07-17). Write phase of the MCP track. Adds create/update tools (add todo, add grocery item, check-in habit, create calendar event) on top of mcp-001. Effective permission = member ceiling INTERSECT token scope (already enforced in the PAT auth dependency from security-006); writes must stay idempotent per the project idempotency principle since agent retries are real. Device identity is hybrid: personal devices use a member-owned token (the member's role ceiling applies automatically — a kid's bedroom speaker inherits the kid's restrictions); shared devices (kitchen speaker, household OpenClaw) use a household-agent pseudo-member token (restricted role: shared-scope reads/writes only, never personal or sensitive) for honest audit attribution and survival across member deactivation. The pseudo-member is never an assignee. Every write tool is wrapped by the audit decorator (security-008).",
+      "steps": [
+        "Add MCP write tools (add todo, add grocery item, check-in habit, create calendar event) calling domain services",
+        "Verify effective permission is member ceiling INTERSECT token scope (a restricted member's token cannot write shared scope)",
+        "Verify a double-submitted write is idempotent (no duplicate rows / no double recurrence)",
+        "Verify a household-agent pseudo-member token can write shared scope but never personal or sensitive scope",
+        "Verify every write tool records an audit_log row attributed to its token"
+      ],
+      "passes": false
+    },
+    {
+      "id": "realtime-001",
+      "category": "Infrastructure",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "Internal event bus + SSE invalidation stream for real-time UI",
+      "description": "RECONSTRUCTED (working-tree copy lost 2026-07-17). Bootstraps the currently-empty events/ package. In-process asyncio pub/sub keyed by household_id, swappable later to Postgres LISTEN/NOTIFY without changing producers/consumers. First consumer is a Server-Sent-Events stream that pushes skinny invalidation events (entity_type + id only, no payloads) to connected clients, scope-filtered per connection so a member never receives events for data they cannot see; the frontend maps an event to a React Query cache invalidation so other devices refetch. The same bus later feeds the Home Assistant inbound track (track 4 in plans/open-hearth.md) and notifications/automations. Cross-cutting decision recorded in plans/open-hearth.md.",
+      "steps": [
+        "Implement the in-process asyncio event bus in events/, keyed by household_id",
+        "Expose an authenticated SSE endpoint that streams events for the connected member only",
+        "Verify events are skinny (entity_type + id, no payloads) and scope-filtered per connection",
+        "Verify a write on one device triggers a React Query invalidation and refetch on another device",
+        "Verify a member never receives an event for data outside their scope"
       ],
       "passes": false
     }

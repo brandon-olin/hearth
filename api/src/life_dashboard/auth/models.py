@@ -113,6 +113,9 @@ class User(Base):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    personal_access_tokens: Mapped[list["PersonalAccessToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class HouseholdMembership(Base):
@@ -157,6 +160,44 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+
+class PersonalAccessToken(Base):
+    """Long-lived, scoped, revocable API token for agents (security-006).
+
+    Session JWTs are too short-lived for MCP clients, Home Assistant, and
+    iCal feeds. A PAT is issued per member, shown exactly once at creation,
+    and stored only as a SHA-256 hash — the plaintext is unrecoverable, so a
+    DB leak yields no usable credentials.
+
+    SHA-256 rather than argon2 (which guards `users.password_hash`) because
+    the secret is 256 bits of CSPRNG output, not a human-chosen password:
+    there is no dictionary to attack, so a slow KDF buys nothing and would
+    prevent the indexed hash lookup this table does on every agent request.
+    Same reasoning as RefreshToken above.
+    """
+    __tablename__ = "personal_access_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # User-supplied label, e.g. "Kitchen speaker".
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # SHA-256 of the full raw token. There is deliberately no plaintext column.
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    # Non-secret display fragment, e.g. "hearth_pat_a1b2c3d4" — lets a user tell
+    # two tokens apart in the management UI without exposing the secret.
+    prefix: Mapped[str] = mapped_column(String(40), nullable=False)
+    # { "<scope domain>": "read" | "write" } — see auth/pat_scopes.py.
+    scopes: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Throttled to one write per _LAST_USED_THROTTLE_SECONDS in pat_service.
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="personal_access_tokens")
 
 
 class PasswordResetToken(Base):

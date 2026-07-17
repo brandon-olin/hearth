@@ -27,8 +27,10 @@ import {
   Lock,
   LogOut,
   Shield,
+  KeyRound,
 } from "lucide-react";
 import { VisibilitySettingsSection } from "@/components/settings/visibility-settings-section";
+import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
@@ -58,12 +60,13 @@ import {
 
 // ── Left nav ──────────────────────────────────────────────────────────────────
 
-type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections";
+type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections" | "tokens";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "household",   label: "Household",   icon: Home          },
   { id: "visibility",  label: "Visibility",  icon: Shield        },
   { id: "account",     label: "Account",     icon: User          },
+  { id: "tokens",      label: "Access tokens", icon: KeyRound     },
   { id: "navigation",  label: "Navigation",  icon: GripVertical  },
   { id: "appearance",  label: "Appearance",  icon: Palette       },
   { id: "templates",    label: "Templates",   icon: BookOpen      },
@@ -4486,6 +4489,7 @@ export default function SettingsPage() {
         {active === "appearance"  && <AppearanceSection />}
         {active === "navigation"  && <NavigationSection />}
         {active === "account"     && <AccountSection />}
+        {active === "tokens"      && <AccessTokensSection />}
         {active === "household"   && isAdmin && <HouseholdSection />}
         {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}
         {active === "templates"   && <TemplatesSection />}
