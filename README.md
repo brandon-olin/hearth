@@ -84,7 +84,9 @@ life-dashboard/
 
 ## Open-source plan
 
-This repository is intended to be published as open source with a permissive core.
+This repository is published as open source under the AGPL-3.0 license (open core: the
+self-hosted product is fully functional and free forever; managed cloud hosting is the
+paid tier).
 
 Planned baseline repository files:
 
@@ -94,7 +96,7 @@ Planned baseline repository files:
 - `SECURITY.md`
 - `CODE_OF_CONDUCT.md`
 
-A license is required if you want others to legally use, modify, and share the code. If you choose MIT, others may also use the code commercially as long as they retain the copyright and license notice.
+The AGPL-3.0 lets anyone use, modify, self-host, and share Hearth freely — including commercially. Its one distinctive requirement: anyone who runs a modified version as a network service must make their modified source available to that service's users. Self-hosting households are unaffected; the clause exists to keep hosted derivatives open.
 
 ## Roadmap
 
@@ -113,4 +115,6 @@ Contribution guidelines are not finalized yet. For now, the project is still in 
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the `LICENSE` file for details.
+
+Versions of this repository prior to 2026-07-17 were published under the MIT License; those historical snapshots remain MIT-licensed. All releases from 2026-07-17 onward are AGPL-3.0.
