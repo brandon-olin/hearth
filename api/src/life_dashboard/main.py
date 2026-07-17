@@ -43,6 +43,9 @@ from life_dashboard.core.database import AsyncSessionLocal, create_all_tables, e
 from life_dashboard.core.rate_limit import limiter
 from life_dashboard.core.settings import settings
 from life_dashboard.mcp import mcp_routes, mcp_server
+# Register the audit_log table on Base.metadata so the dev/sqlite create_all path
+# builds it (security-008). Real deployments get it from migration 0044.
+import life_dashboard.audit.models  # noqa: F401,E402
 
 logger = logging.getLogger(__name__)
 

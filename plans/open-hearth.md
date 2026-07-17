@@ -37,7 +37,7 @@ Guiding constraints, inherited from root CLAUDE.md:
 Sequenced in dependency order — earlier tracks settle decisions later tracks inherit
 (MCP forces the scoped-token design; HA inbound forces the event bus).
 
-### 1. MCP server — *ACTIVE*
+### 1. MCP server — *ACTIVE — v1 SHIPPED 2026-07-17 (security-006 + mcp-001); write phase building*
 
 Any agent (Claude, OpenClaw, etc.) gets structured access to the household via a first-class
 MCP server. Tools map 1:1 to existing service functions. Data-scope model = agent permission
@@ -67,7 +67,7 @@ Read-only iCal feed URLs first (one GET endpoint per feed, secret-token auth, ~c
 RSS for meal plans/routines if useful. Full two-way CalDAV/CardDAV is a real protocol
 implementation — deferred until feeds prove demand.
 
-### 4. Home Assistant integration — *NOT STARTED*
+### 4. Home Assistant integration — *PARTIAL — REST bridge (voice-001) shipped 2026-07-17; inbound/event bus pending (realtime-001)*
 
 Integrate, don't compete: HA owns devices, Hearth owns the people layer.
 
@@ -98,7 +98,7 @@ Coordinate with `plans/marketing-site-spec.md`.
 
 | Decision | Status | Notes |
 |---|---|---|
-| License (AGPL vs current) | **OPEN — decide early** | Retrofitting AGPL later requires contributor consent; cheapest decided now. |
+| License | **DECIDED 2026-07-17: AGPL-3.0** | Switched from MIT while Brandon is sole copyright holder. LICENSE + README updated. Prior snapshots remain MIT. Add DCO/CLA before first outside contributor for future flexibility. |
 | Scoped API token design | OPEN — MCP track owns this | Per-member tokens with scope claims; reused by feeds, HA, federation. |
 | Internal event bus | DIRECTION SET — filed as `realtime-001` | `events/` package. In-process asyncio pub/sub keyed by household; swappable to PG LISTEN/NOTIFY. Consumers: real-time UI (SSE invalidation), HA track, notifications/automations later. |
 | MCP transport & mounting | OPEN — MCP track owns this | FastMCP mounted in FastAPI vs separate process; localhost (tier 1) vs Tailscale HTTP (tier 2). |
@@ -123,6 +123,12 @@ Coordinate with `plans/marketing-site-spec.md`.
 - **2026-07-17** — Doc created from initial brainstorm session. MCP track opened.
 - **2026-07-17** — MCP decisions 1–4 recorded (in-process mount, PATs, read-only v1,
   permission = member ∩ token). Track doc created at `plans/open-hearth/mcp-server.md`.
+- **2026-07-17** — SHIPPED: security-006 (PATs), mcp-001 (read-only MCP server), voice-001
+  (HA REST bridge) — all merged to main, passes=true. mcp-002 + security-008 building.
+- **2026-07-17** — LICENSE DECIDED: switched MIT → AGPL-3.0 (sole-author window, zero
+  consent needed). Future HA integration path noted: HACS custom integration with UI config
+  flow + zeroconf discovery replaces YAML/token paste; core-HA upstream submission as the
+  long-term option.
 - **2026-07-17** — Event bus direction set via `realtime-001` (feature_list.json):
   bus + SSE invalidation stream for real-time UI; skinny events (no payloads), scope-filtered
   per connection. Same bus feeds HA inbound (track 4) when that track opens.

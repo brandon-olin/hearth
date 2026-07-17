@@ -21,6 +21,7 @@ if config.config_file_name is not None:
 # Every models module must be imported here for alembic autogenerate to see it.
 import life_dashboard.auth.models  # noqa: F401
 import life_dashboard.ai.models  # noqa: F401
+import life_dashboard.audit.models  # noqa: F401
 import life_dashboard.domains.calendar_events.models  # noqa: F401
 import life_dashboard.domains.contacts.models  # noqa: F401
 import life_dashboard.domains.documents.models  # noqa: F401
