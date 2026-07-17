@@ -79,5 +79,19 @@ class Settings(BaseSettings):
     #   cloud       — Vercel + Railway; invites send a Mailgun email, no temp password shown.
     deployment_tier: str = "local"  # local | self_hosted | cloud
 
+    # ── OAuth 2.1 in front of PATs (security-007, cloud tier only) ─────────────
+    # Expiry, in days, of a PAT minted by a completed OAuth grant. None = never
+    # expires (long-lived, revocable — the HA-style default that keeps consumer
+    # account linking working without a refresh-token flow). Set a positive
+    # integer to force periodic re-linking instead.
+    oauth_minted_token_expiry_days: int | None = None
+
+    # Per-token request budget on the cloud tier, per 60-second window. A PAT
+    # (including OAuth-minted, internet-facing ones) that exceeds this is
+    # throttled with 429, containing a noisy or compromised token without
+    # touching other tokens. <= 0 disables per-token throttling. Not applied on
+    # local/self-hosted tiers, where the caller is a trusted household.
+    pat_rate_limit_per_minute: int = 300
+
 
 settings = Settings()

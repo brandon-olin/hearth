@@ -10,42 +10,48 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response as _StarletteResponse
-from starlette.types import ASGIApp as _ASGIApp, Receive as _Receive, Scope as _Scope, Send as _Send
+from starlette.types import ASGIApp as _ASGIApp
+from starlette.types import Receive as _Receive
+from starlette.types import Scope as _Scope
+from starlette.types import Send as _Send
 
-from life_dashboard.ai.router import router as ai_router
+# Register the audit_log table on Base.metadata so the dev/sqlite create_all path
+# builds it (security-008). Real deployments get it from migration 0044.
+import life_dashboard.audit.models  # noqa: F401,E402
 from life_dashboard.ai.coach_service import run_scheduled_digests
+from life_dashboard.ai.router import router as ai_router
+from life_dashboard.auth.router import router as auth_router
+from life_dashboard.auth.service import run_bootstrap_if_needed
+from life_dashboard.core.database import AsyncSessionLocal, _is_sqlite, create_all_tables, engine
+from life_dashboard.core.rate_limit import limiter
+from life_dashboard.core.settings import settings
+from life_dashboard.domains.budget.router import router as budget_router
 from life_dashboard.domains.budget.service import (
     sync_all_teller_accounts_globally,
     sync_all_teller_balances_globally,
 )
-from life_dashboard.auth.router import router as auth_router
-from life_dashboard.households.router import router as households_router
-from life_dashboard.uploads.router import router as uploads_router
 from life_dashboard.domains.calendar_events.router import router as calendar_events_router
 from life_dashboard.domains.collections.router import router as collections_router
-from life_dashboard.domains.templates.router import router as templates_router, collections_template_router
 from life_dashboard.domains.contacts.router import router as contacts_router
 from life_dashboard.domains.documents.router import router as documents_router
 from life_dashboard.domains.goals.router import router as goals_router
-from life_dashboard.domains.projects.router import router as projects_router
 from life_dashboard.domains.grocery_lists.router import router as grocery_lists_router
 from life_dashboard.domains.habits.router import router as habits_router
 from life_dashboard.domains.notes.router import router as notes_router
+from life_dashboard.domains.notifications.router import router as notifications_router
+from life_dashboard.domains.projects.router import router as projects_router
 from life_dashboard.domains.recipes.router import router as recipes_router
 from life_dashboard.domains.tags.router import router as tags_router
+from life_dashboard.domains.templates.router import collections_template_router
+from life_dashboard.domains.templates.router import router as templates_router
 from life_dashboard.domains.todos.router import router as todos_router
-from life_dashboard.domains.notifications.router import router as notifications_router
 from life_dashboard.domains.workouts.router import router as workouts_router
-from life_dashboard.domains.budget.router import router as budget_router
-from life_dashboard.auth.service import run_bootstrap_if_needed
-from life_dashboard.setup.router import router as setup_router
-from life_dashboard.core.database import AsyncSessionLocal, create_all_tables, engine, _is_sqlite
-from life_dashboard.core.rate_limit import limiter
-from life_dashboard.core.settings import settings
+from life_dashboard.households.router import router as households_router
 from life_dashboard.mcp import mcp_routes, mcp_server
-# Register the audit_log table on Base.metadata so the dev/sqlite create_all path
-# builds it (security-008). Real deployments get it from migration 0044.
-import life_dashboard.audit.models  # noqa: F401,E402
+from life_dashboard.oauth.metadata import authorization_server_metadata
+from life_dashboard.oauth.router import router as oauth_router
+from life_dashboard.setup.router import router as setup_router
+from life_dashboard.uploads.router import router as uploads_router
 
 logger = logging.getLogger(__name__)
 
@@ -436,13 +442,12 @@ app = FastAPI(
 )
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-from fastapi import Request
 from fastapi.responses import JSONResponse
 
 
@@ -545,6 +550,11 @@ app.add_middleware(_TauriCORSMiddleware)
 app.include_router(setup_router)
 app.include_router(ai_router)
 app.include_router(auth_router)
+# security-007: OAuth 2.1 authorization server in front of PATs. Its endpoints
+# self-gate to the cloud tier (404 elsewhere); importing the router also
+# registers the oauth_* tables on Base.metadata for the dev/sqlite create_all
+# path. Real deployments get those tables from migration 0045.
+app.include_router(oauth_router)
 app.include_router(households_router)
 app.include_router(uploads_router)
 app.include_router(calendar_events_router)
@@ -604,6 +614,21 @@ async def app_config():
             and settings.mailgun_domain
         ),
     }
+
+
+@app.get("/.well-known/oauth-authorization-server", tags=["oauth"])
+async def oauth_metadata(request: Request):
+    """OAuth 2.1 authorization-server metadata (RFC 8414), cloud tier only.
+
+    security-007. Returns 404 off the cloud tier so local/self-hosted installs
+    advertise no OAuth surface. The issuer is derived from the request so the
+    document is correct behind the tier's own hostname (Vercel/Railway)."""
+    from fastapi import HTTPException as _HTTPException
+
+    if settings.deployment_tier != "cloud":
+        raise _HTTPException(status_code=404, detail="Not found")
+    issuer = str(request.base_url).rstrip("/")
+    return authorization_server_metadata(issuer)
 
 
 @app.get("/debug/cors", tags=["ops"])

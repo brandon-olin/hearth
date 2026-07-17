@@ -3815,3 +3815,71 @@ Addendum (same session): prod deploy failure root-caused — 0001 baseline has
   prod, local Postgres, and future baseline-migrated installs in one path.
   No manual prod surgery performed. Rule proposal: never run alembic manually
   against Neon now that the pre-deploy owns prod migrations.
+
+=== 2026-07-17 — Coding session ===
+Feature: security-007 — OAuth 2.1 in front of PATs (cloud-tier consumer agent
+  connection & account linking). Status: COMPLETE (feature_list passes=true).
+
+What was built:
+  New package api/src/life_dashboard/oauth/ — an OAuth 2.1 authorization server
+  layered over the existing PAT primitive (security-006). A completed grant
+  mints a scoped PAT under the hood and returns it as the OAuth access_token, so
+  every downstream request authorizes through the SAME get_current_user /
+  _enforce_pat_scope path (member ceiling ∩ token scope). No new authz model.
+    - scopes.py    — OAuth `scope` string ⇄ PAT scopes blob (`domain:level`,
+                     space-delimited). Reuses validate_scopes as the vocabulary
+                     authority; write>read dedupe; SUPPORTED_SCOPE_STRINGS for
+                     metadata.
+    - models.py    — oauth_clients (RFC 7591 dynamic registration; public =
+                     PKCE-only no secret, confidential = client_secret_hash) and
+                     oauth_authorization_codes (single-use, hashed, PKCE S256
+                     challenge, bound to client_id + redirect_uri).
+    - service.py   — register_client, validate_authorization_request (client +
+                     redirect_uri checked FIRST so errors are never redirected to
+                     an unregistered URI), issue_authorization_code, exchange_code
+                     (atomic single-use via UPDATE…WHERE used_at IS NULL RETURNING,
+                     committed before minting so a mint failure can't resurrect the
+                     code), constant-time PKCE S256 verify, https-only redirect
+                     allow-list (loopback http for dev).
+    - router.py    — POST /oauth/register, GET+POST /oauth/authorize (session-
+                     authed consent), POST /oauth/token (form-encoded; both
+                     client_secret_post and client_secret_basic). Whole surface
+                     self-gates to cloud tier via require_cloud_tier (404 off
+                     cloud). OAuth error bodies per RFC 6749 §5.2.
+    - metadata.py  — RFC 8414 doc, served at
+                     /.well-known/oauth-authorization-server (main.py, cloud only).
+  Per-token rate limiting (security-007 step 4):
+    - auth/pat_rate_limit.py — in-process fixed-window counter keyed by token id
+      (same in-memory caveat as core.rate_limit). Enforced in auth/dependencies
+      (_enforce_pat_rate_limit → 429) and mcp/auth.resolve_pat, cloud tier only.
+  Settings: oauth_minted_token_expiry_days (None = long-lived HA-style default),
+    pat_rate_limit_per_minute (default 300).
+  Migration 0045 (down_revision 0044) — oauth_clients + oauth_authorization_codes
+    with unique indexes on client_id and code_hash. Up/down SQL verified offline;
+    local dev is SQLite (create_all builds the tables, exercised by the HTTP test).
+
+Commits this session: none yet (working tree; awaiting Brandon to commit/push).
+
+Tests: tests/test_oauth.py — 41 tests. Full suite 144 passed. Covers: scope
+  parse, PKCE verify, dynamic registration (public/confidential), authorize
+  validation (unknown client, unregistered redirect, PKCE required, plain
+  rejected), full flow → scoped PAT authorizing identically to a direct PAT,
+  reused/expired/wrong-client/redirect-mismatch codes, confidential secret
+  required, code-stays-spent-after-mint-failure, rate-limit window logic +
+  cloud-only 429, tier-gate 404, and an end-to-end HTTP account-linking flow
+  (register → authorize → token → use PAT on /todos, /recipes denied). ruff
+  clean on changed files (F/E/I). ruff --fix scoped to changed files only.
+
+Decisions:
+  - OAuth access_token IS a PAT (long-lived, revocable) — no separate OAuth
+    token table, no refresh-token flow in v1. Resolves the plan's expiry open
+    question toward HA-style long-lived (expiry configurable via settings).
+  - /oauth/authorize requires a Hearth session (get_current_user); in production
+    the frontend consent route orchestrates login+consent then drives the browser
+    redirect. Backend endpoints are the authorization-server logic.
+
+Left / next: frontend consent screen at /oauth/authorize (web) and a token-
+  management surface showing OAuth-minted tokens by client. voice-002 (Alexa) is
+  now unblocked (its account-linking dependency on security-007 is satisfied).
+Recommended next: voice-002 (Alexa skill) or the settings household-agent
+  provisioning UI.

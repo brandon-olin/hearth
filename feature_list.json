@@ -1459,7 +1459,7 @@
         "Verify per-token rate limiting is enforced on the cloud tier",
         "Verify local/self-hosted tiers still accept a directly-pasted PAT with no OAuth requirement"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-008",

@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.models import Household, HouseholdMembership, PersonalAccessToken
+from life_dashboard.auth.pat_rate_limit import check_rate_limit
 from life_dashboard.auth.pat_scopes import (
     SCOPE_TO_PERMISSION_DOMAIN,
     check_scope,
@@ -37,6 +38,7 @@ from life_dashboard.auth.pat_scopes import (
 from life_dashboard.auth.pat_service import authenticate_token
 from life_dashboard.auth.service import get_user_by_id
 from life_dashboard.core.permissions import check_permission, load_household_permissions
+from life_dashboard.core.settings import settings
 
 
 class MCPAuthError(Exception):
@@ -87,6 +89,13 @@ async def resolve_pat(db: AsyncSession, ctx) -> tuple[PersonalAccessToken, PatId
     pat = await authenticate_token(db, raw)
     if pat is None:
         raise MCPAuthError("Invalid or expired token.")
+
+    # security-007: cloud-tier per-token throttle. Mirrors the REST path so an
+    # OAuth-minted token hitting MCP is bounded identically. No-op off cloud.
+    if settings.deployment_tier == "cloud" and not check_rate_limit(
+        pat.id, settings.pat_rate_limit_per_minute
+    ):
+        raise MCPAuthError("Rate limit exceeded for this token. Slow down and retry shortly.")
 
     user = await get_user_by_id(db, pat.user_id)
     if user is None or not user.is_active:

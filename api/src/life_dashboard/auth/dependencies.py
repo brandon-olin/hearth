@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.auth.models import Household, HouseholdMembership, PersonalAccessToken, User
+from life_dashboard.auth.pat_rate_limit import check_rate_limit
 from life_dashboard.auth.pat_scopes import (
     SCOPE_TO_PERMISSION_DOMAIN,
     check_scope,
@@ -16,12 +17,27 @@ from life_dashboard.auth.service import get_user_by_id
 from life_dashboard.auth.tokens import JWTError, decode_access_token
 from life_dashboard.core.database import get_db
 from life_dashboard.core.permissions import check_permission, load_household_permissions
+from life_dashboard.core.settings import settings
 
 _UNAUTHENTICATED = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Not authenticated",
     headers={"WWW-Authenticate": "Bearer"},
 )
+
+
+def _enforce_pat_rate_limit(pat: PersonalAccessToken) -> None:
+    """Cloud-tier per-token throttle (security-007). Raises 429 when the token
+    exceeds its per-window budget. No-op on local/self-hosted, where the caller
+    is a trusted household — see auth/pat_rate_limit.py."""
+    if settings.deployment_tier != "cloud":
+        return
+    if not check_rate_limit(pat.id, settings.pat_rate_limit_per_minute):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded for this token. Slow down and retry shortly.",
+            headers={"Retry-After": "60"},
+        )
 
 _INVALID_CREDENTIALS = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -63,6 +79,7 @@ async def get_current_user(
         pat = await authenticate_token(db, raw_token)
         if pat is None:
             raise _INVALID_CREDENTIALS
+        _enforce_pat_rate_limit(pat)
         user_id = pat.user_id
     else:
         try:
