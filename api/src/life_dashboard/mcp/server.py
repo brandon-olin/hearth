@@ -19,16 +19,21 @@ Design rules carried from the track doc (plans/open-hearth/mcp-server.md):
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import date, datetime, timedelta, timezone
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from life_dashboard.core.database import AsyncSessionLocal
 from life_dashboard.domains.calendar_events import service as calendar_service
+from life_dashboard.domains.calendar_events.schemas import CalendarEventCreate
 from life_dashboard.domains.grocery_lists import service as grocery_service
+from life_dashboard.domains.grocery_lists.schemas import GroceryItemAdd
 from life_dashboard.domains.habits import service as habits_service
 from life_dashboard.domains.todos import service as todos_service
+from life_dashboard.domains.todos.schemas import TodoCreate
+from life_dashboard.mcp.audit_hook import record_mcp_write
 from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_pat
 
 #: streamable_http_path="/mcp" so the single route the sub-app registers is
@@ -198,6 +203,145 @@ async def get_household_summary(ctx: Context) -> dict:
         "grocery_lists": grocery_lists,
         "events_next_7_days": events_next_7_days,
     }
+
+
+# ── Write tools (mcp-002) ─────────────────────────────────────────────────────
+#
+# Every write authorizes action="write" (token scope "write" ∩ member "create"
+# ceiling), creates SHARED (household-visibility) data only — so a household-agent
+# pseudo-member can never write personal or sensitive scope — is idempotent
+# against double-submits, and records an audit row via record_mcp_write on a
+# genuine create (a deduped no-op writes nothing and is not audited).
+
+
+async def _default_grocery_list_id(db, ident) -> uuid.UUID | None:
+    """The caller's most recent visible active grocery list, or None. Lets an
+    agent say "add milk" without naming a list — most households keep one."""
+    lists = await grocery_service.list_grocery_lists(
+        db, ident.household_id, ident.user_id, status="active", limit=1
+    )
+    return lists.items[0].id if lists.items else None
+
+
+@mcp_server.tool()
+async def add_todo(
+    ctx: Context,
+    title: str,
+    due_date: date | None = None,
+    priority: str | None = None,
+) -> dict:
+    """Add a shared household to-do. Idempotent: re-adding the same title and due
+    date returns the existing pending to-do instead of creating a duplicate.
+    Always household-visible — MCP never creates personal to-dos."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "todos", "write")
+        data = TodoCreate(
+            title=title, due_date=due_date, priority=priority, visibility="household"
+        )
+        todo, created = await todos_service.create_todo_idempotent(
+            db, ident.household_id, ident.user_id, data
+        )
+        if created:
+            await record_mcp_write(
+                db, ident, action="create", entity_type="todo",
+                entity_id=todo.id, payload={"title": todo.title},
+            )
+    return {**todo.model_dump(mode="json"), "created": created}
+
+
+@mcp_server.tool()
+async def add_grocery_item(
+    ctx: Context,
+    item: str,
+    quantity: float | None = None,
+    unit: str | None = None,
+    list_id: str | None = None,
+) -> dict:
+    """Add an item to a household grocery list. If list_id is omitted, the most
+    recent shared list is used. Idempotent: an un-checked item with the same name
+    is returned rather than duplicated ("add milk" twice → one milk)."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "grocery", "write")
+        target = uuid.UUID(list_id) if list_id else await _default_grocery_list_id(db, ident)
+        if target is None:
+            raise MCPAuthError("No grocery list found. Create one in the app first.")
+        data = GroceryItemAdd(name=item, quantity=quantity, unit=unit)
+        result, created = await grocery_service.add_grocery_item_idempotent(
+            db, target, ident.household_id, ident.user_id, data
+        )
+        if result is None:
+            raise MCPAuthError("Grocery list not found or not visible to this token.")
+        if created:
+            await record_mcp_write(
+                db, ident, action="create", entity_type="grocery_item",
+                entity_id=result.id, payload={"name": result.name, "list_id": str(target)},
+            )
+    return {**result.model_dump(mode="json"), "created": created}
+
+
+@mcp_server.tool()
+async def check_in_habit(
+    ctx: Context,
+    habit_name: str | None = None,
+    habit_id: str | None = None,
+    on_date: date | None = None,
+) -> dict:
+    """Mark a habit complete for a date (default today). Identify the habit by
+    name or id. Idempotent: checking in twice for the same date is a no-op and
+    never double-counts a streak."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "habits", "write")
+        if habit_id:
+            hid = uuid.UUID(habit_id)
+        elif habit_name:
+            habit = await habits_service.get_habit_by_name(
+                db, ident.household_id, ident.user_id, habit_name
+            )
+            if habit is None:
+                raise MCPAuthError(f"No habit named {habit_name!r} found.")
+            hid = habit.id
+        else:
+            raise MCPAuthError("Provide habit_name or habit_id.")
+
+        scheduled = on_date or date.today()
+        occ, created = await habits_service.check_in_habit(
+            db, hid, ident.household_id, ident.user_id, scheduled
+        )
+        if occ is None:
+            raise MCPAuthError("Habit not found or not visible to this token.")
+        if created:
+            await record_mcp_write(
+                db, ident, action="check_in", entity_type="habit_occurrence",
+                entity_id=occ.id, payload={"habit_id": str(hid), "date": scheduled.isoformat()},
+            )
+    return {**occ.model_dump(mode="json"), "created": created}
+
+
+@mcp_server.tool()
+async def create_calendar_event(
+    ctx: Context,
+    title: str,
+    starts_at: datetime,
+    ends_at: datetime | None = None,
+    location: str | None = None,
+) -> dict:
+    """Create a shared household calendar event. Idempotent: the same title and
+    start time returns the existing event rather than duplicating it."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "calendar", "write")
+        data = CalendarEventCreate(
+            title=title, starts_at=starts_at, ends_at=ends_at, location=location
+        )
+        event, created = await calendar_service.create_event_idempotent(
+            db, ident.household_id, ident.user_id, data
+        )
+        if created:
+            await record_mcp_write(
+                db, ident, action="create", entity_type="calendar_event",
+                entity_id=event.id, payload={"title": event.title,
+                                             "starts_at": event.starts_at.isoformat()},
+            )
+    return {**event.model_dump(mode="json"), "created": created}
 
 
 def mcp_routes():

@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.core.visibility import apply_visibility_filter
+from life_dashboard.domains.notifications import service as notifications
 from life_dashboard.domains.todos.models import Todo
 from life_dashboard.domains.todos.schemas import (
     TodoCreate,
@@ -13,7 +14,6 @@ from life_dashboard.domains.todos.schemas import (
     TodoResponse,
     TodoUpdate,
 )
-from life_dashboard.domains.notifications import service as notifications
 
 
 def _to_response(todo: Todo) -> TodoResponse:
@@ -124,6 +124,43 @@ async def create_todo(
     await db.commit()
     await db.refresh(todo)
     return _to_response(todo)
+
+
+async def create_todo_idempotent(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: TodoCreate,
+) -> tuple[TodoResponse, bool]:
+    """Create a todo, or return an existing pending match — a double-submit guard
+    for stateless callers (MCP agents, retries) that can't send an idempotency
+    key. A match is an un-completed todo in the same household with the same
+    title, due date, and visibility; on a match nothing new is inserted.
+
+    Returns ``(todo, created)`` — ``created`` is False when an existing todo was
+    returned. Idempotent for the sequential-retry case (the first call commits
+    before the retry's lookup runs); a genuinely distinct todo that happens to
+    share title + due date can still be created by varying either field.
+    """
+    due_clause = (
+        Todo.due_date == data.due_date
+        if data.due_date is not None
+        else Todo.due_date.is_(None)
+    )
+    existing = (await db.execute(
+        select(Todo)
+        .where(
+            Todo.household_id == household_id,
+            Todo.title == data.title,
+            Todo.status == "pending",
+            Todo.visibility == data.visibility,
+            due_clause,
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return _to_response(existing), False
+    return await create_todo(db, household_id, user_id, data), True
 
 
 async def get_todo(

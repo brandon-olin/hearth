@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -402,6 +402,87 @@ async def create_occurrence(
     await db.commit()
     await db.refresh(occ)
     return _occurrence_response(occ)
+
+
+async def get_habit_by_name(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    name: str,
+) -> Habit | None:
+    """Resolve a habit by (case-insensitive) name within the caller's visible
+    scope — lets an agent check in "Floss" without knowing its UUID. Returns the
+    first visibility-permitted match, or None."""
+    query = select(Habit).where(
+        Habit.household_id == household_id,
+        func.lower(Habit.name) == name.strip().lower(),
+    )
+    query = apply_visibility_filter(query, Habit, user_id)
+    return (await db.execute(query.limit(1))).scalar_one_or_none()
+
+
+async def check_in_habit(
+    db: AsyncSession,
+    habit_id: uuid.UUID,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    scheduled_date: date,
+) -> tuple[OccurrenceResponse | None, bool]:
+    """Mark a habit complete for a given date, idempotently.
+
+    A habit check-in is naturally idempotent: checking in "Floss" for today
+    twice must leave exactly one completed occurrence, never two (which would
+    corrupt the streak — invariant #3). The existing occurrence is locked with
+    ``FOR UPDATE`` so two concurrent check-ins serialise; the second sees the
+    first's completion and is a no-op.
+
+    The habit must be visible to ``user_id`` — a token can only check in habits
+    its owner may see, so it can't complete another member's personal habit by
+    id. Returns ``(occurrence, created)``; ``occurrence`` is None (→ 404) if the
+    habit is not in this household or not visible to the caller. ``created`` is
+    False when an occurrence for that date already existed.
+    """
+    visible = (await db.execute(
+        apply_visibility_filter(
+            select(Habit.id).where(
+                Habit.id == habit_id, Habit.household_id == household_id
+            ),
+            Habit,
+            user_id,
+        )
+    )).scalar_one_or_none()
+    if visible is None:
+        return None, False
+
+    now = datetime.now(timezone.utc)
+    existing = (await db.execute(
+        select(HabitOccurrence)
+        .where(
+            HabitOccurrence.habit_id == habit_id,
+            HabitOccurrence.scheduled_date == scheduled_date,
+        )
+        .with_for_update()
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if existing is not None:
+        if existing.status != "completed":
+            existing.status = "completed"
+            existing.completed_at = now
+        await db.commit()
+        await db.refresh(existing)
+        return _occurrence_response(existing), False
+
+    occ = HabitOccurrence(
+        habit_id=habit_id,
+        scheduled_date=scheduled_date,
+        status="completed",
+        completed_at=now,
+    )
+    db.add(occ)
+    await db.commit()
+    await db.refresh(occ)
+    return _occurrence_response(occ), True
 
 
 async def list_occurrences(

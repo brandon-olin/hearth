@@ -68,6 +68,38 @@ async def create_event(
     return CalendarEventResponse.model_validate(event)
 
 
+async def create_event_idempotent(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: CalendarEventCreate,
+) -> tuple[CalendarEventResponse, bool]:
+    """Create an event, or return an existing one with the same title and start
+    time — a double-submit guard for stateless callers (an agent re-sending
+    "add dentist Friday 3pm" on a network retry). Two events sharing a title and
+    exact start instant are almost always the same event; a genuinely distinct
+    one can differ by either field.
+
+    Returns ``(event, created)``; ``created`` is False on a matched existing
+    event. Events carrying a ``source`` (external calendar sync) are never
+    deduplicated here — that path has its own ical_uid identity.
+    """
+    if not data.source:
+        existing = (await db.execute(
+            select(CalendarEvent)
+            .where(
+                CalendarEvent.household_id == household_id,
+                CalendarEvent.title == data.title,
+                CalendarEvent.starts_at == data.starts_at,
+            )
+            .limit(1)
+        )).scalar_one_or_none()
+        if existing is not None:
+            return CalendarEventResponse.model_validate(existing), False
+
+    return await create_event(db, household_id, user_id, data), True
+
+
 async def get_event(
     db: AsyncSession,
     event_id: uuid.UUID,

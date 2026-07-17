@@ -116,10 +116,20 @@ async def resolve_pat(db: AsyncSession, ctx) -> tuple[PersonalAccessToken, PatId
     return pat, identity
 
 
+def _permission_action(action: str) -> str:
+    """Map an MCP tool action to the household-permission action it needs.
+
+    "write" maps to "create" — the coarsest write permission the household
+    config models (per-item ``manage_others`` stays the service's job). Mirrors
+    the same mapping in auth/dependencies._enforce_pat_scope so an MCP write and
+    the equivalent REST write are gated identically."""
+    return "read" if action == "read" else "create"
+
+
 async def _within_member_ceiling(
-    db: AsyncSession, identity: PatIdentity, scope_domain: str
+    db: AsyncSession, identity: PatIdentity, scope_domain: str, action: str = "read"
 ) -> bool:
-    """Layer 2 — is a read on ``scope_domain`` within the owning member's own
+    """Layer 2 — is *action* on ``scope_domain`` within the owning member's own
     ceiling? Only domains with a configurable household permission are checked;
     others are governed by the token scope alone (mirrors SCOPE_TO_PERMISSION_
     DOMAIN usage in the REST dependency)."""
@@ -127,7 +137,9 @@ async def _within_member_ceiling(
     if permission_domain is None:
         return True
     permissions = await load_household_permissions(db, identity.household_id)
-    return check_permission(permissions, permission_domain, "read", identity.role)
+    return check_permission(
+        permissions, permission_domain, _permission_action(action), identity.role
+    )
 
 
 async def can_read(
@@ -139,33 +151,41 @@ async def can_read(
     so a single-scope token can never learn cross-domain data."""
     if not check_scope(pat.scopes or {}, scope_domain, "read"):
         return False
-    return await _within_member_ceiling(db, identity, scope_domain)
+    return await _within_member_ceiling(db, identity, scope_domain, "read")
 
 
-async def authorize(db: AsyncSession, ctx, scope_domain: str) -> PatIdentity:
-    """Authorize a read on ``scope_domain`` for the PAT behind this tool call.
+async def authorize(
+    db: AsyncSession, ctx, scope_domain: str, action: str = "read"
+) -> PatIdentity:
+    """Authorize *action* ("read" or "write") on ``scope_domain`` for the PAT
+    behind this tool call.
 
-    Enforces the same two layers as the REST PAT path (auth/dependencies.py):
+    Enforces the same two layers as the REST PAT path (auth/dependencies.py),
+    and the write phase adds nothing new to the model — a write is just
+    ``action="write"`` (token scope "write", household permission "create"):
 
-      1. **Token scope** — the token was granted read on this domain.
-      2. **Member ceiling** — the owning member may read this domain in the app.
+      1. **Token scope** — the token was granted this action on this domain.
+      2. **Member ceiling** — the owning member may do this in the app. This is
+         what makes a household-agent (viewer-rank) token safe: it can create in
+         domains where ``create`` defaults to viewer (grocery, todos) but is
+         refused wherever an admin has raised the bar to member+.
 
     Raises :class:`MCPAuthError` on any failure, with a message distinguishing
-    the two layers. Returns the caller identity to feed the household +
-    visibility scoping in the domain services.
+    the two layers. Returns the caller identity to feed household + visibility
+    scoping in the domain services.
     """
     pat, identity = await resolve_pat(db, ctx)
 
-    # Layer 1 — token scope. Read is the only action v1 exposes.
-    if not check_scope(pat.scopes or {}, scope_domain, "read"):
-        raise MCPAuthError(f"Token does not have read access to {scope_domain}.")
+    # Layer 1 — token scope ("write" implies "read"; see check_scope).
+    if not check_scope(pat.scopes or {}, scope_domain, action):
+        raise MCPAuthError(f"Token does not have {action} access to {scope_domain}.")
 
     # Layer 2 — member ceiling.
-    if not await _within_member_ceiling(db, identity, scope_domain):
+    if not await _within_member_ceiling(db, identity, scope_domain, action):
         permission_domain = SCOPE_TO_PERMISSION_DOMAIN.get(scope_domain)
         raise MCPAuthError(
-            f"Your account does not have read permission for {permission_domain}. "
-            "A token cannot exceed its owner's access."
+            f"Your account does not have {_permission_action(action)} permission "
+            f"for {permission_domain}. A token cannot exceed its owner's access."
         )
 
     return identity

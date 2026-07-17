@@ -1,6 +1,7 @@
 import uuid
 
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from life_dashboard.core.visibility import apply_visibility_filter
@@ -15,7 +16,6 @@ from life_dashboard.domains.grocery_lists.schemas import (
     GroceryListResponse,
     GroceryListUpdate,
 )
-
 
 # ── Child loaders ─────────────────────────────────────────────────────────────
 
@@ -240,6 +240,51 @@ async def add_grocery_item(
     return GroceryItemResponse.model_validate(item)
 
 
+async def add_grocery_item_idempotent(
+    db: AsyncSession,
+    list_id: uuid.UUID,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: GroceryItemAdd,
+) -> tuple[GroceryItemResponse | None, bool]:
+    """Append an item, or return an existing un-checked item with the same name
+    (case-insensitive) already on the list — a double-submit guard for stateless
+    callers. "Add milk" twice yields one milk line, not two.
+
+    The list must be visible to ``user_id`` — a member (or household-agent) token
+    can only add to lists it is entitled to see, so an agent can't append to
+    another member's personal list by guessing its id. Returns ``(item,
+    created)``; ``item`` is None (→ 404) if the list is not in this household or
+    not visible to the caller. A previously-checked-off item of the same name
+    does not suppress a fresh add — re-adding milk after it was bought is real.
+    """
+    owned_query = apply_visibility_filter(
+        select(GroceryList.id).where(
+            GroceryList.id == list_id, GroceryList.household_id == household_id
+        ),
+        GroceryList,
+        user_id,
+    )
+    owned = (await db.execute(owned_query)).scalar_one_or_none()
+    if owned is None:
+        return None, False
+
+    existing = (await db.execute(
+        select(GroceryItem)
+        .where(
+            GroceryItem.list_id == list_id,
+            func.lower(GroceryItem.name) == data.name.strip().lower(),
+            GroceryItem.is_checked.is_(False),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return GroceryItemResponse.model_validate(existing), False
+
+    created = await add_grocery_item(db, list_id, household_id, data)
+    return created, True
+
+
 # ── Recipe → grocery list ─────────────────────────────────────────────────────
 
 async def add_recipe_ingredients_to_list(
@@ -256,7 +301,10 @@ async def add_recipe_ingredients_to_list(
     (idempotent — safe to call again if the user hits the button twice).
     Returns {"added": n, "skipped": m}.
     """
-    from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient  # local to avoid circular import
+    from life_dashboard.domains.recipes.models import (  # local to avoid circular import
+        Recipe,
+        RecipeIngredient,
+    )
 
     # Verify the recipe belongs to this household
     recipe = (await db.execute(
