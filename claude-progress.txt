@@ -3764,3 +3764,45 @@ Notes for whoever commits: this session's mcp-001 files are intermixed in the
 Recommended next: mcp-002 (write tools + household-agent pseudo-member + audit
   decorator, built jointly with security-008). The read tool surface, PAT auth
   wiring, and the authorize() helper it extends are now in place.
+
+
+=== 2026-07-17 — Coding session (mcp-002 + security-008, joint) ===
+Features: mcp-002 (MCP write tools + household-agent pseudo-member) and
+  security-008 (audit_log). Built in parallel on feat/mcp-002-security-008;
+  both flipped to passes=true. Status: COMPLETE, merged to local main.
+
+security-008 (audit): audit/ package bootstrapped — audit_log table
+  (household_id, actor_user_id nullable, token_id nullable, source, action,
+  entity_type, entity_id, payload) + audit.service.record + migration 0044
+  (down_revision 0043/PATs → single head) + create_all registration in main.py.
+  Attribution encodes the household-agent model: null actor for a pseudo-member
+  token, null token for a web session. 8 tests.
+
+mcp-002 (writes): four /mcp write tools — add_todo, add_grocery_item,
+  check_in_habit, create_calendar_event. Each authorizes action="write" (token
+  scope "write" ∩ member "create" ceiling via the extended authorize()), creates
+  SHARED (household-visibility) data only, and is idempotent against agent
+  double-submits via natural-key get-or-create service functions (create_todo_
+  idempotent, add_grocery_item_idempotent, check_in_habit, create_event_
+  idempotent) — NO new table, deliberately, so no migration head collides with
+  security-008's 0044. Write paths honor the visibility model (can't touch
+  another member's personal list/habit by id). Household-agent pseudo-member in
+  mcp/pseudo_member.py (real user, role=agent, viewer ceiling, shared-only,
+  unusable password, never an assignee). Audit seam in mcp/audit_hook.py records
+  every genuine write via audit.service.record (source="mcp"; pseudo-member →
+  null actor + token_id); deduped no-ops write nothing and aren't audited.
+
+Verification: 104 API tests pass (27 mcp + 8 audit among them); single alembic
+  head (0044); ruff clean on changed files (bar the repo-wide timezone.utc
+  UP017 convention). mcp-002 write path also verified over real HTTP tools/call
+  (FastMCP ISO-datetime coercion + idempotency).
+
+Process note / lesson: a broad `ruff --fix` over domains/ mid-build reformatted
+  ~40 unrelated files (incl. timezone.utc→UTC against convention). Fully
+  reverted and re-applied only the intended edits. RULE: scope `ruff --fix` to
+  the specific changed files, never a whole tree.
+
+Recommended next: an admin surface to provision household-agent tokens (settings
+  "shared device" flow) so speakers can be onboarded without a script; then
+  voice-001/002 bridges can hold real household-agent PATs (mcp-002 supplies the
+  provisioning). Also consider security-007 (OAuth 2.1) for cloud connectors.

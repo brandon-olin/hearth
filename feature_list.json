@@ -1475,7 +1475,7 @@
         "Verify a web-session write records source='web' with token_id null",
         "Verify a household-agent pseudo-member write records actor_user_id null with the correct token_id"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "mcp-001",
@@ -1507,7 +1507,7 @@
         "Verify a household-agent pseudo-member token can write shared scope but never personal or sensitive scope",
         "Verify every write tool records an audit_log row attributed to its token"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "realtime-001",
