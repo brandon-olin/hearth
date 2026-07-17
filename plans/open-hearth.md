@@ -37,7 +37,7 @@ Guiding constraints, inherited from root CLAUDE.md:
 Sequenced in dependency order — earlier tracks settle decisions later tracks inherit
 (MCP forces the scoped-token design; HA inbound forces the event bus).
 
-### 1. MCP server — *ACTIVE — v1 SHIPPED 2026-07-17 (security-006 + mcp-001); write phase building*
+### 1. MCP server — *COMPLETE 2026-07-17 — full chain shipped: PATs (006), read-only (mcp-001), writes + household-agent (mcp-002), audit (008), OAuth (007)*
 
 Any agent (Claude, OpenClaw, etc.) gets structured access to the household via a first-class
 MCP server. Tools map 1:1 to existing service functions. Data-scope model = agent permission
@@ -129,6 +129,13 @@ Coordinate with `plans/marketing-site-spec.md`.
   consent needed). Future HA integration path noted: HACS custom integration with UI config
   flow + zeroconf discovery replaces YAML/token paste; core-HA upstream submission as the
   long-term option.
+- **2026-07-17 (evening)** — mcp-002 + security-008 + security-007 shipped (after a prod
+  migration collision with the legacy baseline audit_log table — fixed by guarded drop in
+  0044). realtime-001 shipped (event bus + SSE live; passes=true). voice-002 CODE shipped
+  (voice/ module + docs/alexa-skill-setup.md — note: landed inside the realtime commit
+  82c9816, protocol slip), passes=false pending real-world verification: Amazon dev account
+  → console skill setup → account linking (check PKCE exemption for Alexa's confidential
+  client) → physical Echo test. MCP track and its whole dependency chain are now DONE.
 - **2026-07-17** — Event bus direction set via `realtime-001` (feature_list.json):
   bus + SSE invalidation stream for real-time UI; skinny events (no payloads), scope-filtered
   per connection. Same bus feeds HA inbound (track 4) when that track opens.

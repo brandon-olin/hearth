@@ -13,7 +13,7 @@ Covers the five verification steps in feature_list.json:
 import base64
 import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -497,7 +497,7 @@ async def test_exchange_rejects_expired_code(db_session):
     await db_session.execute(
         OAuthAuthorizationCode.__table__.update()
         .where(OAuthAuthorizationCode.id == code_row.id)
-        .values(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+        .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
     )
     await db_session.commit()
 

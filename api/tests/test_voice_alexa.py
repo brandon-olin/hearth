@@ -16,7 +16,7 @@ Data lives in a shared in-memory engine; the router resolves its session from
 session, so one PAT drives the whole stack over the wire.
 """
 import base64
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -55,7 +55,7 @@ def _intent_body(name, slots=None, *, token="__use_alice__", app_id="amzn1.ask.s
         "request": {
             "type": "IntentRequest",
             "requestId": "r-" + name,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "intent": {
                 "name": name,
                 "slots": {k: {"name": k, "value": v} for k, v in (slots or {}).items()},
@@ -237,7 +237,7 @@ async def test_launch_request_welcomes_and_keeps_session_open(env):
         "version": "1.0",
         "context": {"System": {"application": {"applicationId": "amzn1.ask.skill.hearth"}}},
         "request": {"type": "LaunchRequest", "requestId": "r-launch",
-                    "timestamp": datetime.now(timezone.utc).isoformat()},
+                    "timestamp": datetime.now(UTC).isoformat()},
     }
     resp = await _post(env, body)
     out = resp.json()
@@ -344,7 +344,7 @@ def test_check_application_id():
 
 
 def test_check_timestamp_window():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     signature.check_timestamp(now, now=now)                                  # fresh
     signature.check_timestamp(now - timedelta(seconds=100), now=now)         # within 150s
     with pytest.raises(signature.AlexaVerificationError):
@@ -377,7 +377,7 @@ def _make_cert(*, san="echo-api.amazon.com", not_before=None, not_after=None):
     """A self-signed RSA cert with the given SAN and validity window, plus its
     private key — stands in for Amazon's Alexa signing certificate."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
     cert = (
         x509.CertificateBuilder()
@@ -442,7 +442,7 @@ async def test_verify_signature_rejects_tampered_body(monkeypatch):
 @pytest.mark.asyncio
 async def test_verify_signature_rejects_expired_cert(monkeypatch):
     signature._CERT_CACHE.clear()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     key, pem = _make_cert(not_before=now - timedelta(days=10), not_after=now - timedelta(days=1))
     _patch_fetch(monkeypatch, pem)
     body = b"x"
@@ -477,10 +477,10 @@ async def test_expired_cache_entry_is_refetched_and_revalidated(monkeypatch):
     signature._CERT_CACHE.clear()
     stale_key, _ = _make_cert()
     signature._CERT_CACHE[_CERT_URL] = (
-        stale_key.public_key(), datetime.now(timezone.utc) - timedelta(seconds=1)
+        stale_key.public_key(), datetime.now(UTC) - timedelta(seconds=1)
     )
     fresh_key, pem = _make_cert()
     _patch_fetch(monkeypatch, pem)
     body = b"payload"
     await signature.verify_signature(body, _CERT_URL, _sign(fresh_key, body))
-    assert signature._CERT_CACHE[_CERT_URL][1] > datetime.now(timezone.utc)
+    assert signature._CERT_CACHE[_CERT_URL][1] > datetime.now(UTC)

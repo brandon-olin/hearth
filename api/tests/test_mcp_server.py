@@ -14,7 +14,7 @@ the suite points that name at a StaticPool in-memory engine whose data persists
 across the auth session and the data session within one tool call.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -457,7 +457,7 @@ async def test_check_in_habit_by_name_is_idempotent(env):
 @pytest.mark.asyncio
 async def test_create_calendar_event_is_idempotent(env):
     ctx = _FakeCtx(env["raw_alice_write"])
-    when = datetime(2026, 8, 1, 15, 0, tzinfo=timezone.utc)
+    when = datetime(2026, 8, 1, 15, 0, tzinfo=UTC)
     first = await create_calendar_event(ctx, title="Dentist", starts_at=when)
     assert first["created"] is True
 

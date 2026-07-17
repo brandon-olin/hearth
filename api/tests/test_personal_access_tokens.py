@@ -6,7 +6,7 @@ Covers the two things that make PATs safe to hand to an agent:
     with deny-by-default for any path not explicitly mapped.
 """
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -30,7 +30,6 @@ from life_dashboard.auth.pat_service import (
     list_tokens,
     revoke_token,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -232,7 +231,7 @@ async def test_authenticate_rejects_expired_token(db_session):
     user = await _make_user(db_session)
     token, raw = await create_token(db_session, user.id, "A", {"todos": "read"}, 1)
 
-    token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    token.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await db_session.commit()
 
     assert await authenticate_token(db_session, raw) is None
