@@ -87,6 +87,36 @@ If a design makes the self-hosted product feel crippled or fake, push back.
 
 ---
 
+## Parallel agent work — branch & merge protocol
+
+Multiple agent sessions may build concurrently. Rules:
+
+- **One feature per branch** (`feat/<feature-id>`), built in its own worktree
+  (`.claude/worktrees/`). Bundle features on one branch only when they are jointly
+  verified (e.g. mcp-002 + security-008) — never for convenience.
+- **Do not edit `feature_list.json` or `claude-progress.txt` during the build.** They are
+  the top merge-conflict source. Update them in the final commit, after the rebase below,
+  regenerated against current main — never resolved textually.
+- **Merge protocol** — the agent performs all of this autonomously, no permission needed:
+  1. `git fetch origin && git rebase origin/main`.
+  2. Resolve conflicts locally. If main gained an Alembic migration, re-parent your
+     migration's `down_revision` onto the new head; verify a single head with
+     `alembic heads`.
+  3. Run the full gate: pytest + ruff (+ `tsc --noEmit` for web changes). A clean rebase
+     that fails tests IS a conflict — fix it before proceeding.
+  4. Only now apply the `feature_list.json` / `claude-progress.txt` updates.
+  5. Merge to local main (`--ff-only` preferred). If main moved again, repeat from 1.
+- **Merges are serialized.** One branch lands at a time; if two builds finish together,
+  the second reruns the protocol after the first lands.
+- **Tasks that each add migrations must not run concurrently** (see
+  `plans/open-hearth/mcp-server.md` → Build concurrency).
+- **Pushing main stays human.** `git push origin main` is deny-listed deliberately: a main
+  push now triggers cloud build + automatic Alembic migration against prod
+  (`api/railway.json`). Agents merge locally; Brandon pushes main as the explicit
+  deploy action.
+
+---
+
 ## Progress tracking — required after every build phase
 
 After completing any meaningful unit of work — whether via the coding agent, the Telegram bot (`/run`), or manual development — always update these two files before ending the session:
