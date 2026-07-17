@@ -3624,3 +3624,60 @@ Addendum (same session) — feature_list.json incident + recovery:
   entries are tagged "RECONSTRUCTED (working-tree copy lost 2026-07-17)" in their
   descriptions and should be reviewed against any other copy the author has —
   wording/steps are faithful to intent but not guaranteed byte-identical.
+
+
+=== 2026-07-17 — Coding session ===
+Feature: mcp-001 — MCP server, read-only tool surface over household data.
+Status: COMPLETE (all 5 verification steps pass; feature_list.json mcp-001 → true).
+
+What was built (the working-tree copy was reconstructed from scratch — the mcp/
+  package was empty at session start):
+  - api/src/life_dashboard/mcp/server.py — in-process FastMCP ("Hearth") with 5
+    read-only tools: list_todos, list_habits (streaks), get_grocery_list,
+    list_calendar_events, get_household_summary. Each calls a DOMAIN SERVICE
+    (never the ORM) and passes the PAT owner's user_id so apply_visibility_filter
+    enforces the agent permission model. get_household_summary gates EACH count
+    (todos/habits/grocery/calendar) behind that domain's own scope ∩ ceiling via
+    auth.can_read — a single-scope token gets null for domains it wasn't granted,
+    never a real count (fixed a review finding where it required only "household"
+    scope yet read four domains). Config: streamable_http_path="/mcp",
+    stateless_http=True, json_response=True; DNS-rebinding protection DISABLED
+    (its localhost-only Host allowlist would 421 real domains in the self-hosted
+    and cloud tiers — the endpoint is PAT-gated and sits behind the same proxy
+    + CORS as the REST API, so rebinding is not the threat model).
+  - api/src/life_dashboard/mcp/auth.py — authorize(db, ctx, scope_domain): reads
+    the Bearer PAT off ctx.request_context.request.headers, then enforces the
+    SAME two layers as the REST path (auth/dependencies._enforce_pat_scope):
+    token scope (check_scope) ∩ member ceiling (check_permission via
+    SCOPE_TO_PERMISSION_DOMAIN). One AsyncSession covers auth + data per call.
+  - api/src/life_dashboard/main.py — grafts the MCP route onto the app with
+    app.router.routes.extend(mcp_routes()) (NOT app.mount — a Mount at /mcp with
+    an inner "/" route 307-redirects to /mcp/; grafting gives a clean /mcp). The
+    SDK session manager is started from the app lifespan (a mounted sub-app's own
+    lifespan never fires), wrapping the existing yield.
+  - api/pyproject.toml — added "mcp>=1.12.0" (installed mcp 1.28.1).
+  - api/tests/test_mcp_server.py — 13 tests, all green; full suite 82 passed.
+
+Verification (feature_list steps):
+  1. Endpoint responds — real initialize over httpx.ASGITransport → 200 "Hearth".
+  2. Scope gate — a {todos:read} token calling list_habits → "read access to
+     habits" error, over the wire AND via direct call.
+  3. Each tool returns household-scoped data via the domain services.
+  4. Budget/documents/notes — asserted the tool registry is EXACTLY the 5 tools;
+     those domains have no tool at all, so no token scope can reach them.
+  5. Data-scope — Alice's agent sees the shared todo + Alice's personal todo,
+     never Bob's personal; Bob's agent is the mirror image. Verified over real
+     HTTP tools/call (FastMCP dispatch → ctx injection → authorize → service →
+     visibility filter) and by direct tool calls.
+
+Notes for whoever commits: this session's mcp-001 files are intermixed in the
+  working tree with a concurrent voice-001 session's files (grocery_lists/*,
+  web settings page, home-assistant-section.tsx, docs/home-assistant-setup.md,
+  schema.d.ts, test_grocery_add_item.py). Stage ONLY the mcp-001 files for an
+  mcp-001 commit: api/src/life_dashboard/mcp/, api/tests/test_mcp_server.py, the
+  /mcp + lifespan edits in api/src/life_dashboard/main.py, and the "mcp>=1.12.0"
+  line in api/pyproject.toml. Not committed here (no request to).
+
+Recommended next: mcp-002 (write tools + household-agent pseudo-member + audit
+  decorator, built jointly with security-008). The read tool surface, PAT auth
+  wiring, and the authorize() helper it extends are now in place.

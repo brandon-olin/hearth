@@ -1491,7 +1491,7 @@
         "Verify budget, documents, and notes are not exposed by any v1 tool",
         "Verify an agent sees shared + owning-member personal scope only, never sensitive or other members' personal data"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "mcp-002",

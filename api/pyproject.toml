@@ -45,6 +45,9 @@ dependencies = [
 
     # Rate limiting
     "slowapi>=0.1.9",
+
+    # MCP server — in-process FastMCP mounted at /mcp (mcp-001, open-hearth)
+    "mcp>=1.12.0",
 ]
 
 [project.optional-dependencies]
