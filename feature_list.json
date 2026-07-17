@@ -1332,7 +1332,7 @@
         "Verify the integration token cannot access endpoints outside its declared scope",
         "Revoke the token \u2014 verify subsequent HA calls return 401"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "voice-002",

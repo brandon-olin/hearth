@@ -3626,6 +3626,89 @@ Addendum (same session) — feature_list.json incident + recovery:
   wording/steps are faithful to intent but not guaranteed byte-identical.
 
 
+=== 2026-07-17 — Coding session (voice-001: Home Assistant integration) ===
+
+Feature: voice-001 — Home Assistant integration (voice commands via REST API).
+Status: COMPLETE, verified end-to-end. feature_list.json voice-001 passes=true.
+Commits: (pending — see below; staged voice-001 files only).
+
+Context: security-006 (PATs) already landed the auth primitive. The voice-001
+UPDATE paragraph supersedes the bespoke "integration_token" with a scoped PAT as
+the HA Bearer credential. So HA = plain REST calls authenticated by a scoped PAT;
+no new token type, no HA custom component.
+
+What was built:
+  1. Backend — the ONE real gap. Grocery items could only be added by PATCHing
+     the whole items array (service._replace_items deletes-all-then-re-adds), so
+     a stateless HA rest_command (single POST, no read-modify-write) literally
+     could not "add milk". Added:
+       - POST /grocery-lists/{list_id}/items — append a single item, 201.
+         service.add_grocery_item(); router mirrors update_grocery_item's
+         permission model (own list OK, else grocery.manage_others). Household
+         -scoped list lookup → None → 404. PAT-reachable via the existing
+         /grocery-lists → grocery scope map (POST = write); NO pat_scopes change
+         needed (deny-by-default already covers it).
+     Everything else HA needs already existed and is PAT-reachable:
+       - create todo → POST /todos (todos:write)
+       - "todos today" count → GET /todos?status=pending&due_date_from=T&due_date_to=T,
+         read .total (todos:read, implied by write)
+       - habit check-in → POST /habits/{id}/occurrences {status:"completed"}
+  2. Docs — docs/home-assistant-setup.md: full guide. PAT generation, base-URL +
+     active-list-ID lookup, configuration.yaml rest_command blocks (add grocery,
+     create todo, habit check-in), a `rest` sensor for the todo count, Assist
+     intent_script + custom_sentences for voice, Docker-only testing (no hardware),
+     revocation, troubleshooting table.
+  3. Frontend — Settings → Integrations → Home Assistant card
+     (web/src/components/settings/home-assistant-section.tsx + wired into
+     settings/page.tsx: new "integrations" section, Plug icon). One-click
+     "Generate Home Assistant token" mints a PAT pre-scoped
+     {grocery:write, todos:write, habits:write} named "Home Assistant" via the
+     existing POST /auth/tokens (reuses the AccessTokensSection reveal/idempotency
+     pattern), one-time secret reveal, a ready-to-paste configuration.yaml snippet
+     with the token injected + Copy/Copy YAML buttons, link to the full guide.
+  4. Tests — api/tests/test_grocery_add_item.py (5): append doesn't clobber
+     existing items, append to empty list, wrong-household → None (404),
+     unknown list → None, and the PAT scope for POST .../items resolves to
+     (grocery, write) with read-only/unrelated tokens denied.
+
+Verification (matches the security-006 bar: live PAT smoke + browser walkthrough):
+  - Full test suite: 68 passed (5 new).
+  - Live end-to-end smoke on a dev API (port 1339, real code) with a PAT scoped
+    {grocery,todos,habits:write} and a second grocery:read-only PAT:
+      GET /grocery-lists (write token) → 200
+      POST .../items "milk" → 201, item appears in the list (existing item survived)
+      read-only token POST .../items → 403
+      POST /todos "call the dentist" → 201
+      GET /todos?status=pending&due_date_*=today → total:1
+      grocery token GET /budget/accounts → 403 (deny-by-default)
+      after revoke → GET /grocery-lists → 401
+  - Browser walkthrough (localhost:1337): Settings → Integrations → Home Assistant
+    renders; "Generate Home Assistant token" → one-time reveal + injected YAML
+    snippet + Copy/Copy YAML + guide link; fixed a JSX whitespace bug
+    ("LIST_IDwith" → "LIST_ID with") and re-verified. No console errors.
+  - schema.d.ts regenerated from the live dev API; diff is grocery-only (the /mcp
+    mount is a sub-app and doesn't contribute to the parent openapi).
+
+Left: HA steps 3-5 as *literally* written ("edit HA configuration.yaml",
+  "restart HA", "create an HA automation") require a running Home Assistant
+  instance and were NOT executed here — but the exact HTTP transport HA uses for
+  each was verified above with a scoped PAT, and the YAML is covered by the guide.
+  passes=true reflects the Hearth-side surface being complete + verified; if you
+  want a literal HA-container pass, follow docs/home-assistant-setup.md → "Testing
+  without hardware".
+
+CONCURRENT-WORK NOTE (important for whoever commits): the working tree also
+  contains uncommitted mcp-001 work created by another session during this one —
+  api/src/life_dashboard/mcp/ (new), api/tests/test_mcp_server.py (new), and
+  edits to api/src/life_dashboard/main.py (/mcp mount + lifespan session manager)
+  and api/pyproject.toml ("mcp>=1.12.0"). Those are NOT part of voice-001 and were
+  left untouched; the voice-001 commit stages only its own files.
+
+Recommended next: voice-002 (Alexa) is blocked on security-007 (OAuth 2.1 for
+  account linking). Better next: finish/commit mcp-001 (already in progress in the
+  tree), then security-007.
+
+
 === 2026-07-17 — Coding session ===
 Feature: mcp-001 — MCP server, read-only tool surface over household data.
 Status: COMPLETE (all 5 verification steps pass; feature_list.json mcp-001 → true).

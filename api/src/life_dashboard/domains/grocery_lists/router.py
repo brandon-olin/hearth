@@ -14,6 +14,7 @@ from life_dashboard.core.permissions import (
 )
 from life_dashboard.domains.grocery_lists.models import GroceryList
 from life_dashboard.domains.grocery_lists.schemas import (
+    GroceryItemAdd,
     GroceryItemResponse,
     GroceryItemUpdate,
     GroceryListCreate,
@@ -123,6 +124,44 @@ async def delete_grocery_list(
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
         )
+
+
+@router.post(
+    "/{list_id}/items",
+    response_model=GroceryItemResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def add_grocery_item(
+    list_id: uuid.UUID,
+    data: GroceryItemAdd,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GroceryItemResponse:
+    # Appending an item is a collaborative action on a shared list — same
+    # permission model as item updates: allowed on your own list, otherwise
+    # gated behind grocery.manage_others. This is the single-call primitive
+    # Home Assistant / agents use to "add milk to the list" (a scoped PAT with
+    # grocery:write reaches it via the /grocery-lists scope mapping).
+    creator_id = await get_item_creator(db, GroceryList, list_id, current_user.household_id)
+    if creator_id is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
+        )
+    if creator_id != current_user.id:
+        perms = await load_household_permissions(db, current_user.household_id)
+        if not check_permission(perms, "grocery", "manage_others", current_user.role):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to edit this grocery list.",
+            )
+    item = await service.add_grocery_item(
+        db, list_id, current_user.household_id, data
+    )
+    if item is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Grocery list not found"
+        )
+    return item
 
 
 @router.patch("/{list_id}/items/{item_id}", response_model=GroceryItemResponse)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.grocery_lists.models import GroceryItem, GroceryList
 from life_dashboard.domains.grocery_lists.schemas import (
+    GroceryItemAdd,
     GroceryItemData,
     GroceryItemResponse,
     GroceryItemUpdate,
@@ -204,6 +205,36 @@ async def update_grocery_item(
     for field in data.model_fields_set:
         setattr(item, field, getattr(data, field))
 
+    await db.commit()
+    await db.refresh(item)
+    return GroceryItemResponse.model_validate(item)
+
+
+async def add_grocery_item(
+    db: AsyncSession,
+    list_id: uuid.UUID,
+    household_id: uuid.UUID,
+    data: GroceryItemAdd,
+) -> GroceryItemResponse | None:
+    """Append a single item to a list without replacing the rest.
+
+    The list-level PATCH replaces the whole items array, which a stateless
+    caller (a Home Assistant rest_command, an agent) can't do in one shot —
+    it would have to read, merge, and write back. This is the single-call
+    "add milk to the list" primitive those callers need.
+
+    Returns None if the list doesn't exist in this household (→ 404).
+    """
+    owned = (await db.execute(
+        select(GroceryList.id).where(
+            GroceryList.id == list_id, GroceryList.household_id == household_id
+        )
+    )).scalar_one_or_none()
+    if owned is None:
+        return None
+
+    item = GroceryItem(list_id=list_id, **data.model_dump())
+    db.add(item)
     await db.commit()
     await db.refresh(item)
     return GroceryItemResponse.model_validate(item)
