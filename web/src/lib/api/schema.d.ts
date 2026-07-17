@@ -37,9 +37,14 @@ export interface paths {
         /**
          * Complete Setup
          * @description Public. Creates the first household + admin user, seeds the system project,
-         *     and returns a LoginResponse so the frontend can log the user in immediately.
+         *     sends a verification email, and returns a RegistrationPendingResponse.
+         *
+         *     The client must call POST /auth/verify-email with the OTP to get a session.
+         *     After verification the client is redirected to /onboarding for household
+         *     name, theme, and nav customization.
          *
          *     Returns 409 Conflict once any user exists.
+         *     Returns 503 if the email service is unavailable.
          */
         post: operations["complete_setup_setup_post"];
         delete?: never;
@@ -214,6 +219,270 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profile
+         * @description Return the current accepted user profile (empty string if never set).
+         */
+        get: operations["get_profile_ai_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Profile
+         * @description Directly edit the profile content.
+         *
+         *     Bypasses the proposed-update workflow — the user is always trusted to
+         *     write their own profile. The AI never writes here directly; it only ever
+         *     proposes via /ai/profile/bootstrap and (in Phase 4) the incremental
+         *     refresher.
+         */
+        patch: operations["patch_profile_ai_profile_patch"];
+        trace?: never;
+    };
+    "/ai/profile/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bootstrap Profile
+         * @description Run the bootstrap pass: read this user's notes, documents, and recent
+         *     behavioural data, ask the AI to draft an initial profile, and create a
+         *     pending UserProfileUpdate for the user to review.
+         *
+         *     Idempotent — safe to re-run. Accepting any one update supersedes the rest.
+         *     Returns bootstrap_skipped=True with a reason when there's no usable signal.
+         */
+        post: operations["bootstrap_profile_ai_profile_bootstrap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/profile/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Profile Updates
+         * @description Return all pending proposed updates for this user.
+         */
+        get: operations["list_profile_updates_ai_profile_updates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/profile/updates/{update_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Profile Update
+         * @description Accept a pending profile update.
+         *
+         *     Copies the proposed content into the profile, marks this update accepted,
+         *     and supersedes any other still-pending updates (they were drafted against
+         *     pre-accept content and would otherwise apply stale changes).
+         */
+        post: operations["accept_profile_update_ai_profile_updates__update_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/profile/updates/{update_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject Profile Update
+         * @description Mark a pending profile update as rejected. Profile content unchanged.
+         */
+        post: operations["reject_profile_update_ai_profile_updates__update_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/profile/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Profile Versions
+         * @description Return this user's profile version history (newest first).
+         *
+         *     Phase 4 debug surface — useful for inspecting how the profile has
+         *     evolved over time or rolling back via direct PATCH /ai/profile if
+         *     something looks wrong. No frontend UI; this is accessible via curl
+         *     or any HTTP client.
+         */
+        get: operations["list_profile_versions_ai_profile_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/journal-signals/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backfill Journal Signals
+         * @description Run journal signal extraction across every journal entry this user
+         *     has written. Synchronous — the caller is doing this deliberately.
+         *
+         *     For the on-save extraction path, see notes service hooks; this endpoint
+         *     is only for first-time backfills and post-prompt-revision re-runs.
+         */
+        post: operations["backfill_journal_signals_ai_journal_signals_backfill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/journal/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Journal Session
+         * @description Start (or resume) a guided journal session anchored to a journal note.
+         *
+         *     journal-002: handles three call patterns from the frontend:
+         *
+         *     1. Initial mount, no mode:
+         *          POST /ai/journal/start {note_id}
+         *        → returns existing journal conversation if any (is_new=false),
+         *          else creates an EMPTY one (is_new=true, opening_message=None).
+         *          No LLM call. Fast.
+         *
+         *     2. Mode pick on an empty conversation:
+         *          POST /ai/journal/start {note_id, mode, local_hour}
+         *        → finds the (just-created) conversation, persists mode, saves
+         *          the canned opener as the first assistant turn, returns the
+         *          opening_message. is_new=false (it was created earlier on mount).
+         *
+         *     3. Resume of a session that already has a mode:
+         *          POST /ai/journal/start {note_id} (or {note_id, mode})
+         *        → returns the existing conversation with its stored mode. Any
+         *          mode parameter is ignored — once chosen, the mode is locked.
+         *
+         *     Validates:
+         *       - The target note exists and is owned by the current user.
+         *       - It belongs to a collection with kind='journal' (else 400).
+         */
+        post: operations["start_journal_session_ai_journal_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/journal/{conversation_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish Journal Session
+         * @description Generate a first-person summary of the session, NOT saved yet.
+         *
+         *     Frontend renders the result in an editable view; user then calls
+         *     /save with the final content_md.
+         */
+        post: operations["finish_journal_session_ai_journal__conversation_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/journal/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Journal Session
+         * @description Persist the journal session as appended content on the target note.
+         *
+         *     Layout of the saved entry:
+         *       <existing content (if any)>
+         *       <---  (divider only when existing content is non-empty)>
+         *       <summary content>
+         *       <---  (only when include_transcript=true)>
+         *       ## Conversation transcript
+         *       <transcript>
+         *
+         *     The journal note's existing content is PRESERVED; this endpoint
+         *     APPENDS rather than replacing.
+         */
+        post: operations["save_journal_session_ai_journal_save_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/chat": {
         parameters: {
             query?: never;
@@ -253,13 +522,16 @@ export interface paths {
         put?: never;
         /**
          * Register
-         * @description Public. Creates a new household + account and logs the user in immediately.
+         * @description Public. Creates a new household + account and sends a 6-digit OTP to the
+         *     provided email address.  Does NOT issue a session — the client must call
+         *     POST /auth/verify-email with the OTP to complete login.
          *
          *     display_name defaults to the local part of the email address.
          *     household_name defaults to "{display_name}'s Home".
          *     Password must be at least 8 characters.
          *
          *     Returns 409 Conflict if the email is already registered.
+         *     Returns 503 if the email service is unavailable.
          */
         post: operations["register_auth_register_post"];
         delete?: never;
@@ -277,7 +549,16 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify Email — submit OTP to complete registration and receive a session */
+        /**
+         * Verify Email
+         * @description Submit the 6-digit OTP emailed at registration to complete account setup.
+         *
+         *     On success: marks the email verified, issues access + refresh tokens, and
+         *     returns a full LoginResponse so the client can enter the app immediately.
+         *
+         *     Rate-limited to 5 attempts per 15 minutes to resist brute-force on the
+         *     OTP space.  Returns 400 on any invalid/expired/used code (generic message).
+         */
         post: operations["verify_email_auth_verify_email_post"];
         delete?: never;
         options?: never;
@@ -294,7 +575,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resend Verification — re-send a 6-digit OTP to the given email */
+        /**
+         * Resend Verification
+         * @description Resend a verification OTP to the given email address.
+         *
+         *     Always returns 204 regardless of whether the email exists or is already
+         *     verified — this prevents email enumeration.  Rate-limited to 3/hour.
+         */
         post: operations["resend_verification_auth_resend_verification_post"];
         delete?: never;
         options?: never;
@@ -403,6 +690,157 @@ export interface paths {
         patch: operations["change_password_auth_me_password_patch"];
         trace?: never;
     };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forgot Password
+         * @description Request a password reset email.
+         *
+         *     Always returns 204 regardless of whether the email exists — prevents
+         *     email enumeration. Only sends the email on the cloud deployment tier;
+         *     on local/self_hosted the response is still 204 but no email is sent
+         *     (admins reset passwords by re-inviting or using impersonation).
+         */
+        post: operations["forgot_password_auth_forgot_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Password
+         * @description Consume a password reset token and set a new password.
+         *
+         *     Returns 204 (no body) by default.
+         *     When auto_login=True, issues login tokens and returns LoginResponse (200) so
+         *     the client can skip the login screen — used by the accept-invite flow.
+         *
+         *     Returns 400 if the token is invalid, expired, or already used.
+         *     Returns 422 if the new password fails policy.
+         */
+        post: operations["reset_password_auth_reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/set-initial-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Initial Password
+         * @description Set a new password for accounts with force_password_change=True.
+         *
+         *     Used by newly invited household members on their first login — they
+         *     don't know their old password (the admin never shared it on cloud tier),
+         *     so this endpoint requires only authentication (active session) and the
+         *     new password.
+         *
+         *     Returns 403 if force_password_change is not set — use PATCH /auth/me/password
+         *     for voluntary password changes on established accounts.
+         */
+        post: operations["set_initial_password_auth_me_set_initial_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/tokens/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Token Scopes
+         * @description The selectable scope domains, for the token-creation UI.
+         */
+        get: operations["list_token_scopes_auth_tokens_scopes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Personal Access Tokens
+         * @description List the current member's active tokens. Never returns the secret.
+         */
+        get: operations["list_personal_access_tokens_auth_tokens_get"];
+        put?: never;
+        /**
+         * Create Personal Access Token
+         * @description Create a personal access token for the current member.
+         *
+         *     The plaintext token is in the response and nowhere else — the DB stores
+         *     only its SHA-256. There is no endpoint to retrieve it again; a lost token
+         *     must be revoked and replaced.
+         */
+        post: operations["create_personal_access_token_auth_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Personal Access Token
+         * @description Revoke a token. Takes effect on the next request the token makes.
+         *
+         *     404 covers both "no such token" and "not yours" — a member can't probe
+         *     for other members' token ids.
+         */
+        delete: operations["revoke_personal_access_token_auth_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/households/members": {
         parameters: {
             query?: never;
@@ -420,8 +858,18 @@ export interface paths {
          * Add Member
          * @description Add a new member to the current household.
          *
-         *     Creates a new user account (password = "password") if the email is not
-         *     already registered, then adds them to the household with the given role.
+         *     Behaviour depends on DEPLOYMENT_TIER:
+         *       local       — blocked (single-user install; returns 403).
+         *       self_hosted — creates user with a random temp password; returns temp_password
+         *                     in the response so the admin can share it. No email sent.
+         *       cloud       — creates user with a random temp password, sends a Mailgun invite
+         *                     email; temp_password is NOT returned in the response.
+         *
+         *     In all tiers, newly created accounts have force_password_change=True so the
+         *     user is prompted to set their own password on first login.
+         *
+         *     Adding an already-registered email is supported — they join the household
+         *     without having their password changed.
          *
          *     Admin/owner only. Allowed roles: admin, member, viewer.
          */
@@ -430,6 +878,32 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/households/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Member
+         * @description ai-access-001: admin-only PATCH for member-level toggles.
+         *
+         *     Currently only ai_features_enabled is settable; future toggles
+         *     can slot in. The admin cannot disable their OWN AI access through
+         *     this endpoint to avoid lockouts (they'd need another admin to
+         *     re-enable). Members managing their own AI off-switch can do so
+         *     by clearing their API key in Settings → AI.
+         */
+        patch: operations["update_member_households_members__user_id__patch"];
         trace?: never;
     };
     "/households/name": {
@@ -1288,6 +1762,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recipes/{recipe_id}/add-to-grocery-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add To Grocery List
+         * @description Append all ingredients from a recipe to an existing grocery list.
+         *     Ingredients already present (matched by recipe_ingredient_id) are skipped.
+         */
+        post: operations["add_to_grocery_list_recipes__recipe_id__add_to_grocery_list_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tags": {
         parameters: {
             query?: never;
@@ -1530,6 +2025,107 @@ export interface paths {
         patch: operations["update_entry_workouts__workout_id__entries__entry_id__patch"];
         trace?: never;
     };
+    "/budget/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Profiles
+         * @description Return all budget profiles the current user is a member of.
+         */
+        get: operations["list_profiles_budget_profiles_get"];
+        put?: never;
+        /**
+         * Create Profile
+         * @description Create a new budget profile. Business profiles (profit_tracking) are a
+         *     paid-tier feature — returns 402 if the free-tier limit is exceeded.
+         */
+        post: operations["create_profile_budget_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/profiles/seed-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seed Default Profiles
+         * @description Idempotently create the default Personal and Household profiles for this
+         *     household and seed all household members into each profile.
+         */
+        post: operations["seed_default_profiles_budget_profiles_seed_defaults_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_budget_profiles__profile_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Profile */
+        delete: operations["delete_profile_budget_profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Profile */
+        patch: operations["update_profile_budget_profiles__profile_id__patch"];
+        trace?: never;
+    };
+    "/budget/profiles/{profile_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Profile Members */
+        get: operations["list_profile_members_budget_profiles__profile_id__members_get"];
+        put?: never;
+        /** Add Profile Member */
+        post: operations["add_profile_member_budget_profiles__profile_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/profiles/{profile_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Profile Member */
+        delete: operations["remove_profile_member_budget_profiles__profile_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Profile Member */
+        patch: operations["update_profile_member_budget_profiles__profile_id__members__user_id__patch"];
+        trace?: never;
+    };
     "/budget/accounts": {
         parameters: {
             query?: never;
@@ -1565,6 +2161,106 @@ export interface paths {
         head?: never;
         /** Update Account */
         patch: operations["update_account_budget_accounts__account_id__patch"];
+        trace?: never;
+    };
+    "/budget/category-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Groups */
+        get: operations["list_groups_budget_category_groups_get"];
+        put?: never;
+        /** Create Group */
+        post: operations["create_group_budget_category_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/category-groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Group */
+        delete: operations["delete_group_budget_category_groups__group_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Group */
+        patch: operations["update_group_budget_category_groups__group_id__patch"];
+        trace?: never;
+    };
+    "/budget/category-groups/seed-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seed Default Groups
+         * @description Idempotently create the default YNAB-inspired category groups for the
+         *     household and assign matching categories by name.
+         *     For profit_tracking profiles, seeds business-specific group names instead.
+         */
+        post: operations["seed_default_groups_budget_category_groups_seed_defaults_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/categories/auto-budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Budget Fixed
+         * @description Average the last N full months of spending for every category in the named
+         *     group and write the result to each category's default_monthly_amount.
+         *     Returns the list of categories that were updated with old/new amounts.
+         */
+        post: operations["auto_budget_fixed_budget_categories_auto_budget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/categories/grouped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Categories Grouped
+         * @description Return categories nested inside their groups, with an implicit Other bucket for ungrouped.
+         */
+        get: operations["list_categories_grouped_budget_categories_grouped_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/budget/categories": {
@@ -1604,6 +2300,41 @@ export interface paths {
         patch: operations["update_category_budget_categories__category_id__patch"];
         trace?: never;
     };
+    "/budget/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Targets */
+        get: operations["get_targets_budget_targets_get"];
+        /** Upsert Target */
+        put: operations["upsert_target_budget_targets_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/rollover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compute Rollover */
+        post: operations["compute_rollover_budget_rollover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/budget/summary": {
         parameters: {
             query?: never;
@@ -1630,10 +2361,35 @@ export interface paths {
         };
         /**
          * Get Analytics
-         * @description Per-category spending breakdown for a calendar month.
-         *     Defaults to the current month when year/month are omitted.
+         * @description Per-category spending breakdown for a calendar month or arbitrary date range.
+         *
+         *     Pass year+month for the standard monthly view (with budget targets + rollover).
+         *     Pass date_from+date_to for an arbitrary range (budget targets omitted).
+         *     Defaults to the current month when all date params are omitted.
+         *     For profit_tracking profiles, use GET /budget/analytics/profit instead.
          */
         get: operations["get_analytics_budget_analytics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/analytics/profit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profit Analytics
+         * @description P&L analytics for a profit_tracking profile (budget-012 / budget-013).
+         *     Returns revenue, expenses, net profit, MRR, ARR, and MoM MRR growth.
+         */
+        get: operations["get_profit_analytics_budget_analytics_profit_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1654,11 +2410,7 @@ export interface paths {
         put?: never;
         /** Create Transaction */
         post: operations["create_transaction_budget_transactions_post"];
-        /**
-         * Bulk Delete Transactions
-         * @description Delete all transactions for the household, optionally filtered to one account.
-         *     Returns { "deleted": <count> }.
-         */
+        /** Bulk Delete Transactions */
         delete: operations["bulk_delete_transactions_budget_transactions_delete"];
         options?: never;
         head?: never;
@@ -1672,11 +2424,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Export Transactions Csv
-         * @description Download all visible transactions as a CSV file.
-         *     Filename: hearth-budget-YYYY-MM.csv based on date_from or the current month.
-         */
+        /** Export Transactions Csv */
         get: operations["export_transactions_csv_budget_transactions_export_get"];
         put?: never;
         post?: never;
@@ -1705,6 +2453,62 @@ export interface paths {
         patch: operations["update_transaction_budget_transactions__transaction_id__patch"];
         trace?: never;
     };
+    "/budget/transactions/{transaction_id}/move-to-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reattribute Transaction
+         * @description budget-011: Re-attribute a transaction to a different profile for analytics.
+         *     The account balance is unaffected — this is purely an analytics operation.
+         *     Pass target_profile_id=null to revert to the account's default profile.
+         */
+        post: operations["reattribute_transaction_budget_transactions__transaction_id__move_to_profile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/apply-to-similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Category To Similar */
+        post: operations["apply_category_to_similar_budget_apply_to_similar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/apply-transfer-to-similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Transfer To Similar */
+        post: operations["apply_transfer_to_similar_budget_apply_transfer_to_similar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/budget/transactions/import": {
         parameters: {
             query?: never;
@@ -1731,12 +2535,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Auto Categorize
-         * @description Keyword-match uncategorized transactions against category keyword lists.
-         *     Pass account_id to restrict to a single account; omit to scan the whole household.
-         *     Returns { "updated": <count> }.
-         */
+        /** Auto Categorize */
         post: operations["auto_categorize_budget_auto_categorize_post"];
         delete?: never;
         options?: never;
@@ -1753,14 +2552,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Detect Import File
-         * @description Upload a file and get back format detection + column info.
-         *
-         *     For OFX/QFX: returns estimated transaction count and date range.
-         *     For CSV: returns column headers, up to 5 sample rows, and a best-guess
-         *     column mapping for the frontend to display/edit before confirming import.
-         */
+        /** Detect Import File */
         post: operations["detect_import_file_budget_import_detect_post"];
         delete?: never;
         options?: never;
@@ -1777,15 +2569,208 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Import File
-         * @description Import transactions from an OFX/QFX or CSV file into the given account.
-         *     Duplicates are silently skipped (dedup by hash + external_id).
-         *
-         *     For CSV files, supply `column_mapping` as a JSON-encoded CSVColumnMapping.
-         *     If omitted for CSV, heuristic detection is used.
-         */
+        /** Import File */
         post: operations["import_file_budget_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/income-forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Income Forecast
+         * @description Project recurring income for the given month and compare against
+         *     category budget targets. Returns per-source breakdown plus
+         *     left_to_allocate = projected_income - total_targets.
+         */
+        get: operations["get_income_forecast_budget_income_forecast_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/recurring/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Recurring
+         * @description Idempotent: generates missing recurring-transaction instances for the given
+         *     year/month from all active recurring templates in the household.
+         *     Safe to call multiple times; already-existing instances are skipped.
+         */
+        post: operations["generate_recurring_budget_recurring_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Spending Trends
+         * @description Return monthly income / expense / budget totals for the last N months.
+         *     Ordered oldest → newest. Used by the trends chart on the budget page.
+         */
+        get: operations["get_spending_trends_budget_trends_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/teller/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Teller Config
+         * @description Return public Teller configuration so the frontend knows whether bank
+         *     sync is available and how to initialise the Teller Connect widget.
+         *     The access token is never included in this response.
+         */
+        get: operations["get_teller_config_budget_teller_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/teller/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect Teller Enrollment
+         * @description Process a successful Teller Connect callback.
+         *
+         *     The frontend calls this after the TellerConnect.setup() onSuccess fires,
+         *     passing the access token, enrollment ID, and institution name.  The API
+         *     calls Teller GET /accounts to discover all bank accounts in the enrollment
+         *     and creates (or re-authenticates) a BudgetAccount for each.
+         *
+         *     Returns the list of created/updated BudgetAccount objects.
+         */
+        post: operations["connect_teller_enrollment_budget_teller_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/accounts/{account_id}/teller/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Teller Account
+         * @description Poll Teller for new transactions on a single linked account and import them.
+         *     Uses the stored cursor so only transactions newer than the last sync are fetched.
+         */
+        post: operations["sync_teller_account_budget_accounts__account_id__teller_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/teller/sync-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync All Teller Accounts
+         * @description Sync all Teller-linked accounts in the household in sequence.
+         *     Individual account failures are logged and skipped — the response always
+         *     returns results for the accounts that succeeded.
+         */
+        post: operations["sync_all_teller_accounts_budget_teller_sync_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/accounts/{account_id}/teller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink Teller Account
+         * @description Remove the Teller connection from an account.
+         *     Clears all teller_* fields; existing imported transactions are preserved.
+         */
+        delete: operations["unlink_teller_account_budget_accounts__account_id__teller_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/budget/accounts/{account_id}/teller/reset-cursor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Teller Cursor
+         * @description Clear the teller_cursor so the next sync re-fetches the full transaction
+         *     history from scratch.  Useful after the initial connect when the cursor
+         *     was set before full pagination was available.
+         */
+        post: operations["reset_teller_cursor_budget_accounts__account_id__teller_reset_cursor_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1804,6 +2789,31 @@ export interface paths {
          * @description Liveness + DB reachability check. Used by Docker healthcheck and uptime monitors.
          */
         get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * App Config
+         * @description Public endpoint — returns static deployment configuration.
+         *
+         *     The frontend fetches this once on startup to know which features are
+         *     available (e.g. whether to show the invite UI, the forgot-password link).
+         *
+         *     deployment_tier: local | self_hosted | cloud
+         */
+        get: operations["app_config_app_config_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1847,6 +2857,34 @@ export interface components {
              * @default member
              */
             role: string;
+        };
+        /**
+         * AddToGroceryListRequest
+         * @description POST /recipes/{recipe_id}/add-to-grocery-list
+         */
+        AddToGroceryListRequest: {
+            /**
+             * List Id
+             * Format: uuid
+             */
+            list_id: string;
+            /**
+             * Servings Scale
+             * @default 1
+             */
+            servings_scale: number;
+        };
+        /** AddToGroceryListResponse */
+        AddToGroceryListResponse: {
+            /**
+             * List Id
+             * Format: uuid
+             */
+            list_id: string;
+            /** Added */
+            added: number;
+            /** Skipped */
+            skipped: number;
         };
         /** AddressData */
         AddressData: {
@@ -1900,6 +2938,11 @@ export interface components {
             retention_days: number | null;
             /** Has Custom Key */
             has_custom_key: boolean;
+            /**
+             * Ai Journal Extraction Enabled
+             * @default true
+             */
+            ai_journal_extraction_enabled: boolean;
         };
         /**
          * AiSettingsUpdate
@@ -1914,6 +2957,10 @@ export interface components {
          *       - None → don't change the stored key
          *       - Non-empty string → save as new BYOK key
          *       - Use clear_api_key=true to remove a BYOK key and fall back to system key
+         *
+         *     ai_journal_extraction_enabled:
+         *       - Not sent → current value unchanged
+         *       - Sent → new value applied (toggles per-entry signal extraction)
          */
         AiSettingsUpdate: {
             /** Provider */
@@ -1927,6 +2974,15 @@ export interface components {
              * @default false
              */
             clear_api_key: boolean;
+            /** Ai Journal Extraction Enabled */
+            ai_journal_extraction_enabled?: boolean | null;
+        };
+        /** ApplyToSimilarResponse */
+        ApplyToSimilarResponse: {
+            /** Updated */
+            updated: number;
+            /** Keyword Added */
+            keyword_added: boolean;
         };
         /** AutoCategorizeResponse */
         AutoCategorizeResponse: {
@@ -1986,6 +3042,25 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * BootstrapResponse
+         * @description Returned by POST /ai/profile/bootstrap.
+         *
+         *     `update` is the newly-created pending proposal the user must review.
+         *     `bootstrap_skipped` is true when the pass produced no usable signal
+         *     (e.g. a brand-new user with no notes/journal/documents) — in that case
+         *     no update is created and the user can populate the profile manually.
+         */
+        BootstrapResponse: {
+            update: components["schemas"]["ProfileUpdateResponse"] | null;
+            /**
+             * Bootstrap Skipped
+             * @default false
+             */
+            bootstrap_skipped: boolean;
+            /** Reason */
+            reason?: string | null;
+        };
         /** BudgetAccountCreate */
         BudgetAccountCreate: {
             /** Name */
@@ -2007,6 +3082,8 @@ export interface components {
              * @default USD
              */
             currency: string;
+            /** Profile Id */
+            profile_id?: string | null;
         };
         /** BudgetAccountResponse */
         BudgetAccountResponse: {
@@ -2025,6 +3102,8 @@ export interface components {
              * Format: uuid
              */
             owner_user_id: string;
+            /** Profile Id */
+            profile_id: string | null;
             /** Name */
             name: string;
             /** Account Type */
@@ -2033,6 +3112,22 @@ export interface components {
             scope: string;
             /** Currency */
             currency: string;
+            /** Current Balance */
+            current_balance?: number | null;
+            /** Balance Updated At */
+            balance_updated_at?: string | null;
+            /** Balance At Last Sync */
+            balance_at_last_sync?: number | null;
+            /** Balance Synced At */
+            balance_synced_at?: string | null;
+            /** Teller Enrollment Id */
+            teller_enrollment_id?: string | null;
+            /** Teller Account Id */
+            teller_account_id?: string | null;
+            /** Teller Institution Name */
+            teller_institution_name?: string | null;
+            /** Teller Last Synced At */
+            teller_last_synced_at?: string | null;
             /** Archived At */
             archived_at: string | null;
             /**
@@ -2056,12 +3151,16 @@ export interface components {
             scope?: ("personal" | "shared") | null;
             /** Currency */
             currency?: string | null;
+            /** Profile Id */
+            profile_id?: string | null;
             /** Archived At */
             archived_at?: string | null;
+            /** Current Balance */
+            current_balance?: number | null;
         };
         /**
          * BudgetAnalyticsResponse
-         * @description Per-category spending breakdown for a calendar month.
+         * @description Per-category spending breakdown for a calendar month (zero_based profiles).
          */
         BudgetAnalyticsResponse: {
             /** Year */
@@ -2084,6 +3183,10 @@ export interface components {
             total_income: number;
             /** Transaction Count */
             transaction_count: number;
+            /** Total Budgeted */
+            total_budgeted: number;
+            /** Total Targets */
+            total_targets: number;
             /** By Category */
             by_category: components["schemas"]["BudgetCategoryAnalyticsEntry"][];
         };
@@ -2103,6 +3206,14 @@ export interface components {
             total_income: number;
             /** Transaction Count */
             transaction_count: number;
+            /** Budgeted */
+            budgeted: number | null;
+            /** Remaining */
+            remaining: number | null;
+            /** Is Over Budget */
+            is_over_budget: boolean;
+            /** Rollover Amount */
+            rollover_amount: number;
         };
         /** BudgetCategoryCreate */
         BudgetCategoryCreate: {
@@ -2110,10 +3221,10 @@ export interface components {
             name: string;
             /**
              * Default Scope
-             * @default personal
+             * @default private
              * @enum {string}
              */
-            default_scope: "personal" | "household";
+            default_scope: "private" | "shared";
             /** Split Config */
             split_config?: {
                 [key: string]: number;
@@ -2129,6 +3240,102 @@ export interface components {
             sort_order: number;
             /** Keywords */
             keywords?: string[] | null;
+            /** Group Id */
+            group_id?: string | null;
+            /** Default Monthly Amount */
+            default_monthly_amount?: number | null;
+            /**
+             * Rollover Enabled
+             * @default false
+             */
+            rollover_enabled: boolean;
+            /**
+             * Is Recurring Revenue
+             * @default false
+             */
+            is_recurring_revenue: boolean;
+            /** Profile Id */
+            profile_id?: string | null;
+            /**
+             * Notify Threshold Pct
+             * @default 80
+             */
+            notify_threshold_pct: number | null;
+        };
+        /** BudgetCategoryGroupCreate */
+        BudgetCategoryGroupCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /**
+             * Is Income
+             * @default false
+             */
+            is_income: boolean;
+            /** Profile Id */
+            profile_id?: string | null;
+        };
+        /** BudgetCategoryGroupResponse */
+        BudgetCategoryGroupResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Profile Id */
+            profile_id: string | null;
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order: number;
+            /** Is Income */
+            is_income: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetCategoryGroupUpdate */
+        BudgetCategoryGroupUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Is Income */
+            is_income?: boolean | null;
+            /** Profile Id */
+            profile_id?: string | null;
+        };
+        /**
+         * BudgetCategoryGroupWithCategories
+         * @description A group with its member categories nested — used by GET /budget/categories/grouped.
+         */
+        BudgetCategoryGroupWithCategories: {
+            /** Id */
+            id: string | null;
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order: number;
+            /** Is Income */
+            is_income: boolean;
+            /** Categories */
+            categories: components["schemas"]["BudgetCategoryResponse"][];
         };
         /** BudgetCategoryResponse */
         BudgetCategoryResponse: {
@@ -2142,6 +3349,8 @@ export interface components {
              * Format: uuid
              */
             household_id: string;
+            /** Profile Id */
+            profile_id: string | null;
             /** Name */
             name: string;
             /** Default Scope */
@@ -2158,8 +3367,16 @@ export interface components {
             sort_order: number;
             /** Keywords */
             keywords: string[] | null;
+            /** Group Id */
+            group_id: string | null;
             /** Default Monthly Amount */
             default_monthly_amount: number | null;
+            /** Rollover Enabled */
+            rollover_enabled: boolean;
+            /** Is Recurring Revenue */
+            is_recurring_revenue: boolean;
+            /** Notify Threshold Pct */
+            notify_threshold_pct: number | null;
             /** Archived At */
             archived_at: string | null;
             /**
@@ -2178,7 +3395,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Default Scope */
-            default_scope?: ("personal" | "household") | null;
+            default_scope?: ("private" | "shared") | null;
             /** Split Config */
             split_config?: {
                 [key: string]: number;
@@ -2191,8 +3408,20 @@ export interface components {
             sort_order?: number | null;
             /** Keywords */
             keywords?: string[] | null;
+            /** Group Id */
+            group_id?: string | null;
             /** Archived At */
             archived_at?: string | null;
+            /** Default Monthly Amount */
+            default_monthly_amount?: number | null;
+            /** Rollover Enabled */
+            rollover_enabled?: boolean | null;
+            /** Is Recurring Revenue */
+            is_recurring_revenue?: boolean | null;
+            /** Profile Id */
+            profile_id?: string | null;
+            /** Notify Threshold Pct */
+            notify_threshold_pct?: number | null;
         };
         /**
          * BudgetFileImportResponse
@@ -2203,6 +3432,11 @@ export interface components {
             inserted: number;
             /** Skipped */
             skipped: number;
+            /**
+             * Auto Categorized
+             * @default 0
+             */
+            auto_categorized: number;
             /** Parse Errors */
             parse_errors?: string[];
         };
@@ -2234,6 +3468,156 @@ export interface components {
             /** Errors */
             errors?: string[];
         };
+        /** BudgetProfileCreate */
+        BudgetProfileCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Budgeting Style
+             * @default zero_based
+             * @enum {string}
+             */
+            budgeting_style: "zero_based" | "profit_tracking";
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** BudgetProfileMemberAdd */
+        BudgetProfileMemberAdd: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /**
+             * Role
+             * @default member
+             * @enum {string}
+             */
+            role: "owner" | "member" | "viewer";
+        };
+        /** BudgetProfileMemberResponse */
+        BudgetProfileMemberResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Profile Id */
+            profile_id: string | null;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Role */
+            role: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetProfileMemberUpdate */
+        BudgetProfileMemberUpdate: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "member" | "viewer";
+        };
+        /** BudgetProfileResponse */
+        BudgetProfileResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Name */
+            name: string;
+            /** Budgeting Style */
+            budgeting_style: string;
+            /** Currency */
+            currency: string;
+            /** Sort Order */
+            sort_order: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BudgetProfileUpdate */
+        BudgetProfileUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Budgeting Style */
+            budgeting_style?: ("zero_based" | "profit_tracking") | null;
+            /** Currency */
+            currency?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /**
+         * BudgetProfitAnalyticsResponse
+         * @description P&L view for profit_tracking profiles (budget-012).
+         */
+        BudgetProfitAnalyticsResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Total Expenses */
+            total_expenses: number;
+            /** Net Profit */
+            net_profit: number;
+            /** Transaction Count */
+            transaction_count: number;
+            /** By Category */
+            by_category: components["schemas"]["BudgetCategoryAnalyticsEntry"][];
+            /** Mrr Actual */
+            mrr_actual: number;
+            /** Arr Projected */
+            arr_projected: number;
+            /** Mrr Prev Month */
+            mrr_prev_month: number;
+            /** Mrr Growth Pct */
+            mrr_growth_pct: number | null;
+        };
         /**
          * BudgetSummaryResponse
          * @description Aggregate totals for a date range — used by the summary bar on the budget page.
@@ -2249,6 +3633,77 @@ export interface components {
             date_from: string | null;
             /** Date To */
             date_to: string | null;
+        };
+        /**
+         * BudgetTargetMonthResponse
+         * @description Effective targets for all categories for a given month.
+         *     Maps category_id (str) → effective amount (float | None).
+         *     Override rows take precedence over default_monthly_amount.
+         *     Categories with no target at all are absent from the map (or None).
+         */
+        BudgetTargetMonthResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Targets */
+            targets: {
+                [key: string]: number | null;
+            };
+        };
+        /** BudgetTargetResponse */
+        BudgetTargetResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Profile Id */
+            profile_id: string | null;
+            /**
+             * Category Id
+             * Format: uuid
+             */
+            category_id: string;
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Amount */
+            amount: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * BudgetTargetUpsert
+         * @description Upsert a per-month budget target for a category.
+         *     Set amount=None to clear the override (reverts to default_monthly_amount).
+         */
+        BudgetTargetUpsert: {
+            /**
+             * Category Id
+             * Format: uuid
+             */
+            category_id: string;
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Amount */
+            amount?: number | null;
         };
         /**
          * BudgetTransactionBulkImport
@@ -2275,6 +3730,11 @@ export interface components {
             inserted: number;
             /** Skipped */
             skipped: number;
+            /**
+             * Auto Categorized
+             * @default 0
+             */
+            auto_categorized: number;
         };
         /** BudgetTransactionCreate */
         BudgetTransactionCreate: {
@@ -2304,7 +3764,7 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Scope */
-            scope?: ("personal" | "household") | null;
+            scope?: ("private" | "shared") | null;
             /** Split Override */
             split_override?: {
                 [key: string]: number;
@@ -2313,6 +3773,14 @@ export interface components {
             import_source?: ("csv" | "ofx" | "manual" | "teller" | "plaid") | null;
             /** External Id */
             external_id?: string | null;
+            /**
+             * Is Transfer
+             * @default false
+             */
+            is_transfer: boolean;
+            /** Running Balance */
+            running_balance?: number | null;
+            recurring?: components["schemas"]["RecurringRule"] | null;
         };
         /** BudgetTransactionListResponse */
         BudgetTransactionListResponse: {
@@ -2324,6 +3792,14 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+        };
+        /**
+         * BudgetTransactionReattribute
+         * @description budget-011: Re-attribute a transaction to a different profile for analytics.
+         */
+        BudgetTransactionReattribute: {
+            /** Target Profile Id */
+            target_profile_id: string | null;
         };
         /** BudgetTransactionResponse */
         BudgetTransactionResponse: {
@@ -2349,6 +3825,8 @@ export interface components {
             owner_user_id: string;
             /** Category Id */
             category_id: string | null;
+            /** Profile Id */
+            profile_id: string | null;
             /**
              * Date
              * Format: date
@@ -2370,10 +3848,20 @@ export interface components {
             split_override: {
                 [key: string]: unknown;
             } | null;
+            /** Is Transfer */
+            is_transfer: boolean;
+            /** Running Balance */
+            running_balance: number | null;
             /** Import Source */
             import_source: string | null;
             /** External Id */
             external_id: string | null;
+            /** Recurring */
+            recurring: {
+                [key: string]: unknown;
+            } | null;
+            /** Recurring Template Id */
+            recurring_template_id: string | null;
             /** Archived At */
             archived_at: string | null;
             /**
@@ -2402,13 +3890,42 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Scope */
-            scope?: ("personal" | "household") | null;
+            scope?: ("private" | "shared") | null;
             /** Split Override */
             split_override?: {
                 [key: string]: number;
             } | null;
+            /** Is Transfer */
+            is_transfer?: boolean | null;
             /** Archived At */
             archived_at?: string | null;
+            recurring?: components["schemas"]["RecurringRule"] | null;
+        };
+        /**
+         * BudgetTrendMonth
+         * @description One month's totals for the spending-trends chart.
+         */
+        BudgetTrendMonth: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Total Income */
+            total_income: number;
+            /** Total Expenses */
+            total_expenses: number;
+            /** Total Budgeted */
+            total_budgeted: number;
+            /** Net */
+            net: number;
+        };
+        /**
+         * BudgetTrendsResponse
+         * @description GET /budget/trends — last N months of income/expense/budget totals.
+         */
+        BudgetTrendsResponse: {
+            /** Months */
+            months: components["schemas"]["BudgetTrendMonth"][];
         };
         /**
          * CSVColumnMapping
@@ -2600,12 +4117,37 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /**
+         * ChatContextRef
+         * @description Lightweight hint sent by the client identifying what resource the user
+         *     is currently viewing in the app.
+         *
+         *     The backend resolves this to a brief markdown block and prepends it to
+         *     the chat system prompt so the AI knows what 'this' refers to without
+         *     the user having to paste content. Visibility/ownership rules are
+         *     enforced at resolution time — an unauthorised ref produces no block
+         *     (silent) rather than an error, so a stale or bogus context never
+         *     breaks the chat flow.
+         */
+        ChatContextRef: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "note" | "recipe" | "document" | "todo" | "goal" | "habit";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /** ChatRequest */
         ChatRequest: {
             /** Content */
             content: string;
             /** Conversation Id */
             conversation_id?: string | null;
+            context?: components["schemas"]["ChatContextRef"] | null;
         };
         /** CoachDigestResponse */
         CoachDigestResponse: {
@@ -2651,6 +4193,8 @@ export interface components {
             pinned_habit_ids: string[];
             /** For Date */
             for_date?: string | null;
+            /** Focus */
+            focus?: string | null;
         };
         /** CollectionCreate */
         CollectionCreate: {
@@ -3474,6 +5018,11 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** ForgotPasswordRequest */
+        ForgotPasswordRequest: {
+            /** Email */
+            email: string;
+        };
         /** GoalCreate */
         GoalCreate: {
             /** Parent Id */
@@ -3509,7 +5058,9 @@ export interface components {
              */
             shared_with_user_ids: string[];
             /** Financial Link */
-            financial_link?: { [key: string]: unknown } | null;
+            financial_link?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** GoalListResponse */
         GoalListResponse: {
@@ -3571,7 +5122,9 @@ export interface components {
             /** Shared With User Ids */
             shared_with_user_ids: string[];
             /** Financial Link */
-            financial_link: { [key: string]: unknown } | null;
+            financial_link: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Created At
              * Format: date-time
@@ -3610,7 +5163,9 @@ export interface components {
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
             /** Financial Link */
-            financial_link?: { [key: string]: unknown } | null;
+            financial_link?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** GroceryItemData */
         GroceryItemData: {
@@ -3809,7 +5364,7 @@ export interface components {
              * @default daily
              * @enum {string}
              */
-            frequency: "daily" | "weekly" | "monthly" | "custom";
+            frequency: "daily" | "weekly" | "monthly";
             /** Cadence */
             cadence?: {
                 [key: string]: unknown;
@@ -3851,7 +5406,7 @@ export interface components {
             /** Description */
             description?: string | null;
             /** Frequency */
-            frequency?: ("daily" | "weekly" | "monthly" | "custom") | null;
+            frequency?: ("daily" | "weekly" | "monthly") | null;
             /** Cadence */
             cadence?: {
                 [key: string]: unknown;
@@ -3953,6 +5508,62 @@ export interface components {
             /** Display Name */
             display_name: string | null;
         };
+        /**
+         * IncomeForecastResponse
+         * @description GET /budget/income-forecast — forward-looking income allocation view.
+         *
+         *     projected_income: sum of all recurring-income template occurrences that
+         *         fire in the target month (amount > 0, non-transfer).
+         *     actual_income: income actually received this month (from analytics).
+         *         Zero for future months.
+         *     sources: per-occurrence breakdown of projected income.
+         *     total_targets: sum of all active category budget targets for the month
+         *         (same figure used by "Ready to assign").
+         *     left_to_allocate: projected_income - total_targets.
+         *     is_future_month: True when the requested month is strictly after today.
+         */
+        IncomeForecastResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Projected Income */
+            projected_income: number;
+            /** Actual Income */
+            actual_income: number;
+            /** Sources */
+            sources: components["schemas"]["IncomeForecastSource"][];
+            /** Total Targets */
+            total_targets: number;
+            /** Left To Allocate */
+            left_to_allocate: number;
+            /** Is Future Month */
+            is_future_month: boolean;
+        };
+        /**
+         * IncomeForecastSource
+         * @description A single projected income occurrence derived from a recurring template.
+         */
+        IncomeForecastSource: {
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /** Description */
+            description: string;
+            /** Amount */
+            amount: number;
+            /** Category Id */
+            category_id: string | null;
+            /** Category Name */
+            category_name: string | null;
+            /**
+             * Expected Date
+             * Format: date
+             */
+            expected_date: string;
+        };
         /** IngredientData */
         "IngredientData-Input": {
             /** Name */
@@ -4011,45 +5622,133 @@ export interface components {
              */
             recipe_id: string;
         };
+        /**
+         * JournalFinishResponse
+         * @description Synthesized first-person summary, NOT yet saved.
+         *
+         *     The frontend renders this in an editable view; user accepts/edits
+         *     then calls /ai/journal/save with the final content_md.
+         */
+        JournalFinishResponse: {
+            /** Summary Md */
+            summary_md: string;
+        };
+        /**
+         * JournalSaveRequest
+         * @description Persist a journal session as appended content on the target note.
+         */
+        JournalSaveRequest: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Content Md */
+            content_md: string;
+            /**
+             * Include Transcript
+             * @default false
+             */
+            include_transcript: boolean;
+        };
+        /** JournalSaveResponse */
+        JournalSaveResponse: {
+            /**
+             * Note Id
+             * Format: uuid
+             */
+            note_id: string;
+        };
+        /**
+         * JournalSignalsBackfillResponse
+         * @description Per-category counts from a backfill run.
+         */
+        JournalSignalsBackfillResponse: {
+            /** Scanned */
+            scanned: number;
+            /** Extracted */
+            extracted: number;
+            /** Skipped Empty */
+            skipped_empty: number;
+            /** Skipped Current */
+            skipped_current: number;
+            /** Errors */
+            errors: number;
+        };
+        /**
+         * JournalStartRequest
+         * @description Start (or resume) a guided journal session for today's entry.
+         *
+         *     journal-002:
+         *       - `mode`: which check-in mode the user picked, or None on the
+         *         initial mount call. On mount the frontend calls /start with no
+         *         mode just to look up (or create an empty) conversation. After
+         *         the user picks a chip, the frontend calls /start AGAIN with the
+         *         chosen mode, which seeds the canned opener and persists the
+         *         mode on the conversation.
+         *       - `local_hour`: user's local hour-of-day (0-23) at the moment they
+         *         pick the mode. Only used to branch the day_review opener
+         *         between morning (look-ahead) and evening (look-back). The
+         *         frontend reads `new Date().getHours()`. Optional — falling
+         *         back to evening when missing.
+         */
+        JournalStartRequest: {
+            /**
+             * Note Id
+             * Format: uuid
+             */
+            note_id: string;
+            /** Mode */
+            mode?: ("blank" | "mood" | "body" | "rant" | "day_review") | null;
+            /** Local Hour */
+            local_hour?: number | null;
+        };
+        /**
+         * JournalStartResponse
+         * @description The active conversation for this user+note pair.
+         *
+         *     `is_new` is true when this call created the conversation; false when
+         *     we resumed an existing one (the user opened Talk-it-out earlier today).
+         *     Frontend uses it to decide whether to wait for an AI-initiated opener
+         *     or just render the existing transcript.
+         *
+         *     journal-002:
+         *       - `opening_message` is the canned mode opener (or None for blank-
+         *         slate / no-mode calls). Already saved as the first assistant
+         *         message when non-None, so the chat history is consistent.
+         *       - `mode` reflects the persisted mode on the conversation —
+         *         non-null only after the user has picked a check-in mode.
+         *       - `needs_mode_pick` is true iff the user should be shown the mode
+         *         picker chips. The frontend uses this directly rather than
+         *         re-deriving from is_new/mode/message-count. True when the
+         *         conversation has no messages yet AND no mode set — i.e. a brand
+         *         new session OR a session the user started earlier and closed
+         *         without typing.
+         */
+        JournalStartResponse: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Is New */
+            is_new: boolean;
+            /** Opening Message */
+            opening_message?: string | null;
+            /** Mode */
+            mode?: ("blank" | "mood" | "body" | "rant" | "day_review") | null;
+            /**
+             * Needs Mode Pick
+             * @default false
+             */
+            needs_mode_pick: boolean;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
             email: string;
             /** Password */
             password: string;
-        };
-        /**
-         * RegistrationPendingResponse
-         * @description Returned by /auth/register. Email verification required — no session issued yet.
-         */
-        RegistrationPendingResponse: {
-            /** @default true */
-            needs_verification: boolean;
-            /** User Id */
-            user_id: string;
-            /** Email */
-            email: string;
-        };
-        /**
-         * VerifyEmailRequest
-         * @description Submit a 6-digit OTP to verify an email address.
-         */
-        VerifyEmailRequest: {
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
-            /** Code */
-            code: string;
-        };
-        /**
-         * ResendVerificationRequest
-         * @description Request a new OTP for the given email address.
-         */
-        ResendVerificationRequest: {
-            /** Email */
-            email: string;
         };
         /**
          * LoginResponse
@@ -4085,9 +5784,11 @@ export interface components {
             joined_at: string;
             /**
              * Ai Features Enabled
-             * ai-access-001: admin-controlled per-member AI gate. Manual patch — regenerate via `npm run codegen`.
+             * @default true
              */
-            ai_features_enabled?: boolean;
+            ai_features_enabled: boolean;
+            /** Temp Password */
+            temp_password?: string | null;
         };
         /** MessageResponse */
         MessageResponse: {
@@ -4187,11 +5888,7 @@ export interface components {
             } | null;
             /** Collection Id */
             collection_id: string | null;
-            /**
-             * Collection Kind
-             * journal-001: parent collection's kind, if any. Frontend gates journal-specific affordances on this.
-             * Will be re-generated by `npm run codegen` against the running API.
-             */
+            /** Collection Kind */
             collection_kind?: string | null;
             /** Visibility */
             visibility: string;
@@ -4393,6 +6090,69 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** PATCreateRequest */
+        PATCreateRequest: {
+            /** Name */
+            name: string;
+            /** Scopes */
+            scopes: {
+                [key: string]: string;
+            };
+            /**
+             * Expires In Days
+             * @default 365
+             */
+            expires_in_days: number | null;
+        };
+        /**
+         * PATCreateResponse
+         * @description Returned once by POST /auth/tokens. `token` is unrecoverable afterwards —
+         *     only its hash is stored.
+         */
+        PATCreateResponse: {
+            /** Token */
+            token: string;
+            pat: components["schemas"]["PATResponse"];
+        };
+        /**
+         * PATResponse
+         * @description A token's non-secret metadata. Deliberately has no token/secret field —
+         *     the plaintext exists only in PATCreateResponse, once, at creation.
+         */
+        PATResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Scopes */
+            scopes: {
+                [key: string]: string;
+            };
+            /** Expires At */
+            expires_at: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * PATScopeOption
+         * @description One selectable scope domain, for building the token-creation UI.
+         */
+        PATScopeOption: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
         /** PhoneData */
         PhoneData: {
             /** Phone Number */
@@ -4421,6 +6181,101 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /**
+         * ProfilePatchRequest
+         * @description User-driven direct edit of the profile.
+         *
+         *     The 8KB cap matches the hard cap documented in docs/ai-coach-redesign.md.
+         */
+        ProfilePatchRequest: {
+            /** Content Md */
+            content_md: string;
+        };
+        /**
+         * ProfileResponse
+         * @description Current accepted user profile.
+         *
+         *     content_md is the same data stored on member_ai_memory.memory_text — a
+         *     markdown document, sectioned by H2 headers, that both the coach and the
+         *     chatbot read on every interaction. Empty string until the bootstrap pass
+         *     has run and the user has accepted the first proposed update.
+         */
+        ProfileResponse: {
+            /** Content Md */
+            content_md: string;
+            /**
+             * Last Updated At
+             * Format: date-time
+             */
+            last_updated_at: string;
+            /** Last Bootstrapped At */
+            last_bootstrapped_at: string | null;
+        };
+        /** ProfileUpdateListResponse */
+        ProfileUpdateListResponse: {
+            /** Items */
+            items: components["schemas"]["ProfileUpdateResponse"][];
+        };
+        /**
+         * ProfileUpdateResponse
+         * @description One proposed change to the profile, surfaced to the user for review.
+         */
+        ProfileUpdateResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Proposed Content Md */
+            proposed_content_md: string;
+            /** Diff Summary */
+            diff_summary: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "bootstrap" | "incremental" | "manual" | "scheduled" | "direct_edit";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "superseded";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Resolved At */
+            resolved_at: string | null;
+        };
+        /** ProfileVersionListResponse */
+        ProfileVersionListResponse: {
+            /** Items */
+            items: components["schemas"]["ProfileVersionResponse"][];
+        };
+        /**
+         * ProfileVersionResponse
+         * @description One historical snapshot of a user's profile content.
+         */
+        ProfileVersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Content Md */
+            content_md: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "bootstrap" | "incremental" | "manual" | "scheduled" | "direct_edit";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -4543,6 +6398,21 @@ export interface components {
             visibility?: string | null;
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
+        };
+        /**
+         * ReattributeResponse
+         * @description Result of POST /budget/transactions/{id}/move-to-profile.
+         */
+        ReattributeResponse: {
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /** Target Profile Id */
+            target_profile_id: string | null;
+            /** Split Prompt */
+            split_prompt: boolean;
         };
         /** RecipeCreate */
         "RecipeCreate-Input": {
@@ -4744,12 +6614,110 @@ export interface components {
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
         };
+        /**
+         * RecurringGenerateResponse
+         * @description Result of POST /budget/recurring/generate.
+         */
+        RecurringGenerateResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Generated */
+            generated: number;
+        };
+        /**
+         * RecurringRule
+         * @description Recurrence rule for a budget transaction template.
+         *     Matches the shape used in the todos domain.
+         */
+        RecurringRule: {
+            /**
+             * Frequency
+             * @enum {string}
+             */
+            frequency: "weekly" | "monthly" | "bi_weekly" | "semi_monthly";
+            /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** End Date */
+            end_date?: string | null;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /** Email */
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * RegistrationPendingResponse
+         * @description Returned by /auth/register when email verification is required.
+         *
+         *     The frontend should redirect to the verify-email page, passing user_id
+         *     so the verify endpoint knows whose code to check.
+         */
+        RegistrationPendingResponse: {
+            /**
+             * Needs Verification
+             * @default true
+             */
+            needs_verification: boolean;
+            /** User Id */
+            user_id: string;
+            /** Email */
+            email: string;
+        };
+        /** ResendVerificationRequest */
+        ResendVerificationRequest: {
+            /** Email */
+            email: string;
+        };
+        /** ResetPasswordRequest */
+        ResetPasswordRequest: {
+            /** Token */
+            token: string;
+            /** New Password */
+            new_password: string;
+            /**
+             * Auto Login
+             * @default false
+             */
+            auto_login: boolean;
+        };
+        /**
+         * RolloverComputeResponse
+         * @description Result of POST /budget/rollover — how many categories were updated.
+         */
+        RolloverComputeResponse: {
+            /** Year */
+            year: number;
+            /** Month */
+            month: number;
+            /** Categories Updated */
+            categories_updated: number;
+            /** Total Carried Forward */
+            total_carried_forward: number;
+        };
+        /**
+         * SeedProfilesResponse
+         * @description Result of POST /budget/profiles/seed-defaults.
+         */
+        SeedProfilesResponse: {
+            /** Profiles Created */
+            profiles_created: number;
+            /** Members Seeded */
+            members_seeded: number;
+        };
+        /**
+         * SetInitialPasswordRequest
+         * @description Used by newly invited users who have force_password_change=True.
+         */
+        SetInitialPasswordRequest: {
+            /** New Password */
+            new_password: string;
         };
         /** SetupRequest */
         SetupRequest: {
@@ -4866,6 +6834,82 @@ export interface components {
             name?: string | null;
             /** Color */
             color?: string | null;
+        };
+        /**
+         * TellerConfigResponse
+         * @description Public Teller configuration returned to the frontend.
+         *     Tells the frontend whether bank sync is available and how to initialise
+         *     the Teller Connect widget.  The access token is never included here.
+         */
+        TellerConfigResponse: {
+            /** Enabled */
+            enabled: boolean;
+            /** App Id */
+            app_id: string | null;
+            /** Environment */
+            environment: string;
+        };
+        /**
+         * TellerConnectRequest
+         * @description Payload sent by the frontend after a successful Teller Connect flow.
+         *     The frontend receives this from the TellerConnect.setup() onSuccess callback.
+         *     One enrollment may cover multiple bank accounts; the API calls GET /accounts
+         *     to discover all of them and creates a BudgetAccount for each.
+         */
+        TellerConnectRequest: {
+            /** Access Token */
+            access_token: string;
+            /** Enrollment Id */
+            enrollment_id: string;
+            /** Institution Name */
+            institution_name: string;
+            /**
+             * Account Ids
+             * @default []
+             */
+            account_ids: string[];
+        };
+        /**
+         * TellerSyncAllResult
+         * @description Aggregate result of syncing all Teller-linked accounts in a household.
+         */
+        TellerSyncAllResult: {
+            /** Accounts Synced */
+            accounts_synced: number;
+            /** Total Inserted */
+            total_inserted: number;
+            /** Total Skipped */
+            total_skipped: number;
+            /** Total Auto Categorized */
+            total_auto_categorized: number;
+            /** Results */
+            results: components["schemas"]["TellerSyncResult"][];
+        };
+        /**
+         * TellerSyncResult
+         * @description Result of a polling sync for one Teller-linked BudgetAccount.
+         */
+        TellerSyncResult: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Teller Account Id */
+            teller_account_id: string;
+            /** Institution Name */
+            institution_name: string | null;
+            /** Inserted */
+            inserted: number;
+            /** Skipped */
+            skipped: number;
+            /** Auto Categorized */
+            auto_categorized: number;
+            /**
+             * Last Synced At
+             * Format: date-time
+             */
+            last_synced_at: string;
         };
         /** TemplateCreate */
         TemplateCreate: {
@@ -5127,6 +7171,17 @@ export interface components {
             /** Week Start */
             week_start?: string | null;
         };
+        /**
+         * UpdateMemberRequest
+         * @description Admin-only PATCH for member-level toggles.
+         *
+         *     ai_features_enabled: gates the member's access to AI surfaces.
+         *     Future room for role changes etc. — kept as a small open shape.
+         */
+        UpdateMemberRequest: {
+            /** Ai Features Enabled */
+            ai_features_enabled?: boolean | null;
+        };
         /** UpdatePermissionsRequest */
         UpdatePermissionsRequest: {
             /** Config */
@@ -5211,14 +7266,14 @@ export interface components {
             created_at: string;
             /**
              * Ai Features Enabled
-             * ai-access-001: per-membership AI gate. Manual patch — regenerate via `npm run codegen`.
+             * @default true
              */
-            ai_features_enabled?: boolean;
+            ai_features_enabled: boolean;
             /**
              * Force Password Change
-             * invite-001: True when an admin created this account on the user's behalf. Manual patch — regenerate via `npm run codegen`.
+             * @default false
              */
-            force_password_change?: boolean;
+            force_password_change: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -5232,6 +7287,16 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VerifyEmailRequest */
+        VerifyEmailRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Code */
+            code: string;
         };
         /** WorkoutCreate */
         WorkoutCreate: {
@@ -5406,7 +7471,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Account created — email verification required */
+            /** @description Successful Response */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5627,7 +7692,7 @@ export interface operations {
     get_coach_digest_ai_coach_digest_get: {
         parameters: {
             query?: {
-                /** @description 'morning' or 'evening' */
+                /** @description 'morning', 'evening', or 'weekly' */
                 kind?: string;
                 /** @description Date (YYYY-MM-DD); defaults to today */
                 for_date?: string | null;
@@ -5713,6 +7778,319 @@ export interface operations {
             };
         };
     };
+    get_profile_ai_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+        };
+    };
+    patch_profile_ai_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfilePatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bootstrap_profile_ai_profile_bootstrap_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapResponse"];
+                };
+            };
+        };
+    };
+    list_profile_updates_ai_profile_updates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileUpdateListResponse"];
+                };
+            };
+        };
+    };
+    accept_profile_update_ai_profile_updates__update_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                update_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_profile_update_ai_profile_updates__update_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                update_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_profile_versions_ai_profile_versions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileVersionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backfill_journal_signals_ai_journal_signals_backfill_post: {
+        parameters: {
+            query?: {
+                /** @description When true, only re-extract entries whose signal row is at an older extraction_version. Use this after a prompt revision. */
+                only_outdated_version?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalSignalsBackfillResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_journal_session_ai_journal_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JournalStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalStartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_journal_session_ai_journal__conversation_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalFinishResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_journal_session_ai_journal_save_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JournalSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     chat_ai_chat_post: {
         parameters: {
             query?: never;
@@ -5759,7 +8137,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Account created — email verification required */
+            /** @description Successful Response */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5792,7 +8170,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response — session issued */
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5825,7 +8203,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description No content — always 204 regardless of whether email was found */
+            /** @description Successful Response */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -6053,6 +8431,203 @@ export interface operations {
             };
         };
     };
+    forgot_password_auth_forgot_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_auth_reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_initial_password_auth_me_set_initial_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetInitialPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_token_scopes_auth_tokens_scopes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PATScopeOption"][];
+                };
+            };
+        };
+    };
+    list_personal_access_tokens_auth_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PATResponse"][];
+                };
+            };
+        };
+    };
+    create_personal_access_token_auth_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PATCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PATCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_personal_access_token_auth_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_members_households_members_get: {
         parameters: {
             query?: never;
@@ -6088,6 +8663,41 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_member_households_members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8781,10 +11391,47 @@ export interface operations {
             };
         };
     };
+    add_to_grocery_list_recipes__recipe_id__add_to_grocery_list_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddToGroceryListRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddToGroceryListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tags_tags_get: {
         parameters: {
             query?: {
                 search?: string | null;
+                /** @description When supplied, only tags applied to at least one entity of this type are returned. */
+                entity_type?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -9511,10 +12158,311 @@ export interface operations {
             };
         };
     };
+    list_profiles_budget_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileResponse"][];
+                };
+            };
+        };
+    };
+    create_profile_budget_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    seed_default_profiles_budget_profiles_seed_defaults_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeedProfilesResponse"];
+                };
+            };
+        };
+    };
+    get_profile_budget_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_profile_budget_profiles__profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_profile_budget_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_profile_members_budget_profiles__profile_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileMemberResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_profile_member_budget_profiles__profile_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetProfileMemberAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_profile_member_budget_profiles__profile_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_profile_member_budget_profiles__profile_id__members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetProfileMemberUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfileMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_accounts_budget_accounts_get: {
         parameters: {
             query?: {
                 include_archived?: boolean;
+                profile_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -9670,10 +12618,241 @@ export interface operations {
             };
         };
     };
+    list_groups_budget_category_groups_get: {
+        parameters: {
+            query?: {
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryGroupResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_group_budget_category_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetCategoryGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryGroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_group_budget_category_groups__group_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_group_budget_category_groups__group_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetCategoryGroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryGroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    seed_default_groups_budget_category_groups_seed_defaults_post: {
+        parameters: {
+            query?: {
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_budget_fixed_budget_categories_auto_budget_post: {
+        parameters: {
+            query?: {
+                /** @description Number of full calendar months to average */
+                months?: number;
+                /** @description Group whose categories to auto-budget */
+                group_name?: string;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_categories_grouped_budget_categories_grouped_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCategoryGroupWithCategories"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_categories_budget_categories_get: {
         parameters: {
             query?: {
                 include_archived?: boolean;
+                profile_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -9829,12 +13008,112 @@ export interface operations {
             };
         };
     };
+    get_targets_budget_targets_get: {
+        parameters: {
+            query: {
+                year: number;
+                month: number;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTargetMonthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_target_budget_targets_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTargetUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTargetResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compute_rollover_budget_rollover_post: {
+        parameters: {
+            query: {
+                year: number;
+                month: number;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolloverComputeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_summary_budget_summary_get: {
         parameters: {
             query?: {
                 account_id?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
+                profile_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -9867,7 +13146,10 @@ export interface operations {
             query?: {
                 year?: number | null;
                 month?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
                 account_id?: string | null;
+                profile_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -9895,17 +13177,54 @@ export interface operations {
             };
         };
     };
+    get_profit_analytics_budget_analytics_profit_get: {
+        parameters: {
+            query: {
+                profile_id: string;
+                year?: number | null;
+                month?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetProfitAnalyticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_transactions_budget_transactions_get: {
         parameters: {
             query?: {
                 account_id?: string | null;
                 category_id?: string | null;
+                uncategorized?: boolean;
+                txn_type?: string | null;
                 scope?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
                 include_archived?: boolean;
                 limit?: number;
                 offset?: number;
+                profile_id?: string | null;
+                search?: string | null;
             };
             header?: never;
             path?: never;
@@ -10007,6 +13326,7 @@ export interface operations {
                 scope?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
+                profile_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -10116,6 +13436,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BudgetTransactionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reattribute_transaction_budget_transactions__transaction_id__move_to_profile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTransactionReattribute"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReattributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_category_to_similar_budget_apply_to_similar_post: {
+        parameters: {
+            query: {
+                transaction_id: string;
+                category_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyToSimilarResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_transfer_to_similar_budget_apply_transfer_to_similar_post: {
+        parameters: {
+            query: {
+                transaction_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -10259,7 +13679,287 @@ export interface operations {
             };
         };
     };
+    get_income_forecast_budget_income_forecast_get: {
+        parameters: {
+            query: {
+                year: number;
+                month: number;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeForecastResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_recurring_budget_recurring_generate_post: {
+        parameters: {
+            query: {
+                year: number;
+                month: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringGenerateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_spending_trends_budget_trends_get: {
+        parameters: {
+            query?: {
+                months?: number;
+                profile_id?: string | null;
+                account_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTrendsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_teller_config_budget_teller_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TellerConfigResponse"];
+                };
+            };
+        };
+    };
+    connect_teller_enrollment_budget_teller_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TellerConnectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetAccountResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_teller_account_budget_accounts__account_id__teller_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TellerSyncResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_all_teller_accounts_budget_teller_sync_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TellerSyncAllResult"];
+                };
+            };
+        };
+    };
+    unlink_teller_account_budget_accounts__account_id__teller_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_teller_cursor_budget_accounts__account_id__teller_reset_cursor_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    app_config_app_config_get: {
         parameters: {
             query?: never;
             header?: never;

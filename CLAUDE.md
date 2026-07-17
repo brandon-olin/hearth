@@ -53,6 +53,10 @@ migrations/ Alembic schema migrations
 agent/      (planned) AI automation and provider integrations
 ```
 
+**Strategic direction:** the open-protocols / open-data / agent-access initiative (MCP server,
+exports, iCal feeds, Home Assistant, federation) is tracked in `plans/open-hearth.md`. Read it
+before working on any of those areas.
+
 Sub-level CLAUDE.md files contain stack-specific conventions:
 - `api/CLAUDE.md` — Python/FastAPI patterns, domain layout, JSONB conventions, habits/todos domain detail
 - `web/CLAUDE.md` — Next.js patterns, UI primitive inventory, anti-patterns, habits/todos frontend detail

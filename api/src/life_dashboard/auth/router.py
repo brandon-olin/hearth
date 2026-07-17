@@ -10,12 +10,18 @@ from life_dashboard.auth.email import EmailSendError, send_verification_email
 from life_dashboard.auth.hashing import hash_password
 from life_dashboard.auth.password_policy import validate_password
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
+from life_dashboard.auth.pat_scopes import PAT_SCOPE_LABELS
+from life_dashboard.auth.pat_service import PATError, create_token, list_tokens, revoke_token
 from life_dashboard.auth.schemas import (
     ChangePasswordRequest,
     DeleteMeRequest,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
+    PATCreateRequest,
+    PATCreateResponse,
+    PATResponse,
+    PATScopeOption,
     RegisterRequest,
     RegistrationPendingResponse,
     ResendVerificationRequest,
@@ -537,3 +543,75 @@ async def update_me(
     await db.commit()
     await db.refresh(current_user)
     return UserResponse.model_validate(current_user)
+
+
+# ── Personal access tokens (security-006) ─────────────────────────────────────
+#
+# These live under /auth, which maps to no PAT scope domain — so a PAT can
+# never reach them (deny-by-default in auth/pat_scopes.py). Token management
+# requires a real session, which stops a leaked agent token from minting more
+# tokens or widening its own scopes.
+
+
+@router.get("/tokens/scopes", response_model=list[PATScopeOption])
+async def list_token_scopes(
+    current_user: User = Depends(get_current_user),
+) -> list[PATScopeOption]:
+    """The selectable scope domains, for the token-creation UI."""
+    return [
+        PATScopeOption(key=key, label=label)
+        for key, label in sorted(PAT_SCOPE_LABELS.items(), key=lambda kv: kv[1])
+    ]
+
+
+@router.post("/tokens", response_model=PATCreateResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/hour")
+async def create_personal_access_token(
+    request: Request,
+    body: PATCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PATCreateResponse:
+    """Create a personal access token for the current member.
+
+    The plaintext token is in the response and nowhere else — the DB stores
+    only its SHA-256. There is no endpoint to retrieve it again; a lost token
+    must be revoked and replaced.
+    """
+    try:
+        token, raw = await create_token(
+            db,
+            user_id=current_user.id,
+            name=body.name,
+            scopes=body.scopes,
+            expires_in_days=body.expires_in_days,
+        )
+    except PATError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    return PATCreateResponse(token=raw, pat=PATResponse.model_validate(token))
+
+
+@router.get("/tokens", response_model=list[PATResponse])
+async def list_personal_access_tokens(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[PATResponse]:
+    """List the current member's active tokens. Never returns the secret."""
+    tokens = await list_tokens(db, current_user.id)
+    return [PATResponse.model_validate(t) for t in tokens]
+
+
+@router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_personal_access_token(
+    token_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Revoke a token. Takes effect on the next request the token makes.
+
+    404 covers both "no such token" and "not yours" — a member can't probe
+    for other members' token ids.
+    """
+    if not await revoke_token(db, current_user.id, token_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")

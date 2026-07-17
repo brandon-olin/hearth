@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
@@ -112,3 +112,41 @@ class ResetPasswordRequest(BaseModel):
 class SetInitialPasswordRequest(BaseModel):
     """Used by newly invited users who have force_password_change=True."""
     new_password: str
+
+
+# ── Personal access tokens (security-006) ─────────────────────────────────────
+
+class PATCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    # { "<domain>": "read" | "write" } — validated against the vocabulary in
+    # auth/pat_scopes.py, which returns a 422 listing the valid values.
+    scopes: dict[str, str]
+    # None = never expires (Home Assistant-style long-lived token).
+    expires_in_days: int | None = Field(default=365, ge=1, le=3650)
+
+
+class PATResponse(BaseModel):
+    """A token's non-secret metadata. Deliberately has no token/secret field —
+    the plaintext exists only in PATCreateResponse, once, at creation."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    prefix: str
+    scopes: dict[str, str]
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    created_at: datetime
+
+
+class PATCreateResponse(BaseModel):
+    """Returned once by POST /auth/tokens. `token` is unrecoverable afterwards —
+    only its hash is stored."""
+    token: str
+    pat: PATResponse
+
+
+class PATScopeOption(BaseModel):
+    """One selectable scope domain, for building the token-creation UI."""
+    key: str
+    label: str

@@ -3499,3 +3499,128 @@ Recommended next: fresh planning pass over remaining "Findings not yet planned"
   (habits N+1 #14, auto_categorize #16, python-jose→PyJWT #17, get_spending_trends
   2-queries/month #9, project progress waterfall #18, budget god-module split #20,
   the lint-debt cleanup).
+
+=== 2026-07-09 — Infrastructure session ===
+Worked on: scripts/refresh_test_data.py — re-dates stale seeded test data.
+Status: complete (pending live run by developer against local API).
+Commits: none yet (uncommitted working-tree addition).
+What was done:
+  - New stdlib-only script (per scripts/ rule): logs in as the test account
+    (test@hearth.local), paginates pending + in_progress todos, and PATCHes
+    any with past due_date to spread evenly across the next N days
+    (--horizon, default 14). --dry-run supported. Idempotent: non-overdue
+    todos untouched; safe to re-run.
+  - Rationale: seed_test_data.py is purely additive and cleanup_duplicates.py
+    keeps the OLDEST duplicate, so re-seed + dedupe cannot refresh dates.
+Left: optional follow-up — refresh habit occurrences so streaks look alive;
+  same approach (backfill recent occurrence rows) if wanted.
+Also this session (planning, not code): plans/marketing-site-spec.md created
+  and iterated — gethearth.net marketing site build spec (stack, Stripe,
+  household billing model, tier findings sweep).
+Recommended next: run the refresh script locally; resolve open-core boundary
+  conflict (Business profiles/Coinbase gating vs "all domain features free")
+  before building the pricing page.
+
+=== 2026-07-17 — Infrastructure session ===
+Worked on: open-hearth initiative planning + automated cloud migrations.
+Status: complete (planning artifacts + one infra change; no feature code).
+Commits: none yet (uncommitted working-tree additions).
+What was done:
+  - plans/open-hearth.md created — anchor doc for the open-protocols/open-data/
+    agent-access initiative (vision, 6 tracks, sequencing, cross-cutting
+    decisions). Pointer added to root CLAUDE.md.
+  - plans/open-hearth/mcp-server.md created — MCP track design: in-process
+    FastMCP mount, PAT auth, read-only v1 surface, write-phase permission model
+    (member ceiling ∩ token scope; Layer 1 already exists via MembershipRole +
+    permissions_config incl. 'agent' role), device identity (personal → member
+    tokens, speakers → household-agent pseudo-member), voice platform strategy,
+    audit design sketch, build concurrency notes.
+  - feature_list.json: added security-006 (PATs), security-007 (OAuth 2.1 for
+    remote MCP clients / Alexa linking), security-008 (audit log), mcp-001
+    (read-only MCP server), mcp-002 (write tools + household-agent). Appended
+    UPDATE paragraphs to voice-001/voice-002 (integration_token superseded by
+    PATs; voice-002 depends on security-007; voice-001 testing note: HA via
+    local Docker container, no hardware).
+  - api/railway.json created — Railway preDeployCommand runs `alembic upgrade
+    head` against Neon between build and deploy on every push to main; failed
+    migration aborts the deploy. infra/CLAUDE.md migrations section updated.
+Left: none for this batch. security-006 build in progress separately (dev CLI).
+Recommended next: finish security-006, then mcp-001; mcp-002 + security-008
+  jointly after. voice-001 parallelizable with mcp-001 once 006 lands.
+Addendum (same session): realtime-001 filed in feature_list.json — internal
+  event bus (events/) + SSE invalidation stream for cross-device real-time UI;
+  skinny scope-filtered events, React Query invalidation client-side. Anchor
+  doc updated: event bus decision row now points at realtime-001; bus is shared
+  with the HA inbound track.
+
+=== 2026-07-17 — Coding session ===
+Worked on: security-006 — Personal Access Tokens (PATs), long-lived scoped API
+tokens per member. Foundation for the open-hearth/MCP initiative.
+Status: complete. All 9 feature_list verification steps pass (automated tests +
+live end-to-end API smoke test + browser-driven UI walkthrough).
+Commits: none yet (uncommitted working-tree additions — will commit on request).
+
+What was done:
+  Backend (api/src/life_dashboard/auth/):
+  - pat_scopes.py — scope vocabulary (domain × read|write), path→domain map, and
+    pure authz helpers. DENY-BY-DEFAULT: a request path that maps to no scope
+    domain is refused for PATs, so /auth, /ai, /setup, /uploads are unreachable
+    with a token without anyone having to remember to block them (this is the
+    privilege-escalation guard — a leaked token can't mint more tokens).
+    Longest-prefix match so "/todos-archive" can't be authorized by "/todos".
+  - models.py — PersonalAccessToken (hash-only; no plaintext column). SHA-256
+    (not argon2) because the secret is 256 bits of CSPRNG output — same reasoning
+    as RefreshToken. Indexes on token_hash (unique) and user_id.
+  - pat_service.py — create/list/revoke/authenticate. Token shown once; only the
+    hash stored. Revoke is IDOR-safe (scoped by user_id in the same UPDATE) and
+    idempotent (revoked_at IS NULL guard). last_used_at throttled to 1/min so a
+    polling agent doesn't turn every read into a write. 50-token/user cap.
+  - dependencies.py — get_current_user now detects the hearth_pat_ prefix and,
+    for PATs, enforces scope ∩ member ceiling (_enforce_pat_scope): the token
+    must be granted the domain AND the owning member must themselves be allowed
+    (via household permissions_config) — a kid's speaker token inherits the kid's
+    restrictions. Attaches auth_source/pat_id for the future audit track.
+  - schemas.py + router.py — PAT schemas and endpoints under /auth/tokens
+    (create/list/revoke + /scopes). Create is rate-limited 10/hour.
+  - migrations/versions/0043_personal_access_tokens.py — Postgres table + indexes
+    (SQLite dev picks it up via create_all).
+
+  Frontend (web/):
+  - components/settings/access-tokens-section.tsx — new "Access tokens" settings
+    section: create form (name, per-domain access selects, expiry), one-time
+    secret reveal with copy, token list with scope badges + last-used/expiry, and
+    two-step revoke. Follows the visibility-settings-section pattern.
+  - settings/page.tsx — wired the section into the settings nav (KeyRound icon,
+    General settings group, available to all members since PATs are per-member).
+  - lib/api/schema.d.ts — regenerated from the live OpenAPI schema.
+
+  Tests: tests/test_personal_access_tokens.py — 31 tests (scope vocabulary,
+    hash-only storage, auth incl. revoked/expired/unknown, IDOR on revoke,
+    idempotent revoke, and scope ∩ ceiling incl. the viewer-can't-write case).
+    Full suite: 63 passed. Frontend tsc: clean.
+
+Verification:
+  - Live API smoke test (scratchpad/pat_smoke.py): 15/15 checks — token shown
+    once, hash-only in DB, in-scope 200, out-of-scope 403, read-only-write 403,
+    /auth deny-by-default 403, list has no secret, last_used populated, revoke →
+    401, re-revoke → 404.
+  - Browser walkthrough: created a token via the UI (Create button correctly
+    gated on ≥1 scope), saw the one-time reveal, confirmed the list shows the
+    prefix fragment + todos:write badge (never the secret), revoked via the
+    two-step confirm, list emptied. No console errors.
+
+Left: none for security-006. Not yet committed.
+Recommended next: mcp-001 (read-only MCP server) — it now has its auth primitive.
+
+Addendum (same session) — feature_list.json incident + recovery:
+  While flipping security-006 passes=true I ran a `git checkout feature_list.json`
+  to undo a whole-file JSON reformat, which ALSO discarded the earlier planning
+  session's UNCOMMITTED working-tree additions (security-007, security-008,
+  mcp-001, mcp-002, realtime-001) and the voice-001/002 UPDATE paragraphs. Those
+  were never staged/committed, so unrecoverable via git/editor history.
+  Restored: security-006 verbatim (had full copy) with passes=true; the five
+  other entries + both voice UPDATE paragraphs RECONSTRUCTED faithfully from the
+  surviving plans/open-hearth*.md docs and this progress log. Reconstructed
+  entries are tagged "RECONSTRUCTED (working-tree copy lost 2026-07-17)" in their
+  descriptions and should be reviewed against any other copy the author has —
+  wording/steps are faithful to intent but not guaranteed byte-identical.
