@@ -42,6 +42,7 @@ from life_dashboard.setup.router import router as setup_router
 from life_dashboard.core.database import AsyncSessionLocal, create_all_tables, engine, _is_sqlite
 from life_dashboard.core.rate_limit import limiter
 from life_dashboard.core.settings import settings
+from life_dashboard.mcp import mcp_routes, mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +408,12 @@ async def lifespan(app: FastAPI):
         )
         scheduler = None
 
-    yield
+    # mcp-001: a mounted sub-app's own lifespan never runs, so the MCP
+    # streamable-HTTP session manager must be started here, from the host
+    # app's lifespan, or every /mcp request fails with "task group not
+    # initialized". The mount itself happens below at import time.
+    async with mcp_server.session_manager.run():
+        yield
 
     if scheduler is not None:
         scheduler.shutdown(wait=False)
@@ -555,6 +561,14 @@ app.include_router(notifications_router)
 app.include_router(todos_router)
 app.include_router(workouts_router)
 app.include_router(budget_router)
+
+# mcp-001: expose the in-process MCP server at exactly "/mcp". The routes are
+# grafted onto the app (not mounted) to avoid a trailing-slash redirect, so
+# agents can point at https://host/mcp directly. Agents authenticate with a
+# Personal Access Token as a Bearer credential; the per-tool authorize() call in
+# mcp/auth.py enforces token scope + member ceiling. The session manager backing
+# these routes is started in the lifespan above.
+app.router.routes.extend(mcp_routes())
 
 
 @app.get("/health", tags=["ops"])
