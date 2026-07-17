@@ -3806,3 +3806,12 @@ Recommended next: an admin surface to provision household-agent tokens (settings
   "shared device" flow) so speakers can be onboarded without a script; then
   voice-001/002 bridges can hold real household-agent PATs (mcp-002 supplies the
   provisioning). Also consider security-007 (OAuth 2.1) for cloud connectors.
+Addendum (same session): prod deploy failure root-caused — 0001 baseline has
+  always created a legacy audit_log table (actor_type/actor_id, empty forever);
+  migration 0044 collided with it (DuplicateTable in Railway pre-deploy).
+  Railway AI's 'alembic stamp 0044' suggestion was rejected: legacy schema
+  lacks the new columns and stamping would have 500'd on first MCP write.
+  Fix: 0044 amended to DROP TABLE IF EXISTS audit_log before create — repairs
+  prod, local Postgres, and future baseline-migrated installs in one path.
+  No manual prod surgery performed. Rule proposal: never run alembic manually
+  against Neon now that the pre-deploy owns prod migrations.

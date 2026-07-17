@@ -30,6 +30,15 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # The 0001 baseline (imported from the pre-Alembic bootstrap SQL) already
+    # created a legacy `audit_log` table (actor_type/actor_id schema) that no
+    # code has ever written to — it exists, empty, in every database migrated
+    # from baseline. Drop it so this migration can create the real audit_log
+    # (actor_user_id/token_id schema). Guarded with IF EXISTS so databases
+    # without the legacy table (e.g. SQLite created fresh from ORM metadata)
+    # are unaffected.
+    op.execute(sa.text("DROP TABLE IF EXISTS audit_log"))
+
     op.create_table(
         "audit_log",
         sa.Column("id", sa.Uuid(), primary_key=True),
