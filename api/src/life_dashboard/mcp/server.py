@@ -20,7 +20,7 @@ Design rules carried from the track doc (plans/open-hearth/mcp-server.md):
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -33,6 +33,13 @@ from life_dashboard.domains.grocery_lists.schemas import GroceryItemAdd
 from life_dashboard.domains.habits import service as habits_service
 from life_dashboard.domains.todos import service as todos_service
 from life_dashboard.domains.todos.schemas import TodoCreate
+from life_dashboard.domains.workouts import exercises_service, sessions_service, templates_service
+from life_dashboard.domains.workouts.schemas import (
+    ExerciseCreate,
+    TemplateExerciseCreate,
+    WorkoutSessionCreate,
+    WorkoutTemplateCreate,
+)
 from life_dashboard.mcp.audit_hook import record_mcp_write
 from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_pat
 
@@ -45,10 +52,13 @@ from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_p
 mcp_server = FastMCP(
     "Hearth",
     instructions=(
-        "Read-only access to a Hearth household: to-dos, habits, grocery lists, "
-        "and calendar events. All results are scoped to the authenticated "
-        "member — you see shared household data plus that member's own personal "
-        "items, never another member's private data. Budget, documents, and "
+        "Access to a Hearth household: to-dos, habits, grocery lists, calendar "
+        "events, and workouts (the exercise library, shared templates, and the "
+        "member's own logged sessions). All results are scoped to the "
+        "authenticated member — you see shared household data plus that member's "
+        "own personal items, never another member's private data. Workout "
+        "templates and the exercise catalog are shared household-wide; logged "
+        "workout sessions are personal to each member. Budget, documents, and "
         "notes are intentionally not exposed."
     ),
     streamable_http_path="/mcp",
@@ -184,7 +194,7 @@ async def get_household_summary(ctx: Context) -> dict:
 
         events_next_7_days = None
         if await can_read(db, pat, ident, "calendar"):
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             events_next_7_days = (
                 await calendar_service.list_events(
                     db,
@@ -342,6 +352,143 @@ async def create_calendar_event(
                                              "starts_at": event.starts_at.isoformat()},
             )
     return {**event.model_dump(mode="json"), "created": created}
+
+
+# ── Workouts (workouts-001) ───────────────────────────────────────────────────
+#
+# The exercise catalog and templates are SHARED household data; logged sessions
+# are PERSONAL (owned by, and only ever visible to, the token's member). Reads
+# use scope "workouts"; the two write tools add scope "write" and audit genuine
+# creates.
+
+
+@mcp_server.tool()
+async def list_exercises(
+    ctx: Context,
+    search: str | None = None,
+    limit: int = 100,
+) -> dict:
+    """List exercises available to this household: the shared global library
+    (~60 seeded movements) plus the household's own custom exercises. Optionally
+    filter by a name substring via `search` (case-insensitive). Each exercise
+    reports its `tracking_type`, one of: "reps" (weighted/bodyweight strength),
+    "duration" (timed holds like planks), or "distance" (cardio like running or
+    rowing)."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts")
+        result = await exercises_service.list_exercises(
+            db, ident.household_id, search=search, limit=min(limit, 200)
+        )
+    return result.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def list_workout_templates(
+    ctx: Context,
+    search: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """List the household's shared workout templates, ordered by how recently
+    THIS member last used each (most recent first; never-used last). Optionally
+    filter by a name substring via `search`. Every household template is
+    returned regardless of who created it — only the ordering is personal.
+    `last_used_at` and `exercise_count` are included per template."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts")
+        result = await templates_service.list_templates(
+            db, ident.household_id, ident.user_id, search=search, limit=min(limit, 200)
+        )
+    return result.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def create_workout_template(
+    ctx: Context,
+    name: str,
+    exercises: list[str] | None = None,
+    description: str | None = None,
+    estimated_duration_minutes: int | None = None,
+) -> dict:
+    """Create a shared household workout template.
+
+    `exercises` is an ordered list of exercise NAMES (not IDs). Each is matched
+    against the catalog case-insensitively; an unknown name creates a new
+    household-custom exercise (default tracking_type "reps" — edit it later for
+    cardio/timed movements). Example: create_workout_template(name="Push Day",
+    exercises=["Barbell Bench Press", "Overhead Press", "Tricep Pushdown"]).
+    The template is shared with the whole household."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts", "write")
+        slots: list[TemplateExerciseCreate] = []
+        for i, ex_name in enumerate(exercises or []):
+            if not ex_name or not ex_name.strip():
+                continue
+            exercise, _ = await exercises_service.create_exercise(
+                db, ident.household_id, ident.user_id, ExerciseCreate(name=ex_name)
+            )
+            slots.append(TemplateExerciseCreate(exercise_id=exercise.id, position=i))
+        data = WorkoutTemplateCreate(
+            name=name,
+            description=description,
+            estimated_duration_minutes=estimated_duration_minutes,
+            exercises=slots,
+        )
+        template = await templates_service.create_template(
+            db, ident.household_id, ident.user_id, data
+        )
+        await record_mcp_write(
+            db, ident, action="create", entity_type="workout_template",
+            entity_id=template.id, payload={"name": template.name,
+                                            "exercise_count": template.exercise_count},
+        )
+    return template.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def log_workout_session(
+    ctx: Context,
+    name: str | None = None,
+    template: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Log a workout session for THIS member (personal — never visible to other
+    members).
+
+    Pass `template` (a template NAME) to start from that template: the session
+    is pre-populated with the template's exercises and default sets. Otherwise a
+    blank session is created with the given `name`. Provide at least one of
+    `name` or `template`. Returns the created session with its materialized
+    exercises and sets."""
+    if not name and not template:
+        raise MCPAuthError("Provide a session name or a template name to log.")
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts", "write")
+        template_id = None
+        if template:
+            found = await templates_service.find_template_by_name(
+                db, ident.household_id, template
+            )
+            if found is None:
+                raise MCPAuthError(
+                    f"No workout template named {template!r}. Use "
+                    "list_workout_templates to see available names."
+                )
+            template_id = found.id
+        data = WorkoutSessionCreate(name=name, template_id=template_id, notes=notes)
+        session = await sessions_service.create_session(
+            db, ident.household_id, ident.user_id, data
+        )
+        if session is None:
+            raise MCPAuthError("Could not start the session — template not found.")
+        await record_mcp_write(
+            db, ident, action="create", entity_type="workout_session",
+            entity_id=session.id,
+            payload={
+                "name": session.name,
+                "template_id": str(template_id) if template_id else None,
+            },
+        )
+    return session.model_dump(mode="json")
 
 
 def mcp_routes():

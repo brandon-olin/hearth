@@ -4659,3 +4659,87 @@ workouts.
 
 Recommended next: workouts-001 is now spec-complete and is the gate for
 workouts-002..005. Otherwise the squash, or webhook-001.
+
+=== 2026-07-20 — Coding session (workouts-001) ===
+
+WORKED ON: workouts-001 — Workout data model refactor (first-class sets,
+exercise library, superset groups). Data model / migration / services / schemas
+/ routers / MCP tools ONLY. Did NOT build UX (workouts-002..005).
+
+STATUS: COMPLETE. feature_list workouts-001 flipped passes: true.
+
+Commits this session: one commit on branch feat/workouts-001 (this block +
+feature_list update land in it).
+
+WHAT WAS DONE
+- Six new tables (models.py), additive — the legacy Workout/ExerciseEntry pair
+  and their /workouts endpoints are LEFT INTACT so the existing frontend keeps
+  working through the 002..005 UI migration:
+    exercises            household_id NULLABLE (NULL = the 63 global seed rows,
+                         is_global=true; non-NULL = household-custom), tracking_type
+                         reps|duration|distance.
+    workout_templates    household_id NOT NULL + created_by_user_id (SHARED). NO
+                         last_used_at column — derived per-user at query time.
+    template_exercises   position, superset_group_id, default_* set targets.
+    workout_sessions     household_id NOT NULL + created_by_user_id (PERSONAL —
+                         every read filters the owner). template_id nullable FK.
+    session_exercises    template_exercise_id nullable FK (materialized prefill).
+    workout_sets         first-class sets: reps/target_reps/duration/weight+unit/
+                         distance+unit/rest/is_warmup/rpe/completed_at.
+  All constrained strings are VARCHAR + CHECK (native_enum=False, ADR-015) — 0
+  native pg enums added. Scoping per the 2026-07-20 UPDATE: workouts personal,
+  templates+exercises shared, enforced by created_by_user_id filtering, never by
+  omitting household_id.
+- Migration 0048 (down_revision 0047, single head). Three jobs, portable across
+  Postgres + SQLite (all data work via typed Core sa.table()): create tables +
+  indexes; idempotently seed the 63 global exercises; backfill legacy
+  workouts->workout_sessions and exercise_entries->session_exercises+workout_sets.
+  Free-text entry names dedupe against the global catalog by normalized name
+  (unmatched -> household-custom exercise); the name->exercise resolution is
+  printed. Backfill guarded by a session-count check (idempotent re-run). Legacy
+  date-only workouts anchored at NOON UTC so the calendar day is stable in
+  negative-offset timezones. Backfill also runs on SQLite forward from 0047.
+- Superset rules enforced at the service layer (superset.py): a group holds 2-5
+  members; a 6th -> 400; removing a member that would leave a lone member clears
+  the survivor's group. Applies identically to template and session slots.
+- Services: exercises_service (catalog, idempotent custom create, ensure_global_
+  exercises for the SQLite/test create_all path), templates_service (shared,
+  per-user last_used_at derived via correlated subquery), sessions_service
+  (personal, template materialization, live-logging set primitives). FK cascades
+  done explicitly in the service because the SQLite tier does not enforce FKs.
+- Routes: new library_router mounted at /workouts, registered BEFORE the legacy
+  workouts_router so its static sub-paths (/exercises, /templates, /sessions) win
+  over the legacy /workouts/{id} catch-all. Full CRUD for exercises, templates
+  (+ exercise slots), sessions (+ exercises + sets).
+- MCP tools (scope "workouts", already in PAT_SCOPE_DOMAINS): list_exercises,
+  list_workout_templates (read); create_workout_template (by exercise NAMES, not
+  IDs — agent-friendly), log_workout_session (from a template name or blank)
+  (write, audited). Tool descriptions enumerate tracking_type values and suggest
+  list tools on a miss.
+- prompt_save_as_template: stored in User.preferences JSON (default true by
+  absence — same pattern as onboarding_completed), consumed by workouts-003's
+  toggle. No migration/column needed.
+
+VERIFICATION (executed, not just registered)
+- make migrate-verify: full Postgres 0001..0048 replay clean; 0048 seeds 63.
+- Seeded Postgres replay (upgrade to 0047, insert household+member+legacy
+  workout with strength/cardio/other entries, upgrade to head): backfill produced
+  1 session / 3 session_exercises / 5 sets; 'back squat' deduped into global
+  'Back Squat'; 'My Weird Machine' -> custom; distance/weight preserved; 0
+  USER-DEFINED columns; session date stable at 2026-07-01 in EDT.
+- SQLite: 0048 applied forward from a simulated 0047 install — 6 tables, 63 seed,
+  dedup backfill, CHECK constraints all enforced.
+- make test: 223 pass (was 203; +20 new across test_workouts.py service-layer and
+  test_workouts_api.py end-to-end REST + all 4 MCP tools). Every new endpoint and
+  MCP tool is actually invoked.
+- ruff clean on every touched file.
+
+LEFT / NEXT
+- workouts-002 (template builder UX) is the natural next feature — 001 is its
+  data-model gate. 003/004/005 follow. The progress chart endpoint
+  (GET /workouts/progress/:exercise_id) is deliberately deferred to workouts-004.
+- Fresh SQLite/Tauri installs get their schema from create_all() + stamp-at-head,
+  which does not run 0048's data step, so the 63 global exercises would be absent
+  there until a migration runs; exercises_service.ensure_global_exercises() is the
+  idempotent seeder to wire into that path if/when the desktop tier needs it. The
+  active local tier is Postgres, where the migration seeds normally.

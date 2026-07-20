@@ -426,7 +426,7 @@
         "Create a session with template_id set — verify session_exercises are pre-populated from the template via template_exercise_id FKs",
         "Verify prompt_save_as_template exists on user/member settings with default true"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "dashboard-001",

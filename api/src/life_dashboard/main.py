@@ -46,6 +46,7 @@ from life_dashboard.domains.templates.router import collections_template_router
 from life_dashboard.domains.templates.router import router as templates_router
 from life_dashboard.domains.todos.router import router as todos_router
 from life_dashboard.domains.workouts.router import router as workouts_router
+from life_dashboard.domains.workouts.library_router import router as workouts_library_router
 
 # realtime-001: importing events installs the after_commit invalidation
 # producer (events/emit.py) as a side effect; the router is the SSE consumer.
@@ -567,6 +568,10 @@ app.include_router(recipes_router)
 app.include_router(tags_router)
 app.include_router(notifications_router)
 app.include_router(todos_router)
+# workouts-001: the library router (exercises / templates / sessions) MUST be
+# registered before the legacy workouts_router so its static sub-paths win over
+# the legacy `/workouts/{workout_id}` catch-all (Starlette matches in order).
+app.include_router(workouts_library_router)
 app.include_router(workouts_router)
 app.include_router(budget_router)
 
