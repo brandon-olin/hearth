@@ -298,12 +298,6 @@ html.theme-switching *::after {
     min-height: 44px;
     min-width: 44px;
   }
-
-  /* Buttons that only ever hold text in a wrapping row shouldn't be forced
-     square — width floor is what causes overflow, height is the safe part. */
-  .touch-target-auto-width {
-    min-width: 0;
-  }
 }
 
 /* ── Badge primitives ─────────────────────────────────────────────────────────
