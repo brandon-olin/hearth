@@ -31,7 +31,9 @@ a = Analysis(
     [str(entry)],
     pathex=["src"],
     binaries=[],
-    datas=[],
+    # Alembic script directory — required so a fresh SQLite DB can be stamped
+    # at head on first boot and future migrations can run (ADR-014).
+    datas=[("migrations", "migrations")],
     hiddenimports=[
         # SQLAlchemy dialects
         "sqlalchemy.dialects.sqlite",

@@ -1524,6 +1524,58 @@
         "Verify a member never receives an event for data outside their scope"
       ],
       "passes": true
+    },
+    {
+      "id": "infra-003",
+      "category": "Infrastructure",
+      "priority": 1,
+      "phase": "v1",
+      "title": "Run Alembic migrations on SQLite — stamp-at-head, forward-only",
+      "description": "ADR: plans/014-sqlite-schema-evolution.md (decision B2). Today SQLite installs never run Alembic — migrations/env.py:80 hard-returns on a SQLite URL, and schema comes from create_all() plus _patch_sqlite_schema(), which silently SKIPS unique constraints, adds NOT NULL columns as nullable, and never runs data backfills. Fresh Tauri installs are mostly correct (create_all builds current ORM metadata); UPDATED installs silently diverge — and that is the trial-to-paid population. Already bit twice: collection.kind (migration 0032's Postgres-only backfill, hand-patched via backfill_journal_kind) and plan 011's unique index (plans/README.md:31). Fix: remove the SQLite early-return in env.py, set render_as_batch=_is_sqlite() in do_run_migrations, run `alembic stamp head` after create_all_tables() on a fresh SQLite DB, and DELETE _patch_sqlite_schema() and its call site — it is the drift generator. Historical migrations 0001-0045 never replay on SQLite and need no audit; production Postgres is untouched (railway.json runs `alembic upgrade head` on deploy). Also correct the obsolete pgloader advice in the env.py SQLite message. Going forward every migration must be SQLite-safe: batch mode covers most ALTER limits, but raw op.execute with Postgres-specific SQL needs a dialect guard — document this in api/CLAUDE.md alongside the idempotency rules.",
+      "steps": [
+        "Delete a fresh SQLite DB, boot the API, and verify create_all() runs and `alembic current` reports head (not empty)",
+        "Verify _patch_sqlite_schema() and its call site are removed from core/database.py",
+        "Add a test migration adding a column WITH a unique constraint; run `alembic upgrade head` on SQLite and verify both the column and the constraint land",
+        "Add a test migration containing a data backfill (op.execute UPDATE); run it on SQLite and verify rows are actually updated",
+        "Verify `alembic upgrade head` against Postgres still succeeds and `alembic heads` reports a single head",
+        "Verify the SQLite-safe migration rules are documented in api/CLAUDE.md",
+        "Verify the env.py SQLite message no longer recommends pgloader"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-004",
+      "category": "Infrastructure",
+      "priority": 1,
+      "phase": "v1",
+      "title": "Fold backfill_journal_kind into a migration and delete the boot hook",
+      "description": "ADR: plans/014-sqlite-schema-evolution.md, action item 7. DEPENDS ON infra-003 — do not start until migrations run on SQLite. backfill_journal_kind (domains/collections/service.py:96, called every boot from main.py:310) exists only because Alembic never ran on SQLite; it is a workaround for the problem infra-003 fixes. It does two jobs: tag existing kind=NULL notes collections that look like journals, and seed a journal collection for households lacking one. Job 2 looks like an ongoing invariant but is not — seed_default_journal_collection is already called at both household-creation points (auth/router.py:149 signup, setup/router.py:111 first-run setup), so every new household gets one at creation. Both jobs are therefore purely historical and belong in a migration. Folding also removes a per-boot scan of every household with a query each — an N+1 that is trivial on single-household desktop and real on multi-household cloud. The only capability lost is self-healing against a future code path that creates a household without seeding; that is speculative, and better guarded by a test or DB constraint than a permanent boot scan.",
+      "steps": [
+        "Write a migration performing both steps (tag heuristic + seed for households missing a journal collection), idempotent",
+        "Verify the migration runs cleanly on SQLite and on Postgres",
+        "Verify backfill_journal_kind and its main.py:310 call site are deleted",
+        "Create a new household via signup and verify it still gets a journal collection via seed_default_journal_collection",
+        "Verify the coach narrative fetch and the journal signal extractor still resolve a kind='journal' collection after boot",
+        "Restart the API twice and verify no journal collections are duplicated"
+      ],
+      "passes": false
+    },
+    {
+      "id": "infra-005",
+      "category": "Infrastructure",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "Versioned household import + schema version stamping (complements settings-001)",
+      "description": "ADR: plans/014-sqlite-schema-evolution.md (Option D). COMPLEMENTS settings-001 (Full data export) — do not duplicate it. settings-001 covers export only, with no import path and no schema versioning. This adds the missing half so the export/import pair serves three jobs at once: (1) escape hatch when a migration cannot be expressed safely on SQLite, (2) Tauri SQLite to cloud Postgres upgrade — the paid-conversion path, (3) self-hosted to cloud migration for technical households. Requires stamping each export with the alembic revision it was produced at, and an importer that refuses or migrates archives from a different version rather than silently importing a mismatched shape. Coordinate with the exports track in plans/open-hearth.md (track 2, NOT STARTED) so the open-data initiative and the monetization path are one build rather than two. Mitigates a real constraint-drift risk: SQLite installs created before infra-003 may hold rows violating constraints Postgres enforces, so import must validate rather than assume.",
+      "steps": [
+        "Verify an export archive records the alembic revision it was produced at",
+        "Import an archive into an empty household and verify every domain round-trips (documents, todos, habits, recipes, budget, notes, collections)",
+        "Verify uploaded files round-trip and resolve after import, not just their DB rows",
+        "Import an archive whose recorded version does not match the target and verify it is refused or migrated with a clear message, never silently imported",
+        "Export from a SQLite install, import into Postgres, and verify row counts and a spot-checked document body match",
+        "Verify import rejects rows that would violate a constraint rather than aborting the whole transaction opaquely"
+      ],
+      "passes": false
     }
   ]
 }

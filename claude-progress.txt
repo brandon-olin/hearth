@@ -4061,3 +4061,42 @@ Addendum (same session, post-review): reviewer caught two issues, both fixed.
   stream if the member was removed; exposure to skinny type+id events is bounded
   to 30s (and the data endpoints still 403/404 on refetch). Test covers
   _still_a_member true→false on membership delete. Suite now 191 passed.
+
+=== 2026-07-20 — Coding session ===
+
+Feature: infra-003 — Run Alembic migrations on SQLite (stamp-at-head, forward-only).
+Status: complete. ADR: plans/014-sqlite-schema-evolution.md (decision B2).
+
+Commits this session:
+  feat(infra-003): run Alembic migrations on SQLite — stamp at head, forward-only
+
+What was done:
+  - migrations/env.py: removed the SQLite early-return in run_migrations_online();
+    added render_as_batch=_is_sqlite() to do_run_migrations; replaced the obsolete
+    pgloader message with an accurate batch-mode note.
+  - core/database.py: DELETED _patch_sqlite_schema() (the drift generator — it
+    silently skipped UNIQUE constraints, added NOT NULL columns as nullable, and
+    never ran backfills) and its call site. create_all_tables() now stamps a fresh
+    SQLite DB at head via _stamp_head_if_unversioned(), which is a no-op once
+    alembic_version holds a revision, so real upgrades are never clobbered.
+  - life_dashboard.spec: bundle api/migrations as PyInstaller `datas`, and
+    _migrations_dir() resolves sys._MEIPASS when frozen — without this the Tauri
+    binary could not stamp or migrate.
+  - api/CLAUDE.md: new "Every migration must be SQLite-safe" section — batch_alter_table
+    for ALTER-shaped changes, dialect guards for raw op.execute, no new
+    `if sqlite: return` early returns, backfills in migrations not boot hooks.
+  - tests/test_sqlite_migrations.py: generates a throwaway migration chain at run
+    time against the real env.py (deliberately NOT committed under
+    migrations/versions) and asserts a UNIQUE constraint and an op.execute backfill
+    both land on SQLite, plus the stamp/no-clobber behaviour.
+  - collections/service.py: corrected a stale _patch_sqlite_schema docstring reference.
+
+Verification: all 7 feature_list steps pass. Fresh SQLite DB → `alembic current`
+reports 0045 (head). Postgres `alembic upgrade head` succeeds and `alembic heads`
+reports a single head. make check clean (201 passed, ruff clean, tsc clean).
+
+Left undone: historical revisions 0001-0045 keep their `if sqlite: return` guards
+(never replay on SQLite, per the ADR — no audit needed).
+
+Recommended next: infra-004 — fold backfill_journal_kind into a migration and
+delete the boot hook. It was blocked on this feature and is now unblocked.

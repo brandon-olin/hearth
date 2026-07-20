@@ -32,7 +32,9 @@ below.
 | 012 | Guard `create_transaction` against double-submit (retry window) | P1 | S | 002 | DONE (branch `advisor/012-create-transaction-retry-guard`; `create_transaction` now checks for an identical `(account_id, dedup_hash)` row created within `CREATE_TXN_RETRY_WINDOW_SECONDS=120` and returns it instead of inserting a second money row; no `dedup_hash` unique constraint (legit same-day duplicates preserved); `test_create_transaction_retry_guard.py` 3 tests (retry collapses, distinct both insert, old duplicate not blocked); full suite 29 passed; ruff tests clean, `src` unchanged 32→32) — unmerged |
 | 013 | Roll back session on `_maybe_check_thresholds` failure | P2 | S | 002 | DONE — **with deviation** (branch `advisor/013-threshold-check-rollback`). Plan prescribed `await db.rollback()` in the except block; **verified that regresses `create_transaction`** — a bare rollback expires the caller's just-created `txn`, so `model_validate(txn)` raises on the failure path. Instead wrapped the threshold check in a `begin_nested()` SAVEPOINT: a failure rolls back only its partial work, leaving the outer transaction clean and caller objects intact — achieving the plan's stated goal without the regression. `test_threshold_check_rollback.py` 3 tests (helper leaves session usable; happy path; **real guard: `create_transaction` survives a threshold failure**); full suite 32 passed; tests lint-clean, `src` 32→32. Plan's literal `db.rollback()` Done-criterion intentionally not met. — unmerged |
 
-Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
+| 014 | SQLite schema evolution for the desktop tier (ADR) | P1 | M | — | PROPOSED 2026-07-20 — ADR, not yet executed. Decision: stamp-at-head + forward-only Alembic on SQLite (B2), with versioned export/import (D) as escape hatch. Awaiting sign-off before `feature_list.json` entries are added. |
+
+Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale) | PROPOSED (ADRs awaiting sign-off)
 
 ## Recommended sequencing
 
@@ -67,6 +69,158 @@ and changes often. 011 is the only one touching `models.py` and `migrations/`.
   themselves are independent. If 002 is blocked, the source edits can still be made,
   but do not mark those plans DONE without their tests.
 
+## Build wave plan — `feature_list.json` fan-out (added 2026-07-20)
+
+Covers **`feature_list.json` entries**, not plans 001–014. Derived from a codebase audit on
+2026-07-20 and from ADR-014 (`plans/014-sqlite-schema-evolution.md`). Read this before
+assigning concurrent agents — several apparent fan-out candidates are already built, and two
+are blocked by a migration dependency that is not obvious from the feature entries alone.
+
+### Already built — verify, do NOT rebuild
+
+An audit on 2026-07-20 found these implemented and wired, sitting at `passes: false` only
+because they await manual verification. **Assigning an agent to build them would be rebuilding
+finished work.**
+
+- **`onboarding-001`** — full 6-step wizard exists at
+  `web/src/app/(onboarding)/onboarding/page.tsx` (954 lines): household → goals → nav/section
+  selection → theme → invite → done.
+- **The entire AI coach chain** — `coach-001`/`001b`/`002`/`003`/`004`/`005`/`006`/`007`,
+  `chat-001`, `journal-001`, `journal-002`. `api/src/life_dashboard/ai/` holds
+  `coach_service.py`, `profile_service.py`, `journal_signal_service.py`,
+  `chat_context_resolver.py`, `tools.py`; `ai_router` is mounted in `main.py:556` with
+  endpoints for `/profile`, `/profile/bootstrap`, `/profile/updates`, `/profile/versions`,
+  `/journal/start`, `/journal/save`, `/chat`, `/coach/digest`, plus scheduled profile refresh
+  (`main.py:368`). Frontend: `web/src/components/journal/journal-session.tsx`,
+  `web/src/components/ai/ai-chat.tsx`.
+
+Verification is the highest-leverage work available (~12 features potentially flipped for zero
+build effort) — but "registered in `main.py`" is not proof of "works." Per the endpoint
+smoke-test rule, execute each endpoint against a running API before flipping any flag.
+
+### Genuinely unbuilt
+
+`infra-003`, `infra-004`, `infra-005`, `pwa-001` (no manifest, no service worker, no PWA deps
+in `web/package.json`), `workouts-001` (still the old `Workout` + `ExerciseEntry` model with
+sets inside a JSON `metrics` blob), `onboarding-002`, `onboarding-003`, `ux-001` (no shared
+EmptyState component — but see below: `ux-001` is subsumed by `onboarding-003` and should not
+be built separately).
+
+### `ux-001` is a subset of `onboarding-003` — do not build both
+
+`ux-001` ("every domain list page shows a friendly empty state with a short message and a
+call-to-action") is fully contained in `onboarding-003`, whose steps already require a rich
+empty state with a CTA on `/todos`, `/habits`, `/recipes`, `/notes`, `/goals`, and `/calendar`
+— *plus* first-visit hints on top.
+
+Build **`onboarding-003`**. `ux-001`'s verification steps should then pass without additional
+work: verify and flip it rather than assigning it to an agent. Per the root `CLAUDE.md`, do not
+remove or rename the `ux-001` entry.
+
+### Two scoping decisions that control how much can run in parallel
+
+Migration serialization is the throttle on this whole plan. Two entries are written with an
+either/or that decides whether they join the serialized migration queue or run free:
+
+1. **`onboarding-003` hint dismissals** — the entry specifies "a `dismissed_hints` JSONB column
+   on member settings (**or localStorage for stateless hints**)." The column means a migration
+   and a place in the queue; localStorage keeps it web-only and fully parallel.
+2. **`onboarding-002` demo flag** — "all demo records are tagged with a `demo: true` metadata
+   flag" across todos, habits, budget, recipes, goals, and notes. A real column per domain is a
+   large migration; reusing existing JSON metadata or tags avoids one entirely.
+
+Decide both **before** assigning agents. Choosing localStorage and existing-metadata converts
+one long serial chain into three genuine parallel tracks.
+
+### Track 1 — the migration queue (strictly serial)
+
+`infra-003` → `infra-004` → `workouts-001`
+
+These must not overlap: each adds a migration, and the root `CLAUDE.md` forbids concurrent
+migration-adding tasks.
+
+- `infra-004` is blocked by `infra-003` (migrations must run on SQLite before the folded
+  backfill means anything there).
+- `workouts-001` is blocked by `infra-003` because its migration seeds ~60 global exercises.
+  Pre-003 that seed never runs on SQLite, so Tauri users get an empty exercise library and a
+  non-functional workouts module.
+- `workouts-002` / `workouts-003` remain blocked behind `workouts-001` regardless.
+
+### Track 2 — parallel now
+
+`pwa-001` — manifest, service worker, responsive audit. No API surface, no migration, no
+overlap with anything else in flight.
+
+### Track 3 — parallel now, *conditional*
+
+`onboarding-003` (subsuming `ux-001`) — parallel-safe **only if** hint dismissals use
+localStorage. If it takes the `dismissed_hints` column, it joins the back of Track 1 instead.
+
+### After `infra-004` merges
+
+`onboarding-002` — it seeds "a note in the Journal collection" and so touches
+`domains/collections/service.py`, the same file `infra-004` edits. Also gated on its demo-flag
+scoping decision above.
+
+`infra-005` sits outside all of this — P2/v1.1, no sequencing pressure.
+
+### Sequential multi-feature sessions
+
+One agent may build several dependent features in succession. The merge protocol constrains
+branches and merges, not who performs them — and a single serial agent makes the "two builds
+finish together" race structurally impossible.
+
+Required loop, per feature:
+
+```
+worktree feat/<id> → build → make check → git fetch && git rebase origin/main
+→ update feature_list.json + claude-progress.txt → merge --ff-only to local main
+→ branch the NEXT feature off the UPDATED main → repeat
+```
+
+Branch each subsequent feature off **main after the previous one merged**, never off the
+previous feature's branch. That is what keeps a new migration's `down_revision` parented to the
+real head instead of needing a hand-fix.
+
+`make check` is the full gate (`lint` + `test` + `tsc --noEmit`).
+
+**Driving this with `/goal`.** Claude Code's built-in `/goal` (goal-based loop —
+`code.claude.com/docs/en/goal`) suits this work well: an evaluator model re-checks the stop
+condition each time the agent tries to finish, and it performs best against deterministic
+criteria. `feature_list.json` `steps` plus `make check` are exactly that.
+
+Use **one `/goal` per feature, not one spanning several.** A single goal covering
+`infra-003`–`005` will tend to build them on one branch, breaking one-feature-per-branch and
+skipping the rebase between merges that keeps a new migration's `down_revision` parented to
+the real head. Example:
+
+```
+/goal build infra-003 per feature_list.json. Done when every verification step passes,
+make check is clean, and the branch is merged to local main. Do not commit the
+test-scaffolding migrations. Stop after 8 tries.
+```
+
+Then start the next feature's goal off the updated main. `/goal` with no arguments reports
+turns and token usage so far.
+
+`infra-005` should **not** ride along with 003/004 — it is P2/v1.1, breadth-across-every-domain
+work rather than surgical infra, and shares no useful context with them.
+
+### Gotcha — `infra-003` verification scaffolding
+
+`infra-003`'s steps call for adding test migrations (one with a unique constraint, one with a
+data backfill) to prove migrations now apply on SQLite. These are **scaffolding**. They must
+not be committed into `api/migrations/versions/` — if they land, every future install replays
+them and the chain is polluted. Use scratch revisions reverted after verification, or a pytest
+fixture.
+
+### Concurrency rule reminder
+
+`infra-003`, `infra-004`, and `workouts-001` each add migrations, so per the root `CLAUDE.md`
+protocol they must not run concurrently — Track 1 already serializes them. `onboarding-003` and
+`onboarding-002` join that queue **only if** the scoping decisions above land on a DB column
+rather than localStorage / existing metadata.
+
 ## Findings not yet planned (from the audit, for a future pass)
 
 Recorded so they aren't re-audited from scratch. Roughly in leverage order:
@@ -97,8 +251,8 @@ Recorded so they aren't re-audited from scratch. Roughly in leverage order:
   boilerplate duplicated across 18 domains.
 
 **Direction options** (maintainer's call, not bugs): finish the idempotency roadmap
-(`api/CLAUDE.md:63` — umbrella for #13/#19 and the notification-dedup gap); unblock the
-free SQLite/desktop tier (`ROADMAP.md:107`); add the Teller webhook receiver
+(`api/CLAUDE.md:63` — umbrella for #13/#19 and the notification-dedup gap); ~~unblock the
+free SQLite/desktop tier (`ROADMAP.md:107`)~~ → **ADR'd as 014**; add the Teller webhook receiver
 (`TELLER_SIGNING_SECRET` is configured but unused); iCal calendar export (`ROADMAP.md:154`).
 
 ## Findings considered and rejected

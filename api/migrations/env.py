@@ -58,7 +58,14 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # render_as_batch rebuilds the table (create/copy/drop/rename) for ALTERs
+    # SQLite cannot express directly — dropping columns, adding constraints,
+    # changing types. Postgres does not need it and is left untouched.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=_is_sqlite(),
+    )
     with context.begin_transaction():
         context.run_migrations()
 
@@ -77,17 +84,15 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    # Both engines run migrations (ADR-014). A fresh SQLite DB is built by
+    # create_all() and stamped at head on first boot, so historical revisions
+    # 0001-0045 never replay there — only new revisions run, in batch mode.
     if _is_sqlite():
-        # SQLite tier: Alembic migrations are Postgres-specific.
-        # Schema is managed via Base.metadata.create_all() on first boot
-        # (called from main.py startup). Running `alembic upgrade head` against
-        # a SQLite URL is a no-op with a clear message.
         print(
-            "[alembic] SQLite detected — skipping migration history.\n"
-            "Schema is managed via create_all() on app startup.\n"
-            "To migrate data to Postgres later, use pgloader."
+            "[alembic] SQLite detected — running migrations in batch mode.\n"
+            "Fresh databases are created via create_all() and stamped at head "
+            "on first boot; only newer revisions are applied."
         )
-        return
     asyncio.run(run_async_migrations())
 
 

@@ -99,8 +99,8 @@ async def backfill_journal_kind(db: AsyncSession) -> dict[str, int]:
 
     Why this exists separately from migration 0032: the migration's SQL
     backfill is Postgres-only because it uses native JSONB operators.
-    Local SQLite dev installs get the new `kind` column from
-    `_patch_sqlite_schema` but nothing populates it, leaving every
+    SQLite installs predating ADR-014 got the new `kind` column from
+    create_all() but nothing populated it, leaving every
     existing collection at kind=NULL — which silently breaks the
     coach's narrative fetch and the journal signal extractor (both
     gate on kind='journal'). This function is the Python-side

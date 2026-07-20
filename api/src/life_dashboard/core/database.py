@@ -1,7 +1,10 @@
 import logging
+import sys
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
-from sqlalchemy import inspect, text
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -9,6 +12,18 @@ from sqlalchemy.pool import NullPool
 from life_dashboard.core.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _migrations_dir() -> Path:
+    """Locate the Alembic script directory in both source and frozen layouts.
+
+    Source: api/src/life_dashboard/core/database.py → api/migrations.
+    Frozen (PyInstaller / Tauri): bundled at the root of the extraction dir by
+    the `datas` entry in life_dashboard.spec.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "migrations"  # type: ignore[attr-defined]
+    return Path(__file__).resolve().parents[3] / "migrations"
 
 
 def _is_sqlite() -> bool:
@@ -69,96 +84,37 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-def _patch_sqlite_schema(sync_conn) -> None:
+def _stamp_head_if_unversioned(sync_conn) -> None:
+    """Stamp a SQLite DB at the current Alembic head if it has no version yet.
+
+    ADR-014 (stamp-at-head, forward-only): a SQLite database is built from
+    current ORM metadata by create_all(), which is by definition equivalent to
+    head.  Recording that fact means historical revisions never replay, and
+    every *future* revision runs normally via `alembic upgrade head`.
+
+    Idempotent: once alembic_version holds a revision, this is a no-op, so
+    subsequent boots never clobber a version advanced by a real upgrade.
     """
-    Inspect the live SQLite schema and ADD COLUMN for any model column that
-    is missing from the actual table.
+    script = ScriptDirectory(str(_migrations_dir()))
+    context = MigrationContext.configure(sync_conn)
 
-    SQLAlchemy's create_all() creates new tables but never alters existing
-    ones.  This fills that gap so that adding a column to a model (e.g.
-    group_id on budget_categories) is picked up automatically on the next
-    restart — no manual ALTER TABLE needed.
+    if context.get_current_revision() is not None:
+        return
 
-    Limitations (acceptable for SQLite dev):
-    - NOT NULL columns with no DEFAULT are added as nullable; SQLite would
-      reject the constraint on an already-populated table anyway.
-    - Columns with UNIQUE constraints are skipped (SQLite can't add those
-      via ALTER TABLE).
-    - Primary key columns are skipped (never makes sense to add post-hoc).
-
-    Safe to call on every boot — the inspect() check makes it idempotent.
-    """
-    insp = inspect(sync_conn)
-    existing_tables = set(insp.get_table_names())
-
-    for table in Base.metadata.sorted_tables:
-        if table.name not in existing_tables:
-            continue  # brand-new table; create_all() handles it
-
-        existing_cols = {col["name"] for col in insp.get_columns(table.name)}
-
-        for col in table.columns:
-            if col.name in existing_cols:
-                continue
-            if col.primary_key:
-                continue  # never add a PK after the fact
-            if any(isinstance(c, type(col)) and c.unique for c in col.constraints):
-                logger.warning(
-                    "SQLite schema patch: skipping %s.%s — UNIQUE columns "
-                    "cannot be added via ALTER TABLE",
-                    table.name, col.name,
-                )
-                continue
-
-            try:
-                col_type_str = col.type.compile(dialect=sync_conn.dialect)
-            except Exception:
-                col_type_str = "TEXT"
-
-            # Build DEFAULT clause.  If the column is NOT NULL but has no
-            # server_default, fall back to DEFAULT NULL so SQLite accepts it.
-            if col.server_default is not None:
-                default_clause = f" DEFAULT {col.server_default.arg}"
-            elif not col.nullable:
-                default_clause = " DEFAULT NULL"
-            else:
-                default_clause = ""
-
-            sql = (
-                f"ALTER TABLE {table.name} "
-                f"ADD COLUMN {col.name} {col_type_str}{default_clause}"
-            )
-            try:
-                sync_conn.execute(text(sql))
-                sync_conn.commit()
-                logger.info(
-                    "SQLite schema patch: added %s.%s (%s)",
-                    table.name, col.name, col_type_str,
-                )
-            except Exception as exc:
-                # Column may have appeared between the inspect() call and now,
-                # or the type is genuinely unsupported — either way, log and move on.
-                logger.warning(
-                    "SQLite schema patch: could not add %s.%s — %s",
-                    table.name, col.name, exc,
-                )
+    context.stamp(script, "head")
+    logger.info("SQLite database stamped at Alembic head %s", script.get_current_head())
 
 
 async def create_all_tables() -> None:
-    """Create all tables from ORM metadata (SQLite path only).
+    """Create all tables from ORM metadata and stamp at head (SQLite only).
 
-    On SQLite there are no Alembic migrations to run — the schema is
-    created fresh on first boot via this function.  Postgres continues to
-    use Alembic migrations as normal.  Subsequent calls are idempotent
-    (create_all skips tables that already exist).
+    A fresh SQLite database gets its schema from create_all() rather than by
+    replaying 0001-0045, then is stamped at head so future migrations apply
+    forward in batch mode.  Postgres uses Alembic exclusively.
 
-    After create_all(), _patch_sqlite_schema() adds any columns that are in
-    the ORM models but missing from the live DB — so adding a mapped column
-    never requires a manual ALTER TABLE in the dev SQLite workflow.
+    Subsequent calls are idempotent — create_all() skips existing tables and
+    the stamp only happens when alembic_version is empty.
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    # Auto-patch missing columns (SQLite only — Postgres uses Alembic).
-    async with engine.connect() as conn:
-        await conn.run_sync(_patch_sqlite_schema)
+        await conn.run_sync(_stamp_head_if_unversioned)
