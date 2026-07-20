@@ -515,7 +515,7 @@ export function TodoSheet({ open, todo, defaultProjectId, onClose }: TodoSheetPr
           </div>
 
           {/* Status + Priority */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="todo-status">Status</Label>
               <Select
@@ -545,7 +545,7 @@ export function TodoSheet({ open, todo, defaultProjectId, onClose }: TodoSheetPr
           </div>
 
           {/* Due date + Assigned to */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="todo-due">Due date</Label>
               <DatePicker

@@ -383,7 +383,7 @@ function MonthView({
   const totalSelected = selectedEvents.length + selectedTodos.length + selectedHabits.length;
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
       {/* Month grid */}
       <div className="flex-1 overflow-auto p-4">
         {/* Day-of-week headers */}
@@ -421,7 +421,7 @@ function MonthView({
       </div>
 
       {/* Right sidebar */}
-      <div className="w-72 shrink-0 border-l flex flex-col overflow-hidden">
+      <div className="w-full md:w-72 shrink-0 border-t md:border-t-0 md:border-l flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <p className="text-sm font-medium">{selectedDateLabel}</p>
           {canCreate && (
@@ -511,7 +511,9 @@ function WeekView({
       {isLoading && (
         <p className="text-center text-xs text-muted-foreground mb-3">Loading…</p>
       )}
-      <div className="grid grid-cols-7 gap-2 min-w-[560px]">
+      {/* Week view stacks into an agenda on phones — seven columns in 375px
+          would be ~50px each. */}
+      <div className="grid grid-cols-1 sm:grid-cols-7 gap-2 sm:min-w-[560px]">
         {days.map((day) => {
           const dateStr = toDateStr(day);
           const isToday = dateStr === todayStr;

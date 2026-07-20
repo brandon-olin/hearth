@@ -94,7 +94,7 @@ function NavItem({ id, label, icon: Icon, active, onChange }: {
       type="button"
       onClick={() => onChange(id)}
       className={cn(
-        "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors text-left",
+        "flex items-center gap-2.5 w-auto md:w-full shrink-0 whitespace-nowrap px-3 py-2 rounded-md text-sm font-medium transition-colors text-left",
         active === id
           ? "bg-primary/10 text-primary"
           : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -121,13 +121,15 @@ function SettingsNav({
   const userSections  = SECTIONS.filter((s) => visibleSections.has(s.id) && !ADMIN_SECTION_IDS.has(s.id));
 
   return (
-    <nav className="space-y-4">
+    /* Vertical rail on desktop; a horizontally scrollable tab strip on phones,
+       where a stacked vertical nav would push the content off-screen. */
+    <nav className="flex gap-3 overflow-x-auto md:block md:space-y-4 md:overflow-visible">
       {isAdmin && adminSections.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+          <p className="hidden md:block text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
             Admin Settings
           </p>
-          <div className="space-y-0.5">
+          <div className="flex gap-1 md:block md:space-y-0.5">
             {adminSections.map(({ id, label, icon }) => (
               <NavItem key={id} id={id} label={label} icon={icon} active={active} onChange={onChange} />
             ))}
@@ -135,10 +137,10 @@ function SettingsNav({
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+        <p className="hidden md:block text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
           {isAdmin ? "General Settings" : "Settings"}
         </p>
-        <div className="space-y-0.5">
+        <div className="flex gap-1 md:block md:space-y-0.5">
           {userSections.map(({ id, label, icon }) => (
             <NavItem key={id} id={id} label={label} icon={icon} active={active} onChange={onChange} />
           ))}
@@ -1019,7 +1021,7 @@ function ThemePicker() {
       {/* Light */}
       <div>
         <Label>Light themes</Label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {lightThemes.map((theme) => {
             const active = config.baseThemeId === theme.id;
             return (
@@ -1046,7 +1048,7 @@ function ThemePicker() {
       {/* Dark */}
       <div>
         <Label>Dark themes</Label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {darkThemes.map((theme) => {
             const active = config.baseThemeId === theme.id;
             return (
@@ -1073,7 +1075,7 @@ function ThemePicker() {
       {/* Accent */}
       <div>
         <Label>Accent color</Label>
-        <div className="grid grid-cols-6 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {ACCENT_COLORS.map((accent) => {
             const active = config.accentId === accent.id;
             const isDark = activeBase?.category === "dark";
@@ -4329,7 +4331,7 @@ function TemplatesSection() {
             <form onSubmit={submitForm} className="border rounded-lg bg-muted/20 p-4 space-y-3 mt-2">
               <p className="text-sm font-semibold">{editing ? "Edit template" : "New template"}</p>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">Name *</label>
                   <input
@@ -4481,14 +4483,14 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col md:flex-row h-full">
       {/* Settings left-nav */}
-      <div className="w-52 shrink-0 border-r bg-card p-4">
+      <div className="w-full md:w-52 shrink-0 border-b md:border-b-0 md:border-r bg-card p-4">
         <SettingsNav active={active} onChange={setActive} visibleSections={visibleSections} isAdmin={isAdmin} />
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8">
         {active === "appearance"  && <AppearanceSection />}
         {active === "navigation"  && <NavigationSection />}
         {active === "account"     && <AccountSection />}

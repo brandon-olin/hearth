@@ -388,7 +388,7 @@ export default function BudgetImportPage() {
                 className="h-8 text-sm"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
                 <Label className="text-xs text-muted-foreground">Type</Label>
                 <Select

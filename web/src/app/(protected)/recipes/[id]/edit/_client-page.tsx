@@ -482,7 +482,7 @@ export default function RecipeEditPage() {
               onChange={(e) => setField("source_url", e.target.value)}
               placeholder="https://…" />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="e-prep">Prep (min)</Label>
               <Input id="e-prep" type="number" min="0" value={form.prep_time_minutes}

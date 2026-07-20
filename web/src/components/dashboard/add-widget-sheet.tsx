@@ -54,7 +54,7 @@ function TypePicker({
   const types = Object.keys(WIDGET_META) as WidgetType[];
 
   return (
-    <div className="grid grid-cols-2 gap-3 pt-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
       {types.map((type) => {
         const meta = WIDGET_META[type];
         const Icon = WIDGET_ICONS[type];

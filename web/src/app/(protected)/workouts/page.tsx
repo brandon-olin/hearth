@@ -547,7 +547,7 @@ function WorkoutEditor({
     <>
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
         {/* Date + Name */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="w-date" className="text-xs">Date</Label>
             <Input

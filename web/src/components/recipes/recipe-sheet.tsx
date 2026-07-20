@@ -685,7 +685,7 @@ export function RecipeSheet({
                   placeholder="https://…"
                 />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="r-prep">Prep (min)</Label>
                   <Input

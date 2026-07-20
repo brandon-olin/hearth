@@ -273,6 +273,39 @@ html.theme-switching *::after {
   }
 }
 
+/* Reclaim 16px of horizontal room on phones — 1.5rem each side is 48px of a
+   375px viewport. */
+@media (max-width: 639px) {
+  .page-content,
+  .page-content-wide {
+    padding: 1rem;
+  }
+}
+
+/* ── Touch target floor ───────────────────────────────────────────────────────
+   The Button primitive tops out at 36px (h-9) and icon variants go as low as
+   24px, which is well under the 44px minimum for touch. Rather than resize
+   every call site, enforce a floor on coarse-pointer devices only — mouse and
+   trackpad layouts are left exactly as they are.
+
+   Scoped to buttons and explicit button roles; bare anchors are excluded so
+   inline text links don't get stretched. */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  input[type="submit"],
+  input[type="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Buttons that only ever hold text in a wrapping row shouldn't be forced
+     square — width floor is what causes overflow, height is the safe part. */
+  .touch-target-auto-width {
+    min-width: 0;
+  }
+}
+
 /* ── Badge primitives ─────────────────────────────────────────────────────────
    Base: .badge — pill shape, consistent size, inline-flex
    Colour variants: .badge-neutral .badge-blue .badge-amber .badge-violet
@@ -379,6 +412,17 @@ input[type="checkbox"].checkbox-themed {
 input[type="checkbox"].checkbox-themed:checked {
   background-color: var(--primary);
   border-color: var(--primary);
+}
+
+/* Expand the tappable area to 44px on touch devices without changing the 14px
+   visual box. content-box clipping keeps the padding transparent, and the
+   negative margin cancels the layout effect so surrounding spacing is intact. */
+@media (pointer: coarse) {
+  input[type="checkbox"].checkbox-themed {
+    padding: 15px;
+    margin: -15px;
+    background-clip: content-box;
+  }
 }
 
 input[type="checkbox"].checkbox-themed:checked::after {

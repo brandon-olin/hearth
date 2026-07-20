@@ -139,9 +139,21 @@ export default function NotesPage() {
         {view === "list" ? (
           <>
             {/* Note list sidebar — collapses in focus mode */}
+            {/* On phones the list and editor are alternating full-width views —
+                260px of sidebar would leave ~110px for the editor. The stored
+                width is passed as a CSS var so it only applies from md up. */}
             <aside
-              className="shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out"
-              style={{ width: focused ? 0 : width, opacity: focused ? 0 : 1 }}
+              className={cn(
+                "shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out",
+                "w-full md:w-[var(--notes-list-w)]",
+                (selectedId !== null || focused) && "hidden md:flex",
+              )}
+              style={
+                {
+                  "--notes-list-w": `${focused ? 0 : width}px`,
+                  opacity: focused ? 0 : 1,
+                } as React.CSSProperties
+              }
             >
               <NoteList
                 selectedId={isNew ? null : selectedId}
@@ -152,14 +164,20 @@ export default function NotesPage() {
             </aside>
 
             {/* Resize handle — hidden in focus mode */}
+            {/* Mouse-only affordance — no touch equivalent, so hide it on phones. */}
             <div
-              className="shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
+              className="hidden md:block shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
               style={{ width: focused ? 0 : 4 }}
               onMouseDown={startResize}
             />
 
-            {/* Editor pane */}
-            <main className="flex-1 min-w-0 overflow-auto">
+            {/* Editor pane — hidden on phones until a note is picked */}
+            <main
+              className={cn(
+                "flex-1 min-w-0 overflow-auto",
+                selectedId === null && "hidden md:block",
+              )}
+            >
               {selectedId === null ? (
                 <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
                   <BookOpen className="h-10 w-10 mb-3 opacity-30" />
@@ -180,8 +198,14 @@ export default function NotesPage() {
         ) : (
           /* ── Graph view ──────────────────────────────────────── */
           <div className="flex flex-1 min-h-0 min-w-0">
-            {/* Graph canvas */}
-            <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+            {/* Graph canvas — yields the whole viewport to the editor panel on
+                phones rather than sharing 375px with it. */}
+            <div
+              className={cn(
+                "flex-1 min-w-0 min-h-0 relative overflow-hidden",
+                selectedId && !isNew && "hidden md:block",
+              )}
+            >
               <NoteGraph
                 selectedId={selectedId}
                 onSelect={handleGraphSelect}
@@ -191,8 +215,8 @@ export default function NotesPage() {
             {/* Editor side-panel — slides in when a node is selected */}
             {selectedId && !isNew && (
               <>
-                <div className="w-px bg-border shrink-0" />
-                <div className="w-[380px] shrink-0 overflow-auto border-l">
+                <div className="hidden md:block w-px bg-border shrink-0" />
+                <div className="w-full md:w-[380px] shrink-0 overflow-auto border-l">
                   <NoteEditor
                     key={selectedId}
                     noteId={selectedId}

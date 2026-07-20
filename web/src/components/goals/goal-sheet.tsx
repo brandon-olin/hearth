@@ -203,7 +203,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
           </div>
 
           {/* Status + Priority row */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="goal-status">Status</Label>
               <select
@@ -238,7 +238,7 @@ export function GoalSheet({ open, goal, onClose }: GoalSheetProps) {
           {/* Progress tracking */}
           <div className="space-y-2">
             <Label>Progress tracking (optional)</Label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Current</p>
                 <Input

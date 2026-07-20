@@ -212,9 +212,19 @@ export default function CollectionPage() {
           {view === "list" ? (
             <>
               {/* Note list sidebar */}
+              {/* Alternating full-width views on phones — see notes/page.tsx. */}
               <aside
-                className="shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out"
-                style={{ width: focused ? 0 : width, opacity: focused ? 0 : 1 }}
+                className={cn(
+                  "shrink-0 border-r flex flex-col overflow-hidden bg-background transition-[width,opacity] duration-300 ease-in-out",
+                  "w-full md:w-[var(--collection-list-w)]",
+                  (selectedId !== null || focused) && "hidden md:flex",
+                )}
+                style={
+                  {
+                    "--collection-list-w": `${focused ? 0 : width}px`,
+                    opacity: focused ? 0 : 1,
+                  } as React.CSSProperties
+                }
               >
                 <CollectionNoteList
                   collectionId={id}
@@ -227,13 +237,18 @@ export default function CollectionPage() {
 
               {/* Resize handle */}
               <div
-                className="shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
+                className="hidden md:block shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-[width] duration-300 ease-in-out"
                 style={{ width: focused ? 0 : 4 }}
                 onMouseDown={startResize}
               />
 
               {/* Editor pane */}
-              <main className="flex-1 min-w-0 overflow-auto">
+              <main
+                className={cn(
+                  "flex-1 min-w-0 overflow-auto",
+                  selectedId === null && "hidden md:block",
+                )}
+              >
                 {selectedId === null ? (
                   <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
                     <DomainIcon className="h-10 w-10 mb-3 opacity-30" />
@@ -265,7 +280,12 @@ export default function CollectionPage() {
           ) : (
             /* ── Graph view ── */
             <div className="flex flex-1 min-h-0 min-w-0">
-              <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+              <div
+                className={cn(
+                  "flex-1 min-w-0 min-h-0 relative overflow-hidden",
+                  selectedId && selectedId !== "__new__" && "hidden md:block",
+                )}
+              >
                 <NoteGraph
                   selectedId={selectedId}
                   onSelect={(nodeId) => { setSelectedId(nodeId); }}
@@ -273,8 +293,8 @@ export default function CollectionPage() {
               </div>
               {selectedId && selectedId !== "__new__" && (
                 <>
-                  <div className="w-px bg-border shrink-0" />
-                  <div className="w-[380px] shrink-0 overflow-auto border-l">
+                  <div className="hidden md:block w-px bg-border shrink-0" />
+                  <div className="w-full md:w-[380px] shrink-0 overflow-auto border-l">
                     <NoteEditor
                       key={selectedId}
                       noteId={selectedId}
