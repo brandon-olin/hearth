@@ -1558,7 +1558,7 @@
         "Verify the coach narrative fetch and the journal signal extractor still resolve a kind='journal' collection after boot",
         "Restart the API twice and verify no journal collections are duplicated"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-005",

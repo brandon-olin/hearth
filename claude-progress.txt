@@ -4260,3 +4260,76 @@ proposal-001, which also adds a table — do not run them concurrently, and veri
 single alembic head (alembic heads) after rebase. Current head is 0045. The semantic
 event layer is the structural work and should land reviewable on its own before the
 delivery machinery is stacked on it.
+
+=== 2026-07-20 — Coding session ===
+
+Feature: infra-004 — Fold backfill_journal_kind into a migration and delete the
+boot hook (ADR-014 action item 7).
+
+STATUS: complete. All 6 verification steps executed against a running API.
+
+COMMITS:
+  - feat(infra-004): fold backfill_journal_kind into migration 0046
+  - chore(infra-004): mark infra-004 passing, log session
+
+WHAT WAS DONE:
+  - New migration api/migrations/versions/0046_journal_kind_backfill.py
+    (down_revision 0045; `alembic heads` returns a single head, 0046). It does
+    both jobs the boot hook did:
+      1. tags kind=NULL, domain='notes' collections that look like journals
+         (name == 'journal' case-insensitively, OR auto_create_rule
+         frequency == 'daily') as kind='journal';
+      2. inserts a journal collection for every household with none,
+         attributed to the earliest-joined member; created_by_user_id stays
+         NULL for orphan households.
+  - Portability: the migration does its work in Python over SQLAlchemy Core
+    sa.table() definitions rather than raw SQL — no JSONB operators, no
+    gen_random_uuid(), and UUID/JSON/bool values bind through typed columns so
+    Postgres (native UUID) and SQLite (CHAR(32)) each get the right
+    representation. No dialect branch was needed and none was added.
+  - Idempotency: step 1 only touches kind IS NULL rows, step 2 only inserts
+    where no kind='journal' collection exists. Re-running after migration 0032
+    (production Postgres, on the next main push) is a no-op.
+  - Deleted backfill_journal_kind (collections/service.py) and its call site
+    (main.py) — removes a per-boot scan of every household with a query each.
+  - seed_default_journal_collection and its two callers (auth/router.py signup,
+    setup/router.py first-run) are untouched, as required.
+  - New tests/test_journal_collection_seed.py guards the seed-at-creation
+    invariant (creates exactly one; idempotent on a retried signup) in place of
+    the deleted boot scan — the ADR's stated substitute for the permanent scan.
+  - plans/014-sqlite-schema-evolution.md action item 7 checked off; the
+    "query-layer parity" bullet referencing the hook updated to point at 0046.
+
+VERIFICATION (all executed, not reasoned about):
+  1. Migration written, both steps, idempotent. ✓
+  2. Ran cleanly on a throwaway SQLite DB and a throwaway Postgres DB
+     (ld_infra004), each seeded with pre-migration state: a 'Journal' and a
+     daily-auto_create 'Daybook' both tagged, an unrelated 'Recipes'
+     collection left at kind=NULL, a two-member household seeded and
+     attributed to the EARLIER-joined member, an orphan household seeded with
+     NULL created_by_user_id. Re-running the migration on both engines left
+     the row count unchanged (5 → 5). ✓
+  3. grep for backfill_journal_kind across api/src returns nothing. ✓
+  4. Signup against a running API (POST /auth/register, 201) on a fresh SQLite
+     DB produced exactly one kind='journal' collection via
+     seed_default_journal_collection. ✓
+  5. After boot, coach_service._fetch_narrative_context returned 1 recent
+     journal entry and journal_signal_service.backfill_for_user reported
+     scanned=1 — both resolved the kind='journal' collection. (A stub provider
+     was injected so no LLM call was made; scanned increments before
+     extraction, so the count proves resolution.) ✓
+  6. Booted the API three times against the same DB; journal collection count
+     stayed at 1 each time. No duplicates. ✓
+
+  make check: pytest 203 passed, ruff clean on the new migration and on tests.
+  `npx tsc --noEmit` could not run inside the worktree (no web/node_modules
+  there) — no web files were changed by this feature; it is re-run on main.
+
+LEFT UNDONE:
+  - Nothing for infra-004. ADR-014 action items 5 and 8 remain open (CI test
+    for the stamp+upgrade path is partly covered by tests/test_sqlite_migrations.py;
+    the obsolete pgloader line in env.py's SQLite message is untouched).
+
+Recommended next: webhook-001. Still migration-bearing and must serialize
+against proposal-001 — do not run them concurrently. Current head is now 0046,
+so re-parent accordingly and verify a single head after rebase.
