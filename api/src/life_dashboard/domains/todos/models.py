@@ -34,7 +34,14 @@ class Todo(VisibilityMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     priority: Mapped[str | None] = mapped_column(
-        SaEnum("low", "medium", "high", native_enum=False)
+        SaEnum(
+            "low",
+            "medium",
+            "high",
+            native_enum=False,
+            name="priority_level",
+            create_constraint=True,
+        )
     )
     due_date: Mapped[date | None] = mapped_column(Date)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

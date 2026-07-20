@@ -44,12 +44,14 @@ class ExerciseEntry(Base):
     )
 
     name: Mapped[str] = mapped_column(Text)
-    # exercise_type enum is created by migration 0007; create_type=False prevents
-    # SQLAlchemy from trying to CREATE TYPE at schema-sync time.
+    # Stored as VARCHAR + CHECK on both engines. Migration 0047 converted the
+    # native `exercise_type` enum away and dropped the type (ADR-015).
     type: Mapped[str] = mapped_column(
         SaEnum(
             "strength", "cardio", "hiit", "flexibility", "other",
             native_enum=False,
+            name="exercise_type",
+            create_constraint=True,
         )
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

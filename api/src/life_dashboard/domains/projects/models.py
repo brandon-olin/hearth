@@ -30,6 +30,8 @@ class Project(VisibilityMixin, Base):
         SaEnum(
             "backlog", "active", "on_deck", "in_progress", "complete", "archived",
             native_enum=False,
+            name="project_status",
+            create_constraint=True,
         ),
         default="active",
         server_default="active",

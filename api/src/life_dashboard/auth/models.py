@@ -35,10 +35,14 @@ class MembershipRole(str, enum.Enum):
 
 
 # native_enum=False stores as VARCHAR — works on both Postgres and SQLite.
-# (Existing Postgres DBs keep their native enum column; runtime behaviour is identical.)
+# Migration 0047 converted the native `membership_role` enum away and dropped
+# the type, so both engines now agree (ADR-015). The CHECK constraint is what
+# keeps an invalid role out of a permissions column.
 _membership_role_pg = SaEnum(
     MembershipRole,
     native_enum=False,
+    name="membership_role",
+    create_constraint=True,
 )
 
 

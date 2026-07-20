@@ -4515,3 +4515,147 @@ LEFT UNDONE (unchanged, both pre-existing):
     SaEnum(native_enum=False) → VARCHAR+CHECK, migration 0013 says native enum.
     Until that is settled, create_all-built DBs keep diverging from production
     and this failure class stays live for other columns.
+
+=== 2026-07-20 — Infrastructure session (schema-001: enum drift reconciliation) ===
+
+WORKED ON: schema-001 / ADR-015 — reconciling native Postgres enums with the
+ORM models. Follow-on to the 0046 Railway failure earlier today.
+
+STATUS: complete and verified on both engines. Uncommitted.
+
+WHAT WAS DONE:
+  Root problem. Seven columns were native Postgres enums in the migration
+  history while the models declared SaEnum(native_enum=False). A
+  create_all-built DB therefore had a different COLUMN TYPE than a
+  migration-built one, so migration-bearing changes could pass locally and fail
+  the Railway pre-deploy. That is precisely how 0046 shipped broken.
+
+  Ground truth was taken from information_schema on a migration-built replay,
+  NOT from reading migrations. That mattered: reading the history gave a wrong
+  list. notes.kind and audit_log.actor_type turned out NOT to be drifted (0010
+  and 0044 recreated those tables), while goals.priority and todos.priority
+  WERE and had been missed. Both share one type, priority_level, so it can only
+  be dropped after both columns convert.
+
+  Migration 0047. Per column: drop DEFAULT if present, ALTER TYPE varchar(n)
+  USING col::text, re-add DEFAULT, add CHECK; then drop the six types plus two
+  orphans. Guarded on the column still being USER-DEFINED, so re-running is a
+  no-op. VARCHAR lengths are the longest label, matching what
+  SaEnum(native_enum=False) generates.
+
+  Model change that was NOT anticipated. SaEnum(native_enum=False) emits a bare
+  VARCHAR and NO CHECK — create_constraint has defaulted to False since
+  SQLAlchemy 1.4. Converting without adding constraints would have silently
+  dropped all DB-level validation, including on household_memberships.role, a
+  permissions column the agent surface can write. All seven declarations now
+  carry name="<type>" and create_constraint=True, which makes SQLAlchemy emit
+  CONSTRAINT <type> CHECK (...) — identical to what 0047 produces, names
+  included.
+
+  SQLite is not a no-op here. There is no type to convert, but the CHECKs are
+  added via batch_alter_table so a DB created before this revision matches one
+  created after. Without that, the same drift reappears in miniature.
+
+VERIFICATION:
+  1. Compiled model DDL vs migration output for all 7 columns — VARCHAR length,
+     constraint name, and CHECK expression matched on every one. ✓
+  2. SQLite executed: upgrade, all 7 tables kept their rows through the
+     batch rebuild, every table gained a CHECK, the CHECK rejected
+     role='superuser', downgrade dropped the CHECKs and kept data. ✓
+  3. Postgres (Brandon): make migrate-verify replayed 0001..0047 clean. ✓
+  4. Postgres: information_schema USER-DEFINED count = 0; all 7 columns now
+     character varying with correct lengths; defaults survived on
+     documents.kind, household_memberships.role, projects.status. ✓
+  5. Postgres: pg_constraint shows all 7 CHECKs under the enum type names,
+     priority_level appearing on both goals and todos. ✓
+  6. ruff clean on 0047. Warnings on the touched model files are pre-existing
+     on HEAD — verified against the unmodified versions, not assumed.
+
+  Corrected mid-session: the first constraint-verification query returned NULL
+  for all 7 because it matched on `col IN (...)`. Postgres normalises stored
+  CHECKs to `col::text = ANY (ARRAY[...])`, so the pattern could never match.
+  The query was wrong, not the migration.
+
+ALSO: api/CLAUDE.md's drift table was deleted rather than extended — the drift
+it documented is now closed. The general "verify against a replay" rule stays,
+since new drift can appear whenever a migration writes DDL the models do not
+describe.
+
+CORRECTION TO EARLIER ADR FRAMING: ADR-015 initially described the Railway
+deployment as live production with real household data. It is Brandon's own
+single-household instance with no external users. The ADR was corrected. This
+changes the risk sizing — the conversion is cheap now and gets more expensive
+once there are households that cannot be rebuilt.
+
+LEFT UNDONE:
+  - Squash still open, and now MORE attractive: with no external users, the
+    deployed instance could be rebuilt from a squashed baseline and reseeded.
+    That option expires when real households exist. See ADR-015, Option C.
+  - migrate-verify still not wired into CI / make check.
+  - pytest was NOT run this session (no Postgres or project venv in the agent
+    sandbox). Run `make test` before committing.
+
+Recommended next: run make test, then either the squash or webhook-001.
+
+=== 2026-07-20 — Design session (workouts-001..004 scoping amendments) ===
+
+WORKED ON: reviewing the pending workout specs against a scoping decision.
+No code — spec edits only.
+
+STATUS: complete. feature_list.json amended, uncommitted.
+
+DECISION: workout sessions are personal; templates and the exercise catalog are
+household-shared. No per-workout visibility control in the UI — that complexity
+is explicitly not wanted; sharing happens by showing someone your screen.
+
+Crucially, 'personal' was implemented as a filtering rule, NOT by dropping
+household_id. The original workouts-001 schema keyed workout_templates and
+workout_sessions on user_id alone, which would have made workouts the only
+domain outside the household model (breaking cascade-on-delete, household-shaped
+exports, and the audit/agent scoping). All tables keep household_id; personal
+data is enforced by always filtering created_by_user_id.
+
+AMENDMENTS (appended as UPDATE blocks, matching the voice-001 convention —
+original spec text preserved):
+  - workouts-001: household_id on exercises (NULLABLE: NULL = the ~60 app-wide
+    seeded rows, non-NULL = household-custom), workout_templates, and
+    workout_sessions. template_id gets ON DELETE SET NULL. last_used_at DROPPED
+    from workout_templates.
+  - workouts-002: both 'sort by last_used_at DESC' orderings become per-user
+    derived queries. Note the spec sorted the exercise picker by a column that
+    never existed on exercises.
+  - workouts-003: ghost-value prefill now filters created_by_user_id. AS
+    ORIGINALLY WRITTEN THIS WAS A CROSS-USER LEAK — 'the most recent session
+    that used the same template_exercise_id' has no user predicate, so once
+    templates are shared, a kid starting from a parent's template would be
+    pre-filled with the parent's weights.
+  - workouts-004: progress endpoint filters to the requesting user server-side.
+
+WHY last_used_at WAS DROPPED RATHER THAN MADE PER-USER: a per-user template
+state table is disproportionate. The value is derivable —
+MAX(workout_sessions.started_at) WHERE template_id = :t AND
+created_by_user_id = :me — over a few dozen templates, correct by construction,
+and no staleness. Strictly less work than keeping the column.
+
+NOT DONE — deliberately:
+  - No plans/ design doc. workouts-001 is already more detailed than one would
+    be; it needed correcting, not restating.
+  - AI workout programming is still not in the pipe anywhere (workouts-001..005
+    don't mention it; ai-coach-009 is goal-setting; health-001 only feeds Garmin
+    data to the coach). workouts-001's schema is the prerequisite that makes it
+    feasible later — structured sets, templates, target_reps — but it needs its
+    own feature entry if wanted.
+  - Quick-log of a single exercise outside a workout: covered functionally by
+    workouts-003's 'start blank', but there is no dedicated path. Worth a line
+    in workouts-003 rather than a new model — not added, since it is a UX call.
+
+SUPERSEDES EARLIER ADVICE IN THIS SESSION: an argument was made for generalising
+Template.content to a JSON blob so workouts could share the generic Template
+model. That is wrong — a workout template is an ordered set of FK references to
+the exercise catalog, not content, and a JSON blob would discard the catalog
+relationship. Workouts get their own template tables. This also weakens the case
+for the collections domain-registry idea, whose main motivation was unblocking
+workouts.
+
+Recommended next: workouts-001 is now spec-complete and is the gate for
+workouts-002..005. Otherwise the squash, or webhook-001.

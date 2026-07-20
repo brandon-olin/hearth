@@ -36,7 +36,13 @@ class Document(VisibilityMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(
-        SaEnum("page", "template", native_enum=False),
+        SaEnum(
+            "page",
+            "template",
+            native_enum=False,
+            name="document_kind",
+            create_constraint=True,
+        ),
         default="page",
     )
     source_markdown: Mapped[str | None] = mapped_column(Text)

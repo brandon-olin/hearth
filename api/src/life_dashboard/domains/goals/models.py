@@ -31,7 +31,14 @@ class Goal(VisibilityMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="active")
     priority: Mapped[str | None] = mapped_column(
-        SaEnum("low", "medium", "high", native_enum=False)
+        SaEnum(
+            "low",
+            "medium",
+            "high",
+            native_enum=False,
+            name="priority_level",
+            create_constraint=True,
+        )
     )
     target_value: Mapped[Decimal | None] = mapped_column(Numeric)
     current_value: Mapped[Decimal | None] = mapped_column(Numeric, default=0)

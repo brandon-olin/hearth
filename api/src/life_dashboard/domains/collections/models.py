@@ -40,7 +40,13 @@ class Collection(Base):
 
     # "notes" or "documents"
     domain: Mapped[str] = mapped_column(
-        SaEnum("notes", "documents", native_enum=False)
+        SaEnum(
+            "notes",
+            "documents",
+            native_enum=False,
+            name="collection_domain",
+            create_constraint=True,
+        )
     )
 
     # Optional semantic flag identifying this collection's role to other

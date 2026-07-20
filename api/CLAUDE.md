@@ -350,28 +350,26 @@ Migrations run on **both** engines now (ADR-014, `plans/014-sqlite-schema-evolut
 
 ### Verify against a migration-built Postgres DB — not a `create_all()` one
 
-**The schema `create_all()` builds is not the schema production has.** Models and migration
-history have drifted, so a Postgres DB built from `Base.metadata.create_all()` can have a
-*different column type* than the same column in production, which replays `0001` onward.
-A migration can pass locally and still fail the Railway pre-deploy.
+**A `create_all()`-built database is not the database the deployment has.** `create_all`
+builds from the models; the deployment replays `0001` onward. Where those two disagree, a
+migration can pass every local check and still fail the Railway pre-deploy.
 
-Known live drift (check before trusting a local run):
-
-| Column | Model declares | Migration history creates |
-|---|---|---|
-| `collections.domain` | `SaEnum(..., native_enum=False)` → VARCHAR + CHECK | native enum `collection_domain` (migration `0013`) |
-
-This is exactly how migration `0046` shipped broken: it compared `domain` against a
-VARCHAR-bound param, which is fine against a create_all VARCHAR column and fails on
-production's native enum with `operator does not exist: collection_domain = character varying`.
-
-So verify migration-bearing changes against a throwaway DB built the way production is:
+The known enum drift behind the `0046` failure is **closed** — migration `0047` converted the
+seven native enum columns to VARCHAR + CHECK, and the models now declare the matching
+constraints, so both paths produce identical schemas (ADR-015,
+`plans/015-enum-drift-reconciliation.md`). What remains true is the general rule: verify
+against a replay, not against a database the app booted and built. New drift can reappear
+any time a migration writes DDL the models don't describe.
 
 ```bash
-createdb hearth_migtest                     # or: docker run --rm -e POSTGRES_PASSWORD=x -p 5433:5432 postgres:16
-cd api && source .venv/bin/activate
-DATABASE_URL=postgresql+asyncpg://localhost/hearth_migtest alembic upgrade head
-dropdb hearth_migtest
+make migrate-verify         # replays the full history on a throwaway Postgres DB
+```
+
+To check no native enum has crept back in:
+
+```bash
+psql -h localhost hearth_migtest -c "SELECT count(*) FROM information_schema.columns
+  WHERE table_schema='public' AND data_type='USER-DEFINED'"   # expect 0
 ```
 
 Replaying the whole history from empty is the point — it reproduces production's real
