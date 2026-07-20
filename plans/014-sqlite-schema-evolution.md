@@ -226,8 +226,10 @@ becomes a data-migration problem and C's inertia becomes much harder to escape.
 5. [ ] CI test: build a SQLite DB from `create_all` + stamp, then `upgrade head` against a
        new migration and assert the column/constraint lands
 6. [ ] Document the SQLite-safe migration rules in `api/CLAUDE.md`
-7. [ ] **Fold `backfill_journal_kind` into a migration and delete the boot hook**
-       (`main.py:310`). *Resolved 2026-07-20 — see "Why folding is safe" below.*
+7. [x] **Fold `backfill_journal_kind` into a migration and delete the boot hook**
+       (`main.py:310`). *Done 2026-07-20 — migration `0046_journal_kind_backfill`; the hook
+       and its call site are deleted, and `tests/test_journal_collection_seed.py` guards the
+       seed-at-creation invariant in place of the boot scan.*
 8. [ ] Correct the obsolete `pgloader` line in the `env.py` SQLite message
 9. [ ] *(Option D, separate track)* Versioned household export/import — coordinate with
        `plans/open-hearth.md` exports rather than building twice
@@ -312,7 +314,8 @@ Recorded so they are not re-audited from scratch.
 - **`documents/service.py:394`** uses `cast(editor_json, SaText).ilike(...)` — generic
   SQLAlchemy, portable on both engines despite the "Postgres JSONB→text cast" comment.
 - **`budget/models.py:342`** declares both `postgresql_where` and `sqlite_where`. Handled.
-- **`domains/collections/service.py:95`** `backfill_journal_kind` is already backend-agnostic.
+- **`domains/collections/service.py:95`** `backfill_journal_kind` — deleted in action item 7;
+  its work now lives in migration `0046_journal_kind_backfill`, which runs on both engines.
 
 Net: query-layer parity is in good shape. The problem was never parity — it was schema
 evolution.

@@ -300,24 +300,6 @@ async def lifespan(app: FastAPI):
         if bootstrapped:
             logger.info("Bootstrap complete — initial password has been set")
 
-    # AI coach Phase 2: ensure every household has at least one collection
-    # tagged kind='journal' so the coach's narrative fetch and the journal
-    # signal extractor can find journal entries. Runs on every boot —
-    # idempotent (each household is checked + tagged or seeded at most
-    # once per boot). Needed in addition to migration 0032 because the
-    # migration's data backfill is Postgres-only.
-    try:
-        from life_dashboard.domains.collections.service import backfill_journal_kind
-        async with AsyncSessionLocal() as db:
-            counts = await backfill_journal_kind(db)
-        if counts["tagged"] or counts["seeded"]:
-            logger.info(
-                "Journal-kind backfill: tagged=%d, seeded=%d, already-tagged=%d",
-                counts["tagged"], counts["seeded"], counts["skipped"],
-            )
-    except Exception as exc:
-        logger.warning("Journal-kind backfill failed (non-fatal): %s", exc)
-
     # ── AI Coach scheduler ────────────────────────────────────────────────────
     # Generates morning and evening digests for all eligible users.
     # Uses APScheduler's AsyncIOScheduler so jobs run in the same event loop
