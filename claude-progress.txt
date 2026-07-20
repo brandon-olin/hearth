@@ -4333,3 +4333,185 @@ LEFT UNDONE:
 Recommended next: webhook-001. Still migration-bearing and must serialize
 against proposal-001 — do not run them concurrently. Current head is now 0046,
 so re-parent accordingly and verify a single head after rebase.
+
+=== 2026-07-20 — Infrastructure session ===
+
+WORKED ON: Railway pre-deploy failure — `alembic upgrade head` crashed in
+migration 0046 (journal kind backfill).
+
+STATUS: complete (fix verified locally; not yet committed or pushed).
+
+COMMITS: none — working tree change only, left for Brandon to commit/push
+(main pushes stay human per CLAUDE.md).
+
+WHAT WAS DONE:
+  Root cause. 0046 declared its Core table with
+  `sa.column("domain", sa.String())`. SQLAlchemy's **asyncpg** dialect renders
+  explicit casts on bind params, so the predicate compiled to
+  `collections.domain = $1::VARCHAR` against a column whose production type is
+  the native enum `collection_domain` (created in 0013) — and Postgres has no
+  `enum = varchar` operator. Confirmed identical rendering on SQLAlchemy
+  2.0.36 / 2.0.43 / 2.0.51, so it is not a version-resolution fluke.
+
+  Fix. Declared the column as
+  `sa.Enum("notes", "documents", name="collection_domain")` instead of casting
+  at the one call site. Compiled output:
+    - asyncpg SELECT: `domain = $1::collection_domain`   (was `$1::VARCHAR`)
+    - asyncpg INSERT: `domain` binds `$3::collection_domain` (was `$3::VARCHAR`)
+    - SQLite (both): plain `?` — unchanged.
+  No DDL is emitted from a Core `sa.table()`, so the enum type is never
+  created or dropped by this migration.
+
+  Note the INSERT in step 2 had the SAME defect. Casting only the WHERE clause
+  (the obvious one-line fix) would have cleared the SELECT and then failed the
+  deploy again on `column domain is of type collection_domain but expression
+  is of type character varying` for any household needing a seeded journal.
+  Typing the column fixes both sites at once.
+
+VERIFICATION:
+  1. Compiled SEL + INS under the asyncpg and SQLite dialects, before and
+     after, and diffed the rendered casts. ✓
+  2. Executed `upgrade()` end-to-end against a real SQLite DB seeded with
+     pre-migration state: a notes collection named 'journal' and one with a
+     daily auto_create_rule both tagged; a documents-domain collection also
+     named 'journal' correctly left at kind=NULL; an orphan household seeded
+     with NULL created_by_user_id. ✓
+  3. Idempotency: ran `upgrade()` twice in the same transaction — collection
+     count held at 4, no duplicate seeds. ✓
+  4. Owner-attribution branch: household with two memberships inserted
+     later-joined-first; the seeded collection was attributed to the
+     EARLIER-joined member. ✓
+  5. ruff clean on the migration. ✓
+
+  NOT verified against live Postgres — the sandbox has no Postgres binary and
+  no sudo. The Postgres claim above rests on compiled SQL, not execution.
+  Worth a local `alembic upgrade head` against a migration-built (not
+  create_all-built) Postgres DB before pushing.
+
+WHY LOCAL TESTING MISSED IT (worth attention):
+  Schema drift between the ORM model and the migration history.
+  `collections.domain` is declared in the model as
+  `SaEnum("notes","documents", native_enum=False)` → VARCHAR + CHECK, but
+  migration 0013 creates a NATIVE `collection_domain` enum. So a Postgres DB
+  built by `create_all()` has domain as VARCHAR and this migration passes,
+  while production — built by replaying 0013 onward — has the native enum and
+  fails. Any local Postgres verification done via create_all cannot catch this
+  class of bug. The previous session's "verified on both engines" note was
+  almost certainly a create_all-built DB.
+
+LEFT UNDONE:
+  - The model/migration enum drift above is unresolved and will keep biting.
+    Either migrate the column to VARCHAR to match the model, or change the
+    model to `native_enum=True`. Needs a decision, not a drive-by fix.
+  - feature_list.json untouched — no feature's verification status changed.
+
+Recommended next: resolve the domain enum drift, then webhook-001 as
+previously noted (still migration-bearing, still must serialize against
+proposal-001; head remains 0046).
+
+=== 2026-07-20 — Infrastructure session (addendum: migration guardrails) ===
+
+WORKED ON: documenting the 0046 failure class so it is caught before push.
+
+STATUS: complete. Still uncommitted, same as the block above.
+
+WHAT WAS DONE:
+  1. `api/CLAUDE.md` → Migrations. Added a note that `alembic upgrade head`
+     obeys `api/.env`, which is currently SQLite — so a green local run says
+     nothing about the Railway pre-deploy. Added two subsections:
+       - "Verify against a migration-built Postgres DB — not a create_all() one",
+         including a drift table (today: `collections.domain`, model says
+         VARCHAR+CHECK via native_enum=False, migration 0013 says native enum).
+       - "Core sa.table() column types must match the real DB type", covering
+         the asyncpg typed-cast behaviour, why casting one call site is not
+         enough, and how to compile-check with `postgresql.asyncpg.dialect()`
+         (the generic `postgresql.dialect()` hides the casts — that mistake
+         cost a wrong conclusion earlier in this session).
+  2. `Makefile`: new `make migrate-verify` target — creates a throwaway
+     Postgres DB, replays the full history the way railway.json does, drops the
+     DB, and propagates alembic's exit status. Overridable via PGHOST/PGPORT/
+     MIGTEST_DB. Verified with `make -n` (syntax clean); NOT executed, since
+     the sandbox has no Postgres. Needs one real run to confirm.
+
+  Env-var override checked: settings uses pydantic-settings, where environment
+  variables outrank the `.env` file, so the inline DATABASE_URL in the target
+  takes effect while `.env` still supplies jwt_secret_key et al.
+
+LEFT UNDONE:
+  - `make migrate-verify` has never been executed against a live Postgres.
+  - The model/migration enum drift itself is still unresolved (see previous
+    block). The doc table is a mitigation, not a fix, and will need a new row
+    each time another column drifts — which is an argument for fixing the
+    drift rather than growing the table.
+  - Not wired into CI or `make check`. Once the target is confirmed working,
+    it belongs in CI on any diff touching migrations/versions/.
+
+=== 2026-07-20 — Infrastructure session (addendum 2: migrate-verify run) ===
+
+STATUS: `make migrate-verify` executed successfully on real Postgres. Full
+history 0001 → 0046 replayed clean; the 0046 enum comparison that broke the
+Railway pre-deploy now plans without error. The SELECT-side fix is confirmed
+against Postgres, not just compiled SQL.
+
+REMAINING GAP (deliberate, not an oversight):
+  The throwaway DB is empty, so `households` had no rows, `missing` was [], and
+  upgrade() hit `if not missing: return` BEFORE the INSERT. The enum bind on
+  the seed path is therefore still verified only by compiled SQL
+  (`$3::collection_domain`) plus the SQLite execution test — not by Postgres.
+
+  Whether that path can fire in production is genuinely uncertain: 0032 seeded
+  a journal for every household existing then, and both household-creation
+  points call seed_default_journal_collection, so `missing` is probably empty
+  there too. "Probably" is doing real work in that sentence — a household
+  created in a gap between those changes, or one whose journal a user deleted,
+  would hit the INSERT.
+
+  To close it, replay to 0045, insert a household, then upgrade to head (exact
+  commands now documented in api/CLAUDE.md → "Verify against a migration-built
+  Postgres DB"). ~30 seconds.
+
+ALSO DONE:
+  api/CLAUDE.md gained a note that an empty replay does not exercise data
+  migrations at all — row-guarded backfills/seeds return early, so their
+  INSERT/UPDATE statements are never type-checked by Postgres. This generalises
+  past 0046: it applies to every future backfill.
+
+LEFT UNDONE:
+  - The seeded-path Postgres run above.
+  - migrate-verify still not wired into CI / make check.
+  - Model vs migration enum drift on collections.domain still unresolved.
+
+=== 2026-07-20 — Infrastructure session (addendum 3: seed path closed) ===
+
+STATUS: 0046 fully verified on real Postgres. No open verification gaps.
+
+The seeded replay closed the last one: upgrade to 0045, insert a household,
+upgrade to head. 0046 ran its step-2 INSERT against the native enum column and
+produced `Journal | notes | journal`. That is the `$3::collection_domain` bind
+executing for real — previously proven only by compiled SQL. The household had
+no membership, so this also exercised the orphan branch (NULL
+created_by_user_id).
+
+Coverage now:
+  - SELECT / enum comparison ....... Postgres (empty replay) ✓
+  - INSERT / enum bind, seed path .. Postgres (seeded replay) ✓
+  - orphan owner branch ............ Postgres (seeded replay) ✓
+  - idempotency, earliest-joined owner attribution, documents-domain
+    decoy left untagged ............ SQLite (executed) ✓
+  - ruff ........................... clean ✓
+
+Safe to commit and push. Railway's preDeployCommand runs the same
+`alembic upgrade head` that just succeeded twice locally.
+
+NOT ADDED — `make migrate-verify-seeded`. The seeded variant has to know which
+revision to stop at and which row to insert, both of which change per
+migration; a target would have to be edited every time it is used, which is
+worse than the documented recipe. Left as commands in api/CLAUDE.md.
+
+LEFT UNDONE (unchanged, both pre-existing):
+  - migrate-verify not wired into CI / make check. Belongs on any diff touching
+    migrations/versions/.
+  - collections.domain model-vs-migration enum drift unresolved: model says
+    SaEnum(native_enum=False) → VARCHAR+CHECK, migration 0013 says native enum.
+    Until that is settled, create_all-built DBs keep diverging from production
+    and this failure class stays live for other columns.

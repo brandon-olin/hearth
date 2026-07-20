@@ -59,7 +59,14 @@ collections = sa.table(
     sa.column("created_by_user_id", sa.Uuid()),
     sa.column("name", sa.Text()),
     sa.column("icon", sa.Text()),
-    sa.column("domain", sa.String()),
+    # `domain` is a native Postgres enum (`collection_domain`, created in 0013).
+    # It must be declared as an Enum, not String: the asyncpg dialect renders
+    # typed casts for bind params, so a String-typed column produces
+    # `domain = $1::VARCHAR` — and Postgres has no `enum = varchar` operator.
+    # Declaring the enum yields `$1::collection_domain` on Postgres and a plain
+    # VARCHAR bind on SQLite. No DDL is emitted from a Core `sa.table()`, so the
+    # type is never created or dropped here.
+    sa.column("domain", sa.Enum("notes", "documents", name="collection_domain")),
     sa.column("kind", sa.String()),
     sa.column("default_tags", sa.JSON()),
     sa.column("auto_create_rule", sa.JSON()),

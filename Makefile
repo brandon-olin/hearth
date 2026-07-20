@@ -1,4 +1,4 @@
-.PHONY: api web migrate migrate-down migrate-new seed-app-projects seed-m1-subprojects update-m1-progress \
+.PHONY: api web migrate migrate-verify migrate-down migrate-new seed-app-projects seed-m1-subprojects update-m1-progress \
         service-install service-uninstall service-start service-stop service-restart service-status service-logs \
         bot-install bot-uninstall bot-start bot-stop bot-restart bot-status bot-logs \
         hook-install hook-uninstall sync-todos \
@@ -33,6 +33,27 @@ web:
 
 migrate:
 	cd api && .venv/bin/alembic upgrade head
+
+# Replay the FULL migration history against a throwaway Postgres DB, the way
+# Railway's preDeployCommand does. `make migrate` uses api/.env, which is
+# usually SQLite — that cannot reproduce Postgres-only failures (native enum
+# types, JSONB operators). Run this before pushing a migration.
+# Override the server with: make migrate-verify PGHOST=localhost PGPORT=5433
+PGHOST ?= localhost
+PGPORT ?= 5432
+MIGTEST_DB ?= hearth_migtest
+migrate-verify:
+	@echo "==> creating throwaway DB $(MIGTEST_DB) on $(PGHOST):$(PGPORT)"
+	@dropdb --if-exists -h $(PGHOST) -p $(PGPORT) $(MIGTEST_DB) 2>/dev/null || true
+	@createdb -h $(PGHOST) -p $(PGPORT) $(MIGTEST_DB)
+	@echo "==> replaying full history (alembic upgrade head)"
+	@cd api && DATABASE_URL=postgresql+asyncpg://$(PGHOST):$(PGPORT)/$(MIGTEST_DB) \
+		.venv/bin/alembic upgrade head; \
+		status=$$?; \
+		cd .. && dropdb -h $(PGHOST) -p $(PGPORT) $(MIGTEST_DB); \
+		if [ $$status -eq 0 ]; then echo "==> OK — history replays clean on Postgres"; \
+		else echo "==> FAILED — this is what Railway will do"; fi; \
+		exit $$status
 
 migrate-down:
 	cd api && .venv/bin/alembic downgrade -1
