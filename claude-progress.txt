@@ -4100,3 +4100,163 @@ Left undone: historical revisions 0001-0045 keep their `if sqlite: return` guard
 
 Recommended next: infra-004 — fold backfill_journal_kind into a migration and
 delete the boot hook. It was blocked on this feature and is now unblocked.
+
+=== 2026-07-20 — Design session (agent proposals spec) ===
+
+Worked on: closing out the agent-proposals design thread (plans/open-hearth/
+agent-proposals.md, track 7 of plans/open-hearth.md) and filing its feature entries.
+
+Status: complete — spec only. NO CODE WRITTEN. A separate build was running in
+another session, so per the branch & merge protocol nothing was branched, committed,
+or merged here; proposal-001 execution was left to a CLI session.
+
+Commits made this session: none (working-tree edits only).
+
+What was done:
+  - Closed the track doc's three open questions:
+      * Approval re-validates against the APPROVER's ceiling (must hold `write` on
+        the domain) — approval is the approver's act; the proposer's ceiling already
+        did its job by routing the call to propose. Added a stale-proposer guard on
+        audit-integrity rather than permission grounds: approval refuses proposals
+        whose token was revoked or whose proposer left the household, because
+        executing them writes an audit row attributing the action to a credential
+        that no longer exists.
+      * Notification routing = all owners/admins, first-to-decide wins, no routing
+        config in the schema yet. Per-domain approver routing is the v2.
+      * Web-UI propose for restricted members is committed as direction but deferred
+        to a proposal-003. This binds proposal-001's model NOW: token_id nullable and
+        a source (agent|web) column, so proposal-003 adds a REST branch with no
+        migration and no backfill.
+  - Wrote the agent-facing copy verbatim into the track doc (proposed-status response,
+    list_my_proposals, get_proposal_status, unknown-id error, refused-approval message)
+    per the root CLAUDE.md parity principle. The failure mode being designed against:
+    an agent reading `status: proposed` as an error and apologising for a failure that
+    did not happen.
+  - Filed proposal-001 (19 verification steps) and proposal-002 (18) in
+    feature_list.json, both passes=false. Steps cover the scope matrix (propose vs
+    write vs read, min(token, ceiling), cross-member and cross-household isolation),
+    idempotency, audit double-attribution incl. the household-agent NULL-proposer case,
+    approver re-validation, and both stale-proposer paths.
+  - Updated plans/open-hearth.md track 7 status + log, and the track doc header + log.
+
+Note on feature_list.json: appended textually rather than via a json.dump round-trip.
+The file mixes — escapes and raw em-dashes from different tools, so a re-dump
+rewrites ~1000 lines and manufactures exactly the merge conflict the protocol warns
+about. Diff is 59 insertions, 0 deletions. Use the same approach next time.
+
+Left undone: all of proposal-001's implementation. proposal-003 (web-UI propose) is
+named in the track doc but not filed as a feature entry — it is a product feature
+beyond the agent surface and wants its own thread.
+
+Recommended next: proposal-001 — model + propose semantics + audit double-attribution.
+It adds a migration, so serialize it against any other migration-bearing build and
+verify a single alembic head after rebase. Note mcp/auth.py:authorize() currently
+returns PatIdentity or raises; propose is neither success nor failure, so it needs to
+return a decision carrying the resolved tier. That refactor touches every existing
+write tool's call site and is the main structural work in the build.
+
+
+=== 2026-07-20 — Spec session (outbound webhooks) ===
+
+Worked on: outbound webhooks track (plans/open-hearth/outbound-webhooks.md).
+Status: SPEC COMPLETE. No code written, no branch cut, no commits — Brandon is
+executing the build from the CLI separately.
+
+PRIMARY FINDING — the track doc's event catalog was fiction.
+
+The doc stated its catalog was "derived from what the bus already emits (verify
+against events/emit.py)". Verification failed. events/emit.py is a UNIVERSAL
+TABLE-LEVEL invalidation producer: two SQLAlchemy listeners (after_flush /
+after_commit) sweep every household-scoped row touched in a transaction and
+publish InvalidationEvent(entity_type=<tablename>, action=created|updated|deleted).
+There is not one bus.publish or emit call anywhere under domains/ — no named
+domain event exists in the codebase.
+
+Audit of the six proposed events:
+  todo.created           OK    — todos + created
+  todo.completed         ABSENT — a completion is todos+updated, indistinguishable
+                                  from a title edit; the producer deliberately
+                                  discards which fields changed
+  grocery.item_added     CANNOT EMIT — grocery_items has no household_id
+  grocery.item_checked   CANNOT EMIT — same
+  habit.checked_in       CANNOT EMIT — habit_occurrences has no household_id
+  calendar.event_created OK    — calendar_events + created
+
+Four of six undeliverable, including BOTH halves of the doc's own flagship demo
+(an agent subscribing itself to grocery.item_added). proposal.* also unavailable:
+proposal-001/002 are filed but passes=false, nothing built. The child-table gap is
+the exact "coverage caveat" emit.py's own docstring flags as needing follow-up.
+
+DECISION — semantic event layer, built inside webhook-001.
+
+The universal producer is left untouched (it feeds SSE invalidation; changing it
+breaks live UI). Semantic events ride the SAME commit-time plumbing: domain service
+functions append a SemanticEvent to session.info under its own key, mirroring
+_PENDING_KEY, and the existing after_commit listener publishes them alongside the
+invalidations. This inherits rollback safety and the never-raises guarantee for
+free rather than building a second lifecycle. Child tables become emittable because
+the service function knows the parent and emits with the parent's household_id and
+visibility descriptor. events/scope.py stays the SINGLE scope mechanism — can_see
+is widened from InvalidationEvent to the descriptor fields so both event kinds pass
+through one unchanged function.
+
+FOUR OPEN QUESTIONS CLOSED (all recorded in the track doc):
+  1. summary allowlist  → ONE central module (webhooks/summaries.py), filtered at
+     delivery before signing. Rejected per-domain webhook_summary() methods: this is
+     the field-leak surface and it should be a single-file review, not a repo grep.
+  2. delivery logging   → webhook_deliveries for attempts/retry state; audit_log
+     gets ONE row per subscription LIFECYCLE action (created/paused/deleted/
+     auto-disabled) and none per delivery. Split on volume: audit_log is indexed
+     (household_id, created_at) for a human Activity page and would be flooded.
+  3. extra filters      → none in v1; event_patterns is the whole surface. Noted for
+     later: skinny payloads mean a receiver cannot filter locally on a field it was
+     never sent, so narrowing costs a REST round-trip per event. Any future filter
+     applies strictly AFTER can_see — narrows, never widens.
+  4. HA preset          → docs recipe in webhook-001 (so the worker is validated
+     against a real third-party receiver before shipping), UI prefill in webhook-002,
+     never an HA-shaped payload variant — a second payload shape breaks the
+     one-contract property and doubles allowlist enforcement.
+
+ALSO NOTED: root CLAUDE.md's "shared / personal / sensitive" data-scope vocabulary
+has no counterpart in core/visibility.py, which has household|personal|members.
+The doc's "sensitive-scope events are never delivered" rule was therefore
+unimplementable as written; restated as "never deliver a personal or members event
+to a subscription whose owner fails can_see". The vocabulary mismatch is worth
+reconciling repo-wide in its own pass.
+
+Filed webhook-001 (16 verification steps) and webhook-002 (11) in feature_list.json,
+both passes=false. webhook-001's steps cover the four Brandon required — signature
+validation against a test receiver, scope-leak (member A's personal event never
+reaching member B's subscription), retry/auto-disable, and SSRF rejection on the
+cloud-tier path INCLUDING re-resolution at delivery time — plus semantic-emit and
+rollback-safety steps the new layer introduces, and a self-hosted SSRF step ensuring
+the LAN/HA case does not regress.
+
+feature_list.json: appended textually, per the note in the previous session block.
+Diff is 108 insertions, 0 deletions.
+
+Updated plans/open-hearth.md (track 7 status, the Internal event bus cross-cutting
+row now records what actually shipped vs what is pending, and a log entry) and the
+track doc (header status, catalog section replaced with the audit + decision,
+resolved-questions section, filed-entries section).
+
+LEFT UNDONE / BLOCKERS FOR THE BUILD:
+  - All webhook-001 implementation.
+  - Working tree on main is dirty and was NOT touched this session, at Brandon's
+    direction. Three groups: (1) last session's design work — CLAUDE.md MCP-verb
+    principle, plans/open-hearth.md track 7, both untracked track docs — uncommitted,
+    meaning the spec webhook-001 builds from does not exist in git history;
+    (2) PWA + mobile-responsive work — untracked manifest.json/sw.js/icons/offline/
+    service-worker-register.tsx plus layout.tsx, globals.css and ~15 page/sheet files
+    doing grid-cols-N -> grid-cols-1 sm:grid-cols-N and overflow-hidden ->
+    overflow-x-auto; this is a real unfiled feature, not noise; (3) .claude/settings.json
+    permissions rework. Group 1 should land before branching.
+  - NOTE: branch feat/pwa-001 is stale — git log main..feat/pwa-001 is empty and it
+    diffs as BEHIND main; merging it would revert the infra-003 SQLite work. The PWA
+    work lives only in the working tree.
+
+Recommended next: webhook-001. It is migration-bearing and MUST serialize against
+proposal-001, which also adds a table — do not run them concurrently, and verify a
+single alembic head (alembic heads) after rebase. Current head is 0045. The semantic
+event layer is the structural work and should land reviewable on its own before the
+delivery machinery is stacked on it.
