@@ -66,3 +66,4 @@ api/*.db
 
 # Agent worktrees — transient, must never be tracked as gitlinks
 .claude/worktrees/
+.claude/settings.local.json
