@@ -24,6 +24,7 @@ See docs/ai-coach-redesign.md → Phase 2 for the full design.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -315,7 +316,6 @@ async def maybe_extract_signals(
 
         # Run in a detached task with its own session so the note-write
         # commit isn't delayed by the AI call.
-        import asyncio
         asyncio.create_task(
             _run_extraction_background(note.id, user_id, household_id)
         )
@@ -452,6 +452,58 @@ async def backfill_for_user(
             await db.commit()  # commit per note so partial failures aren't lost
 
     return counts
+
+
+# ── Deletion cleanup ──────────────────────────────────────────────────────────
+
+async def delete_signals_for_notes(
+    db: AsyncSession,
+    note_ids: list[uuid.UUID],
+) -> int:
+    """Remove journal_signals rows for notes that are being hard-deleted.
+
+    This is deliberately explicit rather than relying on the ON DELETE CASCADE
+    declared on journal_signals.note_id. That declaration only fires on
+    Postgres: SQLite does not enforce foreign keys unless PRAGMA foreign_keys
+    is turned on per connection (it is not), and the ORM does not cascade
+    either because JournalSignal has no relationship back to Note.
+
+    Left unhandled, a journal entry the user deleted keeps feeding
+    sentiment_trend and harsh_self_talk_streak forever — the coach would go on
+    reasoning about writing that no longer exists. Caller commits.
+    """
+    if not note_ids:
+        return 0
+    result = await db.execute(
+        delete(JournalSignal)
+        .where(JournalSignal.note_id.in_(note_ids))
+        .returning(JournalSignal.id)
+    )
+    return len(result.fetchall())
+
+
+async def delete_signals_for_household_notes(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+) -> int:
+    """Bulk variant of delete_signals_for_notes for the household-wide wipe.
+
+    Same reasoning as above. Scoped through a subquery on notes so the
+    household boundary is enforced in SQL rather than in Python. Caller
+    commits.
+    """
+    from life_dashboard.domains.notes.models import Note
+
+    result = await db.execute(
+        delete(JournalSignal)
+        .where(
+            JournalSignal.note_id.in_(
+                select(Note.id).where(Note.household_id == household_id)
+            )
+        )
+        .returning(JournalSignal.id)
+    )
+    return len(result.fetchall())
 
 
 # ── Trend helpers (used by the coach starting in Phase 3) ─────────────────────

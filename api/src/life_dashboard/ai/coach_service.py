@@ -11,6 +11,7 @@ Called by:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -611,21 +612,110 @@ Your job is not to summarize any one of these. It is to notice when they
   honest, not flattering. Honesty is the kindness here.
 - If both narrative and data are negative → name it briefly, normalize
   it ("happens to everyone"), and stay with them. Bird-by-bird register.
-  Do NOT pile on advice. One next step at most.
+  Keep the whole response SHORT — two or three short paragraphs, well
+  under the length the request below asks for. Offer exactly ONE next
+  step, and make it the smallest one that would still count. A menu of
+  options ("morning pages, or a walk, or one page") is piling on; pick
+  one. Do not hunt for a silver lining in the numbers — a bad stretch
+  reframed as consistency reads as not being listened to.
 - If both are positive → notice it without inflating it. Do not
   manufacture a lesson from a clean run.
 - Reference the profile to make the response feel like it's for *this*
-  person, not for anyone. But do NOT name-drop the profile — never say
-  "I see from your profile that…" or "you've told me before that…".
-- Quote the writer's own journal language at most once per response, and
-  only when the quote lands as *seen* rather than *surveilled*. When in
-  doubt, paraphrase instead.
+  person, not for anyone. But never reveal that a profile exists. Do not
+  use the word "profile" anywhere in your response, and do not say
+  "I see from your profile…", "you've told me before…", "you mentioned
+  previously…", or anything else implying a stored record of them. Use
+  what you know; never cite where you know it from.
+- HARD LIMIT: at most ONE quoted phrase from their journal in the entire
+  response. Not one per section — one, total. Before you finish, count
+  the quotation marks that wrap their words: there must be at most one
+  opening and one closing mark in the whole response. Two short fragments
+  from the same sentence still count as two — merge them into one quote
+  or drop one. Zero is a good default and is often the better response.
+  Once you have used your one quote, paraphrase everything else, even if
+  another line is tempting. Never
+  quote their harshest self-description back to them: repeating "I'm not
+  capable" in quotation marks reinforces it rather than reality-testing
+  it. Paraphrase the harsh lines; save the quote, if you use one, for
+  something you are affirming.
 - If the profile is empty or the narrative stream is empty, do not
   invent one. Fall back to grounded reflection on the behavioral data
   alone.
 
 You are not a therapist and you do not diagnose. You are a coach who has
-been watching this person for a while and responds to the whole picture."""
+been watching this person for a while and responds to the whole picture.
+
+These moves take precedence over the framing of the request that follows.
+That request is a template — it asks for the same warm wind-down whatever
+the week actually held, and it does not know which of the situations above
+you are in. Where it asks you to reassure, celebrate, or keep things light
+and the data does not support it, follow the moves above instead. Being
+accurate is not the same as being harsh, and comfort that ignores the
+numbers is the one thing that will make this person stop trusting you."""
+
+
+# ── Quote-cap enforcement ─────────────────────────────────────────────────────
+
+# A quoted span must share this many consecutive words with a journal entry
+# before we treat it as a journal quote. Four is long enough that ordinary
+# coach phrasing ("what you said you'd do") doesn't trip it, short enough to
+# catch the fragments the model actually lifts.
+_QUOTE_MATCH_NGRAM = 4
+
+_QUOTED_SPAN_RE = re.compile(r"[\"“]([^\"“”]{6,200})[\"”]")
+_WORD_RE = re.compile(r"[a-z']+")
+
+
+def _words(text: str) -> list[str]:
+    return _WORD_RE.findall(text.lower())
+
+
+def _enforce_quote_cap(text: str, journal_bodies: list[str]) -> str:
+    """Leave at most one quoted phrase lifted from the user's journal.
+
+    The method prompt asks for this, but prompting alone does not deliver it:
+    measured across sample runs the model quoted twice in roughly one response
+    in ten, and restating the rule closer to the entries made it *worse* by
+    priming the behaviour. So the cap is enforced here instead.
+
+    Surplus quotes are unwrapped rather than deleted — the sentence keeps its
+    meaning and reads as paraphrase, which is what the prompt asks for anyway.
+    Quotes that are not drawn from the journal (the coach quoting a goal name,
+    or a phrase of its own) are left alone.
+    """
+    if not journal_bodies:
+        return text
+
+    jw = _words(" ".join(journal_bodies))
+    if len(jw) < _QUOTE_MATCH_NGRAM:
+        return text
+    ngrams = {
+        tuple(jw[i:i + _QUOTE_MATCH_NGRAM])
+        for i in range(len(jw) - _QUOTE_MATCH_NGRAM + 1)
+    }
+
+    def is_journal_quote(span: str) -> bool:
+        w = _words(span)
+        if len(w) < _QUOTE_MATCH_NGRAM:
+            return False
+        return any(
+            tuple(w[i:i + _QUOTE_MATCH_NGRAM]) in ngrams
+            for i in range(len(w) - _QUOTE_MATCH_NGRAM + 1)
+        )
+
+    seen = 0
+
+    def replace(match: re.Match) -> str:
+        nonlocal seen
+        span = match.group(1)
+        if not is_journal_quote(span):
+            return match.group(0)  # not theirs — leave it quoted
+        seen += 1
+        if seen == 1:
+            return match.group(0)  # the one allowed quote
+        return span  # surplus — drop the quotation marks
+
+    return _QUOTED_SPAN_RE.sub(replace, text)
 
 
 # ── Prompt building ───────────────────────────────────────────────────────────
@@ -771,6 +861,11 @@ def _fmt_narrative(narrative: dict[str, Any]) -> str:
     if has_entries:
         lines.append("")
         lines.append("**Last few journal entries (oldest first):**")
+        # Deliberately no "quote at most once" reminder here. It was tried and
+        # measured: restating the cap next to the entries RAISED the violation
+        # rate (1/12 runs -> 3/20), because naming quoting primes quoting. The
+        # cap lives in the method prompt and is enforced deterministically by
+        # _enforce_quote_cap after generation.
         # The fetcher returns newest-first; reverse for chronological read.
         for e in reversed(narrative["recent_entries"]):
             created = e["created_at"]
@@ -1113,7 +1208,13 @@ def _build_evening_user_message(
 
     if weekly:
         parts += [
-            "4. End with a brief trajectory note — look at the multi-week history and say something genuine about the arc. Some days are lighter; zoom out and show the bigger picture. If today was slow, reassure with the trend. If today was strong, celebrate the momentum.",
+            # Deliberately does NOT say "if today was slow, reassure with the
+            # trend" — that reads as an unconditional order to comfort, and
+            # because the user message is the last thing the model sees it
+            # overrode the method prompt's "be honest, not flattering" rule
+            # whenever the data showed a genuine dip. State the arc; let
+            # "## How to coach" decide the register.
+            "4. End with a brief trajectory note — look at the multi-week history and say something genuine and accurate about the arc. Zoom out. Do not soften a real decline into a 'deliberate downshift', and do not inflate an ordinary week into momentum.",
         ]
     else:
         parts += [
@@ -1231,6 +1332,13 @@ async def generate_digest(
         messages=[{"role": "user", "content": user_msg}],
         system=system,
         max_tokens=1024,
+    )
+
+    # Phase 3: the one-journal-quote rule is a hard cap, and the prompt alone
+    # does not hold it (see _enforce_quote_cap). Applied before persisting so
+    # the stored digest is the same text the user saw.
+    content = _enforce_quote_cap(
+        content, [e["body"] for e in (narrative.get("recent_entries") or [])]
     )
 
     # Record token usage (non-critical).

@@ -425,6 +425,14 @@ async def delete_note(
     note = result.scalar_one_or_none()
     if not note:
         return False
+
+    # Phase 2 of AI coach redesign: drop this note's extracted journal signals
+    # before the note itself goes. The FK cascade only fires on Postgres, and
+    # leaving the row behind would keep a deleted entry in the coach's trend
+    # math indefinitely.
+    from life_dashboard.ai.journal_signal_service import delete_signals_for_notes
+    await delete_signals_for_notes(db, [note.id])
+
     await db.delete(note)
     await db.commit()
     return True
@@ -435,6 +443,13 @@ async def delete_all_notes(
     household_id: uuid.UUID,
 ) -> int:
     """Delete every note belonging to this household. Returns the count deleted."""
+    # Same reasoning as delete_note: the bulk Core DELETE below bypasses ORM
+    # cascade entirely, and the DB-level cascade is Postgres-only.
+    from life_dashboard.ai.journal_signal_service import (
+        delete_signals_for_household_notes,
+    )
+    await delete_signals_for_household_notes(db, household_id)
+
     result = await db.execute(
         delete(Note)
         .where(Note.household_id == household_id)
