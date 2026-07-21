@@ -10,15 +10,16 @@ Wire format: each space-separated token is ``<domain>:<level>``, e.g.::
 
     todos:write calendar:read grocery:write
 
-`<domain>` is a key of PAT_SCOPE_DOMAINS; `<level>` is "read" or "write". A bare
-domain with no level is rejected rather than guessed — an agent asking for
-"todos" must say whether it wants to write.
+`<domain>` is a key of PAT_SCOPE_DOMAINS; `<level>` is "read", "propose", or
+"write". A bare domain with no level is rejected rather than guessed — an agent
+asking for "todos" must say whether it wants to write.
 """
 from __future__ import annotations
 
 from life_dashboard.auth.pat_scopes import (
     PAT_ACCESS_LEVELS,
     PAT_SCOPE_DOMAINS,
+    tier_rank,
     validate_scopes,
 )
 
@@ -58,8 +59,11 @@ def parse_scope(scope: str | None) -> dict[str, str]:
                 f"Malformed scope {token!r}. Each scope must be `<domain>:<level>`, "
                 f"e.g. 'todos:write'."
             )
-        # "write" wins over an earlier "read" for the same domain.
-        if requested.get(domain) == "write":
+        # The strongest requested tier wins for a repeated domain (read <
+        # propose < write), rather than last-one-wins. An unrecognised level
+        # ranks below everything but is still stored on first sight, so
+        # validate_scopes below can name it in the error.
+        if domain in requested and tier_rank(requested[domain]) >= tier_rank(level):
             continue
         requested[domain] = level
 

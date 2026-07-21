@@ -34,10 +34,17 @@ from life_dashboard.auth.pat_scopes import (
     SCOPE_TO_PERMISSION_DOMAIN,
     check_scope,
     is_pat,
+    min_tier,
+    scope_tier,
+    tier_rank,
 )
 from life_dashboard.auth.pat_service import authenticate_token
 from life_dashboard.auth.service import get_user_by_id
-from life_dashboard.core.permissions import check_permission, load_household_permissions
+from life_dashboard.core.permissions import (
+    check_permission,
+    load_household_permissions,
+    resolve_permission_tier,
+)
 from life_dashboard.core.settings import settings
 
 
@@ -55,7 +62,62 @@ class PatIdentity:
     household_id: uuid.UUID
     household_name: str | None
     role: str
-    pat_id: uuid.UUID
+    pat_id: uuid.UUID | None
+    #: Set only when this identity is being replayed by an approved proposal
+    #: (proposal-001), so the audit row it produces carries the link back to the
+    #: request a human said yes to. None on every live tool call.
+    via_proposal_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True)
+class AuthDecision:
+    """The outcome of authorizing one tool call, tier included.
+
+    ``authorize`` cannot answer with a bare identity any more. With the
+    ``propose`` tier in play (proposal-001) a write has three outcomes, not two:
+    execute, capture as a proposal, or refuse. Refusal still raises; the other
+    two are distinguished by :attr:`tier`, so the tool decides what to do rather
+    than inferring it from the absence of an exception.
+
+    Delegating properties keep every read tool's ``ident.household_id`` working
+    unchanged — only write tools ever look at the tier.
+    """
+
+    identity: PatIdentity
+    #: Effective tier for the requested action: min(token scope, member ceiling)
+    #: under read < propose < write.
+    tier: str
+    #: The action the caller asked for ("read" or "write").
+    requested: str
+
+    @property
+    def proposed(self) -> bool:
+        """True when this write must be captured instead of performed."""
+        return self.requested != "read" and self.tier == "propose"
+
+    @property
+    def user_id(self) -> uuid.UUID:
+        return self.identity.user_id
+
+    @property
+    def household_id(self) -> uuid.UUID:
+        return self.identity.household_id
+
+    @property
+    def household_name(self) -> str | None:
+        return self.identity.household_name
+
+    @property
+    def role(self) -> str:
+        return self.identity.role
+
+    @property
+    def pat_id(self) -> uuid.UUID | None:
+        return self.identity.pat_id
+
+    @property
+    def via_proposal_id(self) -> uuid.UUID | None:
+        return self.identity.via_proposal_id
 
 
 def _bearer_token(ctx) -> str:
@@ -151,6 +213,26 @@ async def _within_member_ceiling(
     )
 
 
+async def _member_ceiling_tier(
+    db: AsyncSession, identity: PatIdentity, scope_domain: str, action: str
+) -> str:
+    """Layer 2 as a tier rather than a boolean — the ceiling's own read/propose/
+    write answer for *action* on ``scope_domain``.
+
+    A domain with no configurable household permission has no ceiling to resolve
+    here (its routers' role gates are the ceiling), so it caps at ``write`` and
+    the token scope alone decides. Same rule as :func:`_within_member_ceiling`,
+    which stays the boolean form the read paths use.
+    """
+    permission_domain = SCOPE_TO_PERMISSION_DOMAIN.get(scope_domain)
+    if permission_domain is None:
+        return "write"
+    permissions = await load_household_permissions(db, identity.household_id)
+    return resolve_permission_tier(
+        permissions, permission_domain, _permission_action(action), identity.role
+    )
+
+
 async def can_read(
     db: AsyncSession, pat: PersonalAccessToken, identity: PatIdentity, scope_domain: str
 ) -> bool:
@@ -165,36 +247,51 @@ async def can_read(
 
 async def authorize(
     db: AsyncSession, ctx, scope_domain: str, action: str = "read"
-) -> PatIdentity:
+) -> AuthDecision:
     """Authorize *action* ("read" or "write") on ``scope_domain`` for the PAT
-    behind this tool call.
+    behind this tool call, and return the tier it resolved to.
 
-    Enforces the same two layers as the REST PAT path (auth/dependencies.py),
-    and the write phase adds nothing new to the model — a write is just
-    ``action="write"`` (token scope "write", household permission "create"):
+    Enforces the same two layers as the REST PAT path (auth/dependencies.py):
 
-      1. **Token scope** — the token was granted this action on this domain.
-      2. **Member ceiling** — the owning member may do this in the app. This is
-         what makes a household-agent (viewer-rank) token safe: it can create in
-         domains where ``create`` defaults to viewer (grocery, todos) but is
-         refused wherever an admin has raised the bar to member+.
+      1. **Token scope** — the tier this token was granted on this domain.
+      2. **Member ceiling** — the tier the owning member may reach in the app.
+         This is what makes a household-agent (viewer-rank) token safe: it can
+         create in domains where ``create`` defaults to viewer (grocery, todos)
+         but is refused wherever an admin has raised the bar to member+.
 
-    Raises :class:`MCPAuthError` on any failure, with a message distinguishing
-    the two layers. Returns the caller identity to feed household + visibility
-    scoping in the domain services.
+    **Effective permission is min(token, ceiling)** under read < propose < write.
+    A write asked for by a token or member that only reaches ``propose`` is not a
+    failure and not a success — it returns a decision whose ``proposed`` is True,
+    and the tool records a Proposal instead of executing. Raising there would be
+    wrong: ``propose`` exists precisely so that call has a third outcome.
+
+    Read-only access to a write is still a hard failure. A ``read``-scoped token
+    calling a write tool raises, and must never quietly become a proposal — the
+    household granted it no right to ask.
+
+    Raises :class:`MCPAuthError` on refusal, with a message distinguishing the
+    two layers. The returned decision carries the caller identity that feeds
+    household + visibility scoping in the domain services.
     """
     pat, identity = await resolve_pat(db, ctx)
 
-    # Layer 1 — token scope ("write" implies "read"; see check_scope).
-    if not check_scope(pat.scopes or {}, scope_domain, action):
-        raise MCPAuthError(f"Token does not have {action} access to {scope_domain}.")
+    token = scope_tier(pat.scopes or {}, scope_domain)
+    ceiling = await _member_ceiling_tier(db, identity, scope_domain, action)
+    effective = min_tier(token, ceiling)
 
-    # Layer 2 — member ceiling.
-    if not await _within_member_ceiling(db, identity, scope_domain, action):
+    # A write may proceed at "write" (execute) or "propose" (capture); anything
+    # lower is a refusal. A read needs "read" or better.
+    floor = "read" if action == "read" else "propose"
+    if tier_rank(effective) < tier_rank(floor):
+        # Name the layer that actually bound, so the agent learns something
+        # actionable rather than a generic denial. Wording unchanged from before
+        # the propose tier — it is the message agents already handle.
+        if tier_rank(token) <= tier_rank(ceiling):
+            raise MCPAuthError(f"Token does not have {action} access to {scope_domain}.")
         permission_domain = SCOPE_TO_PERMISSION_DOMAIN.get(scope_domain)
         raise MCPAuthError(
             f"Your account does not have {_permission_action(action)} permission "
             f"for {permission_domain}. A token cannot exceed its owner's access."
         )
 
-    return identity
+    return AuthDecision(identity=identity, tier=effective, requested=action)

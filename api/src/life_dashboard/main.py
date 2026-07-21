@@ -18,6 +18,10 @@ from starlette.types import Send as _Send
 # Register the audit_log table on Base.metadata so the dev/sqlite create_all path
 # builds it (security-008). Real deployments get it from migration 0044.
 import life_dashboard.audit.models  # noqa: F401,E402
+
+# Same for the proposals table (proposal-001). Real deployments get it from
+# migration 0051.
+import life_dashboard.proposals.models  # noqa: F401,E402
 from life_dashboard.ai.coach_service import run_scheduled_digests
 from life_dashboard.ai.router import router as ai_router
 from life_dashboard.auth.router import router as auth_router
@@ -398,11 +402,25 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,
         )
 
+        # proposal-001: retire pending agent proposals nobody decided in time.
+        # Hourly rather than daily so `expires_at` means roughly what it says;
+        # the sweep is a single guarded UPDATE and a no-op in most households.
+        from life_dashboard.proposals.service import run_proposal_expiry_sweep
+
+        scheduler.add_job(
+            run_proposal_expiry_sweep,
+            CronTrigger(minute=15),
+            id="proposal_expiry_sweep",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         scheduler.start()
         logger.info(
             "AI coach scheduler started (morning=07:00, evening=17:30, "
             "weekly=Fri 17:00, profile_refresh=Sun 03:00, "
-            "teller_sync=*/4h:30, teller_balance=Mon 04:00)"
+            "teller_sync=*/4h:30, teller_balance=Mon 04:00, "
+            "proposal_expiry=hourly :15)"
         )
     except ImportError:
         logger.warning(

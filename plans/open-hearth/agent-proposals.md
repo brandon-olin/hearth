@@ -1,9 +1,25 @@
 # Agent proposals — a third tier between "can" and "can't"
 
-Parent: `plans/open-hearth.md`. Status: **SPEC COMPLETE 2026-07-20 — ready to build.**
-All open questions decided; `proposal-001` and `proposal-002` filed in `feature_list.json`
-with full verification steps. Prereqs: PAT scopes (006), permissions_config ceilings,
-audit (008) — all shipped.
+Parent: `plans/open-hearth.md`. Status: **proposal-001 SHIPPED 2026-07-21** (model, tier
+semantics, tool behaviour, audit double-attribution, expiry sweep). `proposal-002` (approval
+queue UI, notifications, MCP status tools) and `proposal-003` (web-UI propose) remain.
+Prereqs: PAT scopes (006), permissions_config ceilings, audit (008) — all shipped.
+
+## Where proposal-001 landed
+
+- `api/src/life_dashboard/proposals/` — `models.py` (the one table), `service.py` (record /
+  approve / reject / sweep), `executors.py` (tool name → the function that performs its write).
+- `auth/pat_scopes.py` — the `read < propose < write` ladder (`tier_rank`, `min_tier`,
+  `scope_tier`) and a `check_scope` that refuses `propose` for a REST write.
+- `core/permissions.py` — the opt-in `propose` threshold and `resolve_permission_tier`.
+- `mcp/auth.py` — `authorize` returns an `AuthDecision` carrying the resolved tier.
+- `mcp/server.py` — each write tool split into a thin tool and a registered `_perform_*`,
+  so the approval path replays the same code the direct path runs.
+- Migration `0051`. Tests: `api/tests/test_proposals.py`.
+
+**One deliberate gap:** the proposed-status message tells the agent to call
+`get_proposal_status(proposal_id)`, which proposal-002 adds. The copy is implemented verbatim
+per this doc; land proposal-002 before that message is anything but forward-looking.
 
 ## The idea
 
@@ -220,6 +236,28 @@ backfill — proposal-003 adds a branch in the REST write path and reuses the ta
   proposed-status response written verbatim into this doc per the parity principle.
   `proposal-001` (19 steps) and `proposal-002` (18 steps) filed in `feature_list.json`.
   No code written — a separate build was in flight, so execution was left to a CLI session.
+
+- **2026-07-21** — `proposal-001` built. One table (`0051`), replayed clean on Postgres and
+  applied forward on SQLite; the partial unique index and the CASCADE-not-SET-NULL `token_id`
+  verified in both real databases. Decisions that firmed up during the build:
+  - The propose ceiling is an **opt-in `propose` key** inside a domain's action config
+    (`{"todos": {"create": "member", "propose": "viewer"}}`), with no default. That is what
+    makes the backward-compatibility guarantee mechanical rather than a promise:
+    `merge_with_defaults` never invents the key, so no existing household can resolve to
+    propose.
+  - Idempotency is a **SHA-256 fingerprint over (tool, args, proposer, token)** under a
+    partial unique index, not a JSON comparison. JSON equality is not portable across
+    Postgres and SQLite, and folding the two nullable proposer columns into the digest makes
+    them dedupe correctly — SQL NULLs never compare equal, so a NULL-bearing unique index
+    would let every household-agent proposal through.
+  - Deciding is an **atomic claim** (`UPDATE … WHERE status='pending' RETURNING id`), not a
+    `SELECT … FOR UPDATE`. The executor's own service call commits, which would release the
+    lock mid-approval; the claim is what actually stops two admins executing one write twice.
+  - Each write tool split into a thin tool plus a registered `_perform_*`. "Approval executes
+    through the same service function" is now structural rather than a convention — there is
+    only one copy of the write.
+  - The proposed-status copy is implemented verbatim, including its forward reference to
+    `get_proposal_status`; see the gap note at the top.
 
 ## Suggested feature entries
 

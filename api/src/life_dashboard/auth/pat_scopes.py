@@ -7,8 +7,13 @@ A PAT carries a scopes JSONB blob of the shape::
 
     {"todos": "write", "calendar": "read"}
 
-Domain keys come from PAT_SCOPE_DOMAINS; values are "read" or "write"
-("write" implies read). A domain absent from the blob is not granted at all.
+Domain keys come from PAT_SCOPE_DOMAINS; values are "read", "propose" or
+"write", ordered read < propose < write so each implies the ones below it. A
+domain absent from the blob is not granted at all.
+
+"propose" (proposal-001) grants read plus the right to *ask*: an MCP write at
+that tier records a pending Proposal for a human to approve instead of
+executing. It grants no write of its own.
 
 Authorization for a request is decided in two independent layers, and both
 must pass (see resolve_required_scope + check_scope, and the member-ceiling
@@ -84,10 +89,45 @@ SCOPE_TO_PERMISSION_DOMAIN: dict[str, str] = {
     "goals":     "goals",
 }
 
-PAT_ACCESS_LEVELS: tuple[str, ...] = ("read", "write")
+#: The access ladder, lowest tier first. ``propose`` (proposal-001) sits between
+#: read and write: a write attempted at that tier is neither executed nor
+#: refused — it is captured as a pending Proposal for a human to decide.
+PAT_ACCESS_LEVELS: tuple[str, ...] = ("read", "propose", "write")
+
+#: Sentinel for "this domain is not granted at all". Not a grantable level, so
+#: it is deliberately absent from PAT_ACCESS_LEVELS.
+NO_ACCESS = "none"
+
+#: Comparable rank for every tier, so "higher implies lower" is one lookup
+#: rather than a chain of special cases. read < propose < write.
+_TIER_RANK: dict[str, int] = {NO_ACCESS: 0, "read": 1, "propose": 2, "write": 3}
 
 #: HTTP methods that only read. Everything else counts as a write.
 _READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def tier_rank(tier: str | None) -> int:
+    """Rank of an access tier; 0 for None, "none", or an unrecognised value.
+
+    Unknown values rank below every real tier rather than raising — scopes are
+    JSONB and may predate (or postdate) this vocabulary.
+    """
+    return _TIER_RANK.get(tier or NO_ACCESS, 0)
+
+
+def min_tier(a: str, b: str) -> str:
+    """The lower of two tiers. Effective permission is min(token, ceiling)."""
+    return a if tier_rank(a) <= tier_rank(b) else b
+
+
+def scope_tier(scopes: dict[str, str], domain: str) -> str:
+    """The tier a token's scopes grant on *domain*, or NO_ACCESS.
+
+    Read defensively — an unrecognised stored value is treated as no grant,
+    never as a grant of unknown strength.
+    """
+    granted = (scopes or {}).get(domain)
+    return granted if granted in PAT_ACCESS_LEVELS else NO_ACCESS
 
 
 # ── Token format ──────────────────────────────────────────────────────────────
@@ -157,9 +197,15 @@ def resolve_required_scope(path: str, method: str) -> tuple[str, str] | None:
 def check_scope(scopes: dict[str, str], domain: str, action: str) -> bool:
     """True if the token's scopes grant *action* on *domain*.
 
-    Read defensively — scopes is JSONB and may predate a vocabulary change.
+    Ordered read < propose < write, so each tier implies every tier below it:
+    a ``write`` token reads and proposes; a ``propose`` token reads but does
+    **not** write. That last case is the whole point — a propose-scoped token
+    hitting a REST write path is refused here, because branching REST writes to
+    the approval queue is proposal-003. The MCP path does not call this for
+    writes; it resolves the tier itself (see mcp/auth.authorize).
+
+    An unrecognised *action* is refused rather than defaulting to allowed.
     """
-    granted = (scopes or {}).get(domain)
-    if granted == "write":
-        return True  # write implies read
-    return granted == "read" and action == "read"
+    if action not in PAT_ACCESS_LEVELS:
+        return False
+    return tier_rank(scope_tier(scopes, domain)) >= tier_rank(action)

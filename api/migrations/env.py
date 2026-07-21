@@ -36,6 +36,8 @@ import life_dashboard.domains.todos.models  # noqa: F401
 import life_dashboard.domains.workouts.models  # noqa: F401
 import life_dashboard.domains.collections.models  # noqa: F401
 import life_dashboard.domains.templates.models  # noqa: F401
+import life_dashboard.proposals.models  # noqa: F401
+import life_dashboard.webhooks.models  # noqa: F401
 
 target_metadata = Base.metadata
 

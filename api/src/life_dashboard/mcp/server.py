@@ -25,6 +25,8 @@ from datetime import UTC, date, datetime, timedelta
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from life_dashboard.audit.decorator import resolve_actor_user_id
+from life_dashboard.audit.schemas import AuditSource
 from life_dashboard.core.database import AsyncSessionLocal
 from life_dashboard.domains.calendar_events import service as calendar_service
 from life_dashboard.domains.calendar_events.schemas import CalendarEventCreate
@@ -47,6 +49,8 @@ from life_dashboard.domains.workouts.schemas import (
 )
 from life_dashboard.mcp.audit_hook import record_mcp_write
 from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_pat
+from life_dashboard.proposals import service as proposals_service
+from life_dashboard.proposals.executors import register_executor
 
 #: streamable_http_path="/mcp" so the single route the sub-app registers is
 #: "/mcp"; main.py grafts that route straight onto the FastAPI app (no Mount, so
@@ -232,13 +236,65 @@ async def get_household_summary(ctx: Context) -> dict:
     }
 
 
-# ── Write tools (mcp-002) ─────────────────────────────────────────────────────
+# ── Write tools (mcp-002, propose tier from proposal-001) ─────────────────────
 #
-# Every write authorizes action="write" (token scope "write" ∩ member "create"
-# ceiling), creates SHARED (household-visibility) data only — so a household-agent
-# pseudo-member can never write personal or sensitive scope — is idempotent
-# against double-submits, and records an audit row via record_mcp_write on a
-# genuine create (a deduped no-op writes nothing and is not audited).
+# Every write authorizes action="write" (token scope ∩ member ceiling), creates
+# SHARED (household-visibility) data only — so a household-agent pseudo-member
+# can never write personal or sensitive scope — is idempotent against
+# double-submits, and records an audit row via record_mcp_write on a genuine
+# create (a deduped no-op writes nothing and is not audited).
+#
+# proposal-001 changes each of them in exactly one way: when authorize resolves
+# to the `propose` tier, the tool records a Proposal and returns
+# `{"status": "proposed", ...}` instead of executing. The write itself lives in a
+# registered `_perform_*` function so the approval path replays THE SAME code —
+# a reimplementation would let an approved write drift from the tool it was
+# proposed through.
+
+
+def _coerce_date(value) -> date | None:
+    """Accept either a real date or the ISO string a stored proposal holds.
+
+    Proposal args round-trip through JSON, so an approved replay hands back
+    "2026-07-22" where the live call passed a ``date``. Everything downstream
+    wants the real type.
+    """
+    if value is None or isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    return date.fromisoformat(str(value))
+
+
+def _coerce_datetime(value) -> datetime | None:
+    """Datetime counterpart of :func:`_coerce_date`."""
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
+async def _propose(
+    db, decision, *, domain: str, tool: str, args: dict, summary: str
+) -> dict:
+    """Capture a would-be write as a pending proposal and answer the agent.
+
+    ``proposed_by_user_id`` follows the same rule as audit attribution: NULL for
+    a household-agent pseudo-member, whose ``token_id`` is then the only honest
+    identity there is. That is exactly why ``proposals.token_id`` must never
+    cascade to NULL — see proposals/models.py.
+    """
+    proposal, _created = await proposals_service.record_proposal(
+        db,
+        household_id=decision.household_id,
+        proposed_by_user_id=resolve_actor_user_id(decision),
+        token_id=decision.pat_id,
+        source=AuditSource.mcp,
+        domain=domain,
+        tool=tool,
+        args=args,
+        summary=summary,
+    )
+    return proposals_service.proposed_response(proposal)
 
 
 async def _default_grocery_list_id(db, ident) -> uuid.UUID | None:
@@ -250,6 +306,27 @@ async def _default_grocery_list_id(db, ident) -> uuid.UUID | None:
     return lists.items[0].id if lists.items else None
 
 
+@register_executor("add_todo")
+async def _perform_add_todo(
+    db, ident, *, title: str, due_date=None, priority: str | None = None
+) -> dict:
+    data = TodoCreate(
+        title=title,
+        due_date=_coerce_date(due_date),
+        priority=priority,
+        visibility="household",
+    )
+    todo, created = await todos_service.create_todo_idempotent(
+        db, ident.household_id, ident.user_id, data
+    )
+    if created:
+        await record_mcp_write(
+            db, ident, action="create", entity_type="todo",
+            entity_id=todo.id, payload={"title": todo.title},
+        )
+    return {**todo.model_dump(mode="json"), "created": created}
+
+
 @mcp_server.tool()
 async def add_todo(
     ctx: Context,
@@ -259,21 +336,50 @@ async def add_todo(
 ) -> dict:
     """Add a shared household to-do. Idempotent: re-adding the same title and due
     date returns the existing pending to-do instead of creating a duplicate.
-    Always household-visible — MCP never creates personal to-dos."""
+    Always household-visible — MCP never creates personal to-dos.
+
+    If this household requires approval for to-dos, the result is
+    `status: "proposed"` with a `message` explaining what happens next. That is
+    not an error and not a failure — the request is waiting on a human."""
+    args = {"title": title, "due_date": due_date, "priority": priority}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "todos", "write")
-        data = TodoCreate(
-            title=title, due_date=due_date, priority=priority, visibility="household"
-        )
-        todo, created = await todos_service.create_todo_idempotent(
-            db, ident.household_id, ident.user_id, data
-        )
-        if created:
-            await record_mcp_write(
-                db, ident, action="create", entity_type="todo",
-                entity_id=todo.id, payload={"title": todo.title},
+        decision = await authorize(db, ctx, "todos", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="todos", tool="add_todo", args=args,
+                summary=f"Add to-do “{title}”",
             )
-    return {**todo.model_dump(mode="json"), "created": created}
+        return await _perform_add_todo(db, decision, **args)
+
+
+@register_executor("add_grocery_item")
+async def _perform_add_grocery_item(
+    db,
+    ident,
+    *,
+    item: str,
+    quantity: float | None = None,
+    unit: str | None = None,
+    list_id: str | None = None,
+) -> dict:
+    # Resolved at execution time, not at propose time: an approval that lands a
+    # week later belongs on whatever list is current then, which is the same
+    # list the household would have gotten had the write run immediately.
+    target = _as_uuid(list_id, "list_id") if list_id else await _default_grocery_list_id(db, ident)
+    if target is None:
+        raise MCPAuthError("No grocery list found. Create one in the app first.")
+    data = GroceryItemAdd(name=item, quantity=quantity, unit=unit)
+    result, created = await grocery_service.add_grocery_item_idempotent(
+        db, target, ident.household_id, ident.user_id, data
+    )
+    if result is None:
+        raise MCPAuthError("Grocery list not found or not visible to this token.")
+    if created:
+        await record_mcp_write(
+            db, ident, action="create", entity_type="grocery_item",
+            entity_id=result.id, payload={"name": result.name, "list_id": str(target)},
+        )
+    return {**result.model_dump(mode="json"), "created": created}
 
 
 @mcp_server.tool()
@@ -286,24 +392,49 @@ async def add_grocery_item(
 ) -> dict:
     """Add an item to a household grocery list. If list_id is omitted, the most
     recent shared list is used. Idempotent: an un-checked item with the same name
-    is returned rather than duplicated ("add milk" twice → one milk)."""
+    is returned rather than duplicated ("add milk" twice → one milk).
+
+    A household that requires approval for grocery writes answers
+    `status: "proposed"` instead — a pending request, not an error."""
+    args = {"item": item, "quantity": quantity, "unit": unit, "list_id": list_id}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "grocery", "write")
-        target = uuid.UUID(list_id) if list_id else await _default_grocery_list_id(db, ident)
-        if target is None:
-            raise MCPAuthError("No grocery list found. Create one in the app first.")
-        data = GroceryItemAdd(name=item, quantity=quantity, unit=unit)
-        result, created = await grocery_service.add_grocery_item_idempotent(
-            db, target, ident.household_id, ident.user_id, data
-        )
-        if result is None:
-            raise MCPAuthError("Grocery list not found or not visible to this token.")
-        if created:
-            await record_mcp_write(
-                db, ident, action="create", entity_type="grocery_item",
-                entity_id=result.id, payload={"name": result.name, "list_id": str(target)},
+        decision = await authorize(db, ctx, "grocery", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="grocery", tool="add_grocery_item", args=args,
+                summary=f"Add “{item}” to the grocery list",
             )
-    return {**result.model_dump(mode="json"), "created": created}
+        return await _perform_add_grocery_item(db, decision, **args)
+
+
+@register_executor("check_in_habit")
+async def _perform_check_in_habit(
+    db, ident, *, habit_name: str | None = None, habit_id: str | None = None, on_date=None
+) -> dict:
+    if habit_id:
+        hid = _as_uuid(habit_id, "habit_id")
+    elif habit_name:
+        habit = await habits_service.get_habit_by_name(
+            db, ident.household_id, ident.user_id, habit_name
+        )
+        if habit is None:
+            raise MCPAuthError(f"No habit named {habit_name!r} found.")
+        hid = habit.id
+    else:
+        raise MCPAuthError("Provide habit_name or habit_id.")
+
+    scheduled = _coerce_date(on_date) or date.today()
+    occ, created = await habits_service.check_in_habit(
+        db, hid, ident.household_id, ident.user_id, scheduled
+    )
+    if occ is None:
+        raise MCPAuthError("Habit not found or not visible to this token.")
+    if created:
+        await record_mcp_write(
+            db, ident, action="check_in", entity_type="habit_occurrence",
+            entity_id=occ.id, payload={"habit_id": str(hid), "date": scheduled.isoformat()},
+        )
+    return {**occ.model_dump(mode="json"), "created": created}
 
 
 @mcp_server.tool()
@@ -315,33 +446,42 @@ async def check_in_habit(
 ) -> dict:
     """Mark a habit complete for a date (default today). Identify the habit by
     name or id. Idempotent: checking in twice for the same date is a no-op and
-    never double-counts a streak."""
-    async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "habits", "write")
-        if habit_id:
-            hid = uuid.UUID(habit_id)
-        elif habit_name:
-            habit = await habits_service.get_habit_by_name(
-                db, ident.household_id, ident.user_id, habit_name
-            )
-            if habit is None:
-                raise MCPAuthError(f"No habit named {habit_name!r} found.")
-            hid = habit.id
-        else:
-            raise MCPAuthError("Provide habit_name or habit_id.")
+    never double-counts a streak.
 
-        scheduled = on_date or date.today()
-        occ, created = await habits_service.check_in_habit(
-            db, hid, ident.household_id, ident.user_id, scheduled
-        )
-        if occ is None:
-            raise MCPAuthError("Habit not found or not visible to this token.")
-        if created:
-            await record_mcp_write(
-                db, ident, action="check_in", entity_type="habit_occurrence",
-                entity_id=occ.id, payload={"habit_id": str(hid), "date": scheduled.isoformat()},
+    Where the household requires approval, this answers `status: "proposed"` —
+    the check-in is queued for a human, not rejected."""
+    args = {"habit_name": habit_name, "habit_id": habit_id, "on_date": on_date}
+    async with AsyncSessionLocal() as db:
+        decision = await authorize(db, ctx, "habits", "write")
+        if decision.proposed:
+            label = habit_name or habit_id or "a habit"
+            return await _propose(
+                db, decision, domain="habits", tool="check_in_habit", args=args,
+                summary=f"Check in “{label}”",
             )
-    return {**occ.model_dump(mode="json"), "created": created}
+        return await _perform_check_in_habit(db, decision, **args)
+
+
+@register_executor("create_calendar_event")
+async def _perform_create_calendar_event(
+    db, ident, *, title: str, starts_at, ends_at=None, location: str | None = None
+) -> dict:
+    data = CalendarEventCreate(
+        title=title,
+        starts_at=_coerce_datetime(starts_at),
+        ends_at=_coerce_datetime(ends_at),
+        location=location,
+    )
+    event, created = await calendar_service.create_event_idempotent(
+        db, ident.household_id, ident.user_id, data
+    )
+    if created:
+        await record_mcp_write(
+            db, ident, action="create", entity_type="calendar_event",
+            entity_id=event.id, payload={"title": event.title,
+                                         "starts_at": event.starts_at.isoformat()},
+        )
+    return {**event.model_dump(mode="json"), "created": created}
 
 
 @mcp_server.tool()
@@ -353,22 +493,19 @@ async def create_calendar_event(
     location: str | None = None,
 ) -> dict:
     """Create a shared household calendar event. Idempotent: the same title and
-    start time returns the existing event rather than duplicating it."""
+    start time returns the existing event rather than duplicating it.
+
+    A household requiring approval for calendar writes answers
+    `status: "proposed"`; the event is pending a human decision, not refused."""
+    args = {"title": title, "starts_at": starts_at, "ends_at": ends_at, "location": location}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "calendar", "write")
-        data = CalendarEventCreate(
-            title=title, starts_at=starts_at, ends_at=ends_at, location=location
-        )
-        event, created = await calendar_service.create_event_idempotent(
-            db, ident.household_id, ident.user_id, data
-        )
-        if created:
-            await record_mcp_write(
-                db, ident, action="create", entity_type="calendar_event",
-                entity_id=event.id, payload={"title": event.title,
-                                             "starts_at": event.starts_at.isoformat()},
+        decision = await authorize(db, ctx, "calendar", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="calendar", tool="create_calendar_event", args=args,
+                summary=f"Add “{title}” to the calendar",
             )
-    return {**event.model_dump(mode="json"), "created": created}
+        return await _perform_create_calendar_event(db, decision, **args)
 
 
 # ── Workouts (workouts-001) ───────────────────────────────────────────────────
@@ -418,6 +555,41 @@ async def list_workout_templates(
     return result.model_dump(mode="json")
 
 
+@register_executor("create_workout_template")
+async def _perform_create_workout_template(
+    db,
+    ident,
+    *,
+    name: str,
+    exercises: list[str] | None = None,
+    description: str | None = None,
+    estimated_duration_minutes: int | None = None,
+) -> dict:
+    slots: list[TemplateExerciseCreate] = []
+    for i, ex_name in enumerate(exercises or []):
+        if not ex_name or not ex_name.strip():
+            continue
+        exercise, _ = await exercises_service.create_exercise(
+            db, ident.household_id, ident.user_id, ExerciseCreate(name=ex_name)
+        )
+        slots.append(TemplateExerciseCreate(exercise_id=exercise.id, position=i))
+    data = WorkoutTemplateCreate(
+        name=name,
+        description=description,
+        estimated_duration_minutes=estimated_duration_minutes,
+        exercises=slots,
+    )
+    template = await templates_service.create_template(
+        db, ident.household_id, ident.user_id, data
+    )
+    await record_mcp_write(
+        db, ident, action="create", entity_type="workout_template",
+        entity_id=template.id, payload={"name": template.name,
+                                        "exercise_count": template.exercise_count},
+    )
+    return template.model_dump(mode="json")
+
+
 @mcp_server.tool()
 async def create_workout_template(
     ctx: Context,
@@ -433,32 +605,56 @@ async def create_workout_template(
     household-custom exercise (default tracking_type "reps" — edit it later for
     cardio/timed movements). Example: create_workout_template(name="Push Day",
     exercises=["Barbell Bench Press", "Overhead Press", "Tricep Pushdown"]).
-    The template is shared with the whole household."""
+    The template is shared with the whole household.
+
+    Answers `status: "proposed"` where the token may only ask — a pending
+    request awaiting a human, not a failure."""
+    args = {
+        "name": name,
+        "exercises": exercises,
+        "description": description,
+        "estimated_duration_minutes": estimated_duration_minutes,
+    }
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "workouts", "write")
-        slots: list[TemplateExerciseCreate] = []
-        for i, ex_name in enumerate(exercises or []):
-            if not ex_name or not ex_name.strip():
-                continue
-            exercise, _ = await exercises_service.create_exercise(
-                db, ident.household_id, ident.user_id, ExerciseCreate(name=ex_name)
+        decision = await authorize(db, ctx, "workouts", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="workouts", tool="create_workout_template", args=args,
+                summary=f"Create the workout template “{name}”",
             )
-            slots.append(TemplateExerciseCreate(exercise_id=exercise.id, position=i))
-        data = WorkoutTemplateCreate(
-            name=name,
-            description=description,
-            estimated_duration_minutes=estimated_duration_minutes,
-            exercises=slots,
+        return await _perform_create_workout_template(db, decision, **args)
+
+
+@register_executor("log_workout_session")
+async def _perform_log_workout_session(
+    db, ident, *, name: str | None = None, template: str | None = None, notes: str | None = None
+) -> dict:
+    template_id = None
+    if template:
+        found = await templates_service.find_template_by_name(
+            db, ident.household_id, template
         )
-        template = await templates_service.create_template(
-            db, ident.household_id, ident.user_id, data
-        )
-        await record_mcp_write(
-            db, ident, action="create", entity_type="workout_template",
-            entity_id=template.id, payload={"name": template.name,
-                                            "exercise_count": template.exercise_count},
-        )
-    return template.model_dump(mode="json")
+        if found is None:
+            raise MCPAuthError(
+                f"No workout template named {template!r}. Use "
+                "list_workout_templates to see available names."
+            )
+        template_id = found.id
+    data = WorkoutSessionCreate(name=name, template_id=template_id, notes=notes)
+    session = await sessions_service.create_session(
+        db, ident.household_id, ident.user_id, data
+    )
+    if session is None:
+        raise MCPAuthError("Could not start the session — template not found.")
+    await record_mcp_write(
+        db, ident, action="create", entity_type="workout_session",
+        entity_id=session.id,
+        payload={
+            "name": session.name,
+            "template_id": str(template_id) if template_id else None,
+        },
+    )
+    return session.model_dump(mode="json")
 
 
 @mcp_server.tool()
@@ -478,34 +674,15 @@ async def log_workout_session(
     exercises and sets."""
     if not name and not template:
         raise MCPAuthError("Provide a session name or a template name to log.")
+    args = {"name": name, "template": template, "notes": notes}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "workouts", "write")
-        template_id = None
-        if template:
-            found = await templates_service.find_template_by_name(
-                db, ident.household_id, template
+        decision = await authorize(db, ctx, "workouts", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="workouts", tool="log_workout_session", args=args,
+                summary=f"Log the workout “{name or template}”",
             )
-            if found is None:
-                raise MCPAuthError(
-                    f"No workout template named {template!r}. Use "
-                    "list_workout_templates to see available names."
-                )
-            template_id = found.id
-        data = WorkoutSessionCreate(name=name, template_id=template_id, notes=notes)
-        session = await sessions_service.create_session(
-            db, ident.household_id, ident.user_id, data
-        )
-        if session is None:
-            raise MCPAuthError("Could not start the session — template not found.")
-        await record_mcp_write(
-            db, ident, action="create", entity_type="workout_session",
-            entity_id=session.id,
-            payload={
-                "name": session.name,
-                "template_id": str(template_id) if template_id else None,
-            },
-        )
-    return session.model_dump(mode="json")
+        return await _perform_log_workout_session(db, decision, **args)
 
 
 @mcp_server.tool()
@@ -539,6 +716,21 @@ async def get_workout_prefill(
     return prefill.model_dump(mode="json")
 
 
+@register_executor("finish_workout_session")
+async def _perform_finish_workout_session(db, ident, *, session_id: str) -> dict:
+    summary = await sessions_service.finish_session(
+        db, _as_uuid(session_id, "session_id"), ident.household_id, ident.user_id
+    )
+    if summary is None:
+        raise MCPAuthError("No such workout session for this member.")
+    await record_mcp_write(
+        db, ident, action="update", entity_type="workout_session",
+        entity_id=summary.session_id,
+        payload={"ended_at": summary.ended_at.isoformat() if summary.ended_at else None},
+    )
+    return summary.model_dump(mode="json")
+
+
 @mcp_server.tool()
 async def finish_workout_session(
     ctx: Context,
@@ -552,19 +744,32 @@ async def finish_workout_session(
 
     Only sets that were checked off (completed) count. Safe to call twice: a
     session that is already finished keeps its original end time."""
+    args = {"session_id": session_id}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "workouts", "write")
-        summary = await sessions_service.finish_session(
-            db, _as_uuid(session_id, "session_id"), ident.household_id, ident.user_id
-        )
-        if summary is None:
-            raise MCPAuthError("No such workout session for this member.")
-        await record_mcp_write(
-            db, ident, action="update", entity_type="workout_session",
-            entity_id=summary.session_id,
-            payload={"ended_at": summary.ended_at.isoformat() if summary.ended_at else None},
-        )
-    return summary.model_dump(mode="json")
+        decision = await authorize(db, ctx, "workouts", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="workouts", tool="finish_workout_session", args=args,
+                summary="Finish the in-progress workout session",
+            )
+        return await _perform_finish_workout_session(db, decision, **args)
+
+
+@register_executor("save_session_as_template")
+async def _perform_save_session_as_template(
+    db, ident, *, session_id: str, name: str | None = None
+) -> dict:
+    template = await sessions_service.save_session_as_template(
+        db, _as_uuid(session_id, "session_id"), ident.household_id, ident.user_id, name,
+    )
+    if template is None:
+        raise MCPAuthError("No such workout session for this member.")
+    await record_mcp_write(
+        db, ident, action="create", entity_type="workout_template",
+        entity_id=template.id,
+        payload={"name": template.name, "from_session": session_id},
+    )
+    return template.model_dump(mode="json")
 
 
 @mcp_server.tool()
@@ -582,20 +787,15 @@ async def save_session_as_template(
 
     The session itself is not modified, so calling this twice creates two
     templates rather than altering history."""
+    args = {"session_id": session_id, "name": name}
     async with AsyncSessionLocal() as db:
-        ident = await authorize(db, ctx, "workouts", "write")
-        template = await sessions_service.save_session_as_template(
-            db, _as_uuid(session_id, "session_id"), ident.household_id,
-            ident.user_id, name,
-        )
-        if template is None:
-            raise MCPAuthError("No such workout session for this member.")
-        await record_mcp_write(
-            db, ident, action="create", entity_type="workout_template",
-            entity_id=template.id,
-            payload={"name": template.name, "from_session": session_id},
-        )
-    return template.model_dump(mode="json")
+        decision = await authorize(db, ctx, "workouts", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="workouts", tool="save_session_as_template", args=args,
+                summary=f"Save a workout session as the template “{name or 'untitled'}”",
+            )
+        return await _perform_save_session_as_template(db, decision, **args)
 
 
 @mcp_server.tool()

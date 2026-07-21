@@ -13,9 +13,18 @@ Configurable actions per domain:
   read           — list/view items
   create         — create new items
   manage_others  — edit or delete items created by *other* users
+  propose        — (proposal-001, opt-in) the *lowest* role that may ASK for a
+                   write it is not itself allowed to perform. A member at or
+                   above this role but below ``create`` resolves to the
+                   ``propose`` tier: their agent's write is captured as a
+                   pending Proposal instead of being refused.
 
 ``manage_own`` (edit/delete your own items) is always allowed for every
 role — it is not configurable.
+
+``propose`` has no default and is never filled in by ``merge_with_defaults``.
+That is what makes proposal-001 backward compatible: a household that has not
+explicitly set it resolves to exactly the permissions it had before.
 
 Fixed domains (not configurable):
   notes     — always personal to the individual creator
@@ -28,6 +37,10 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# pat_scopes owns the read < propose < write ladder and imports nothing, so this
+# direction of the dependency is safe and keeps one definition of the ordering.
+from life_dashboard.auth.pat_scopes import NO_ACCESS
 
 # ── Role ranking ──────────────────────────────────────────────────────────────
 
@@ -95,6 +108,10 @@ DEFAULT_DOMAIN_PERMISSIONS: dict[str, dict[str, str]] = {
     },
 }
 
+#: The opt-in propose threshold key inside a domain's action config. Deliberately
+#: absent from DEFAULT_DOMAIN_PERMISSIONS — see the module docstring.
+PROPOSE_ACTION = "propose"
+
 #: Domains whose permissions are fixed and cannot be configured.
 FIXED_PERSONAL_DOMAINS = {"notes", "workouts"}
 
@@ -119,11 +136,16 @@ def merge_with_defaults(config: dict[str, Any] | None) -> dict[str, dict[str, st
     """
     result: dict[str, dict[str, str]] = {}
     for domain, defaults in DEFAULT_DOMAIN_PERMISSIONS.items():
-        stored = (config or {}).get(domain, {})
-        result[domain] = {
+        stored = (config or {}).get(domain) or {}
+        merged = {
             action: stored.get(action, default_role)
             for action, default_role in defaults.items()
         }
+        # "propose" is carried through only when explicitly stored — it has no
+        # default, so an untouched household keeps exactly its old resolution.
+        if isinstance(stored, dict) and stored.get(PROPOSE_ACTION):
+            merged[PROPOSE_ACTION] = stored[PROPOSE_ACTION]
+        result[domain] = merged
     return result
 
 
@@ -134,7 +156,7 @@ def validate_permissions_config(config: dict[str, Any]) -> dict[str, dict[str, s
     Returns a clean, fully-populated config.
     """
     valid_roles = set(ROLE_RANK.keys())
-    valid_actions = {"read", "create", "manage_others"}
+    valid_actions = {"read", "create", "manage_others", PROPOSE_ACTION}
 
     for domain, actions in config.items():
         if domain not in DEFAULT_DOMAIN_PERMISSIONS:
@@ -211,3 +233,32 @@ def check_permission(
     domain_config = permissions.get(domain, DEFAULT_DOMAIN_PERMISSIONS.get(domain, {}))
     required_role = domain_config.get(action, "viewer")
     return role_has_permission(user_role, required_role)
+
+
+def resolve_permission_tier(
+    permissions: dict[str, dict[str, str]],
+    domain: str,
+    action: str,
+    user_role: str,
+) -> str:
+    """Resolve the member ceiling for *action* on *domain* to an access tier.
+
+    Returns one of ``"write"`` (may do it outright), ``"read"`` (for a permitted
+    read), ``"propose"`` (may only ask — the household configured a propose
+    threshold this member meets), or ``NO_ACCESS``.
+
+    Only write-shaped actions can resolve to ``propose``: a read either is or is
+    not permitted, and there is nothing coherent to queue for approval.
+    :func:`check_permission` remains the boolean gate everything else uses; this
+    is the same decision with the middle outcome kept rather than collapsed.
+    """
+    if check_permission(permissions, domain, action, user_role):
+        return "read" if action == "read" else "write"
+    if action == "read":
+        return NO_ACCESS
+
+    domain_config = permissions.get(domain) or DEFAULT_DOMAIN_PERMISSIONS.get(domain, {})
+    propose_role = domain_config.get(PROPOSE_ACTION)
+    if propose_role and role_has_permission(user_role, propose_role):
+        return "propose"
+    return NO_ACCESS

@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     # integer to force periodic re-linking instead.
     oauth_minted_token_expiry_days: int | None = None
 
+    # proposal-001: how long a pending agent proposal waits for a human decision
+    # before the hourly sweep expires it. A week is long enough to survive a
+    # holiday and short enough that a stale request never executes as a surprise.
+    proposal_expiry_days: int = 7
+
     # Per-token request budget on the cloud tier, per 60-second window. A PAT
     # (including OAuth-minted, internet-facing ones) that exceeds this is
     # throttled with 429, containing a noisy or compromised token without

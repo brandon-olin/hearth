@@ -59,6 +59,7 @@ Duplicate writes are a real risk in this app. Network retries, double-taps on mo
 - `collection_templates` — `UniqueConstraint(collection_id, template_id)`.
 - `household_memberships` — `UNIQUE(household_id, user_id)`; returns 409 if already a member.
 - `add_recipe_ingredients_to_list` — deduplicates by `recipe_ingredient_id`, skips already-present items.
+- `proposals` — partial `UNIQUE(household_id, args_fingerprint) WHERE status='pending'`; an identical pending ask returns the same proposal. Partial on purpose: re-asking *after* a decision is a new request, not a duplicate. Deciding one is an atomic `UPDATE … WHERE status='pending' RETURNING id` claim, so two admins pressing approve execute the write once.
 
 ### Roadmap — guards to add (in priority order)
 

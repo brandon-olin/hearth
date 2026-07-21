@@ -62,9 +62,20 @@ async def record_mcp_write(
 
     A pseudo-member (``role == "agent"``) is attributed with ``actor_user_id =
     None`` and only its ``token_id``; a personal-member token carries both.
+
+    When ``identity`` carries a ``via_proposal_id`` (proposal-001), this same
+    call is the **proposed_by** half of an approved proposal's double
+    attribution: the write is still attributed to whoever asked for it, tagged
+    with the proposal a human said yes to. The approver's half is a separate row
+    written by ``proposals.service.approve_proposal`` — two rows, so the two
+    actors stay distinguishable rather than collapsing into one.
     """
     record = _resolve_audit_record()
     actor_user_id = None if identity.role == _AGENT_ROLE else identity.user_id
+
+    via_proposal_id = getattr(identity, "via_proposal_id", None)
+    if via_proposal_id is not None:
+        payload = {**payload, "via_proposal": str(via_proposal_id)}
 
     if record is None:
         # security-008 not yet on this branch — the call site is in place so

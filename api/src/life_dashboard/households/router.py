@@ -97,6 +97,10 @@ class DomainPermissions(BaseModel):
     read: str = "viewer"
     create: str = "viewer"
     manage_others: str = "member"
+    # proposal-001, opt-in and therefore nullable: the lowest role that may ask
+    # for a `create` it cannot perform. null means the household has not enabled
+    # proposals for this domain, which is every household until one does.
+    propose: str | None = None
 
 
 class HouseholdPermissionsResponse(BaseModel):
