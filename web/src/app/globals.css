@@ -380,6 +380,12 @@ html.theme-switching *::after {
     background-color: var(--badge-success-bg);
     color: var(--badge-success-fg);
   }
+
+  /* Completed workout sessions (workouts-005) — logged activity, violet tone */
+  .cal-chip-session {
+    background-color: var(--badge-progress-bg);
+    color: var(--badge-progress-fg);
+  }
 }
 
 /* ── Reusable themed checkbox ─────────────────────────────────────────────────

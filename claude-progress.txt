@@ -4825,3 +4825,59 @@ LEFT / NEXT
   shape as its agent-facing contract (translated internally). If a future feature
   wants the coach to log against templates or superset groups, extend that tool
   rather than reintroducing a second data model.
+
+=== 2026-07-20 — Coding session ===
+FEATURE: workouts-005 — Workout calendar integration (sessions on calendar,
+timed habits in time slots). Built in worktree .claude/worktrees/workouts-005 on
+branch feat/workouts-005 (off origin/main 14bc111), concurrently with
+workouts-002 in the main tree. Status: COMPLETE — feature_list workouts-005
+flipped to passes:true.
+
+SCOPE / DECISIONS
+- Two things on the calendar, nothing else:
+  (1) Completed workout sessions render on their performed date (started_at,
+      local) as violet chips; tapping opens a READ-ONLY session log.
+  (2) Timed workout habits already rendered in the calendar's time column from
+      habit-002; this build preserves that (untimed habits stay all-day) and does
+      not regress it. No new "planned vs rest day" concept.
+- No schema change, no migration (as scoped). GET /workouts/sessions already
+  scopes to the current user server-side (created_by_user_id) — sessions are
+  personal per the workouts-001 decision. The calendar reuses that endpoint, so
+  a second household member's workouts never reach the client.
+
+CHANGES
+- web/src/components/calendar/session-sheet.tsx (NEW): read-only Sheet that
+  fetches GET /workouts/sessions/{id} and renders each exercise + its logged sets
+  (reps/weight/distance/duration/RPE, warm-up badge) and notes. No mutate/delete.
+- web/src/app/(protected)/calendar/page.tsx: fetch GET /workouts/sessions for the
+  visible window (from_date/to_date = existing fetchFrom/fetchTo), group by local
+  started_at date, render session chips in Month cell + sidebar, Week column, and
+  Day agenda; tap opens SessionSheet. Personal-scope noted in a comment.
+- web/src/app/globals.css: add .cal-chip-session (reuses --badge-progress violet
+  palette; theme-aware, no hard-coded colour).
+- api/tests/test_workouts.py: add test_calendar_session_window_excludes_other_member
+  — proves the date-windowed list_sessions (the calendar's backing query) returns
+  a second member's session for neither member's window; server-side filter, not a
+  client discard. (Complements the pre-existing test_sessions_are_personal.)
+
+VERIFICATION (executed, not just rendered)
+- cd web && npx tsc --noEmit: clean.
+- make test equivalent (main venv, PYTHONPATH=worktree src): 229 passed
+  (228 prior + 1 new isolation test). ruff check tests: clean.
+- Browser E2E on worktree dev stack (web :1340 → api :1339): logged in as brandon
+  (owner, Casa Olin); confirmed Day view shows timed habit "Morning Lift" at the
+  6am slot on Wed while untimed daily habits render as "Daily"; a logged "Push Day"
+  session appears on Tue Jul 21; tapping it opened the read-only log (Barbell Bench
+  Press, 3 sets 135/155/175 lbs) with no edit controls. Then switched to member
+  "parent": their calendar showed only their own "Parent Secret Cardio" on Jul 21;
+  brandon's "Push Day" was absent — cross-member isolation confirmed in the UI.
+
+SIDE EFFECTS (dev only)
+- For browser verification I set known passwords on two LOCAL dev accounts
+  (brandon@life-dashboard.local, parent@life-dashboard.local) and seeded a habit
+  ("Morning Lift") + two sessions ("Push Day", "Parent Secret Cardio") in the dev
+  SQLite DB. Harmless dev data; not part of the code change.
+
+LEFT / NEXT
+- workouts-002 (template builder UX) still in flight in the main tree; 003/004
+  follow. Nothing outstanding for workouts-005.

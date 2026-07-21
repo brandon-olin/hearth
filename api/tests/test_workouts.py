@@ -364,6 +364,37 @@ async def test_sessions_are_personal(db_session, household):
 
 
 @pytest.mark.asyncio
+async def test_calendar_session_window_excludes_other_member(db_session, household):
+    """workouts-005: the calendar reads sessions via the date-windowed
+    list_sessions. Prove a second household member's logged session never
+    appears in the current user's calendar window — the filter is server-side,
+    not a client-side discard."""
+    from datetime import datetime
+
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    performed_on = datetime(2026, 7, 14, 6, 0, 0)  # a Tuesday at 6am
+    await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            name="Alice's leg day",
+            started_at=performed_on,
+            exercises=[SessionExerciseCreate(exercise_id=ex[0], sets=[WorkoutSetCreate(reps=8)])],
+        ),
+    )
+
+    window = dict(from_date=performed_on.date(), to_date=performed_on.date())
+    # Bob's calendar window for that day is empty — no leak across members.
+    bob_window = await sessions_service.list_sessions(db_session, hid, bob, **window)
+    assert bob_window.total == 0
+    assert bob_window.items == []
+    # Alice sees her own session in the same window.
+    alice_window = await sessions_service.list_sessions(db_session, hid, alice, **window)
+    assert alice_window.total == 1
+    assert alice_window.items[0].name == "Alice's leg day"
+
+
+@pytest.mark.asyncio
 async def test_templates_are_shared_ordering_is_personal(db_session, household):
     hid, alice, bob = household["hid"], household["alice"], household["bob"]
     template = await templates_service.create_template(

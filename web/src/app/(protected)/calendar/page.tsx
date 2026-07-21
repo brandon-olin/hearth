@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
 import { EventSheet } from "@/components/calendar/event-sheet";
+import { SessionSheet } from "@/components/calendar/session-sheet";
 import { TodoSheet } from "@/components/todos/todo-sheet";
 import { HabitSheet } from "@/components/habits/habit-sheet";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ import type { components } from "@/lib/api/schema";
 type CalendarEvent = components["schemas"]["CalendarEventResponse"];
 type Todo = components["schemas"]["TodoResponse"];
 type Habit = components["schemas"]["HabitWithStats"];
+type WorkoutSession = components["schemas"]["WorkoutSessionResponse"];
 type ViewMode = "month" | "week" | "day";
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -159,6 +161,18 @@ function habitScheduledOn(habit: Habit, date: Date): boolean {
   return false;
 }
 
+// ── Workout session helpers ───────────────────────────────────────────────────
+
+/** The date a session was performed, in local time, keyed as YYYY-MM-DD. */
+function sessionDateStr(session: WorkoutSession): string {
+  return toDateStr(new Date(normalizeIso(session.started_at)));
+}
+
+/** Chip/label text for a logged session — session name, else "Workout". */
+function sessionLabel(session: WorkoutSession): string {
+  return session.name?.trim() || "Workout";
+}
+
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
 function EventListItem({
@@ -242,6 +256,26 @@ function HabitListItem({ habit, onClick }: { habit: Habit; onClick: () => void }
   );
 }
 
+function SessionListItem({ session, onClick }: { session: WorkoutSession; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent transition-colors"
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-1.5 h-2 w-2 rounded-full cal-chip-session shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{sessionLabel(session)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {session.exercise_count} exercise{session.exercise_count === 1 ? "" : "s"} · logged
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 // ── Month view ────────────────────────────────────────────────────────────────
 
 function DayCell({
@@ -252,6 +286,7 @@ function DayCell({
   events,
   todos,
   habits,
+  sessions,
   onClick,
 }: {
   day: Date;
@@ -261,10 +296,11 @@ function DayCell({
   events: CalendarEvent[];
   todos: Todo[];
   habits: Habit[];
+  sessions: WorkoutSession[];
   onClick: () => void;
 }) {
-  // Budget the 3 visible slots across events, todos, habits in order
-  const allItems: Array<{ kind: "event" | "todo" | "habit"; label: string; isDone?: boolean }> = [
+  // Budget the 3 visible slots across events, todos, habits, sessions in order
+  const allItems: Array<{ kind: "event" | "todo" | "habit" | "session"; label: string; isDone?: boolean }> = [
     ...events.map((ev) => ({
       kind: "event" as const,
       label: ev.all_day ? ev.title : `${formatTime(ev.starts_at)} ${ev.title}`,
@@ -281,6 +317,10 @@ function DayCell({
         label: st ? `${formatHHMM(st)} ${h.name}` : h.name,
       };
     }),
+    ...sessions.map((s) => ({
+      kind: "session" as const,
+      label: sessionLabel(s),
+    })),
   ];
 
   const shown = allItems.slice(0, 3);
@@ -317,6 +357,7 @@ function DayCell({
               item.kind === "event" && "bg-primary/15 text-primary",
               item.kind === "todo" && "cal-chip-todo opacity-90",
               item.kind === "habit" && "cal-chip-habit opacity-90",
+              item.kind === "session" && "cal-chip-session opacity-90",
               item.isDone && "line-through opacity-50",
             )}
           >
@@ -339,12 +380,14 @@ function MonthView({
   eventsByDate,
   todosByDate,
   habitsByDate,
+  sessionsByDate,
   isLoading,
   onSelectDate,
   onEditEvent,
   onCreateEvent,
   onEditTodo,
   onEditHabit,
+  onOpenSession,
   canCreate,
 }: {
   year: number;
@@ -354,12 +397,14 @@ function MonthView({
   eventsByDate: Map<string, CalendarEvent[]>;
   todosByDate: Map<string, Todo[]>;
   habitsByDate: Map<string, Habit[]>;
+  sessionsByDate: Map<string, WorkoutSession[]>;
   isLoading: boolean;
   onSelectDate: (d: string) => void;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
   onEditTodo: (todo: Todo) => void;
   onEditHabit: (habit: Habit) => void;
+  onOpenSession: (session: WorkoutSession) => void;
   canCreate: boolean;
 }) {
   const grid = useMemo(() => buildGrid(year, month), [year, month]);
@@ -375,12 +420,17 @@ function MonthView({
     () => habitsByDate.get(selectedDate) ?? [],
     [habitsByDate, selectedDate]
   );
+  const selectedSessions = useMemo(
+    () => sessionsByDate.get(selectedDate) ?? [],
+    [sessionsByDate, selectedDate]
+  );
 
   const selectedDateLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "long", month: "long", day: "numeric",
   });
 
-  const totalSelected = selectedEvents.length + selectedTodos.length + selectedHabits.length;
+  const totalSelected =
+    selectedEvents.length + selectedTodos.length + selectedHabits.length + selectedSessions.length;
 
   return (
     <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
@@ -409,6 +459,7 @@ function MonthView({
                 events={eventsByDate.get(dateStr) ?? []}
                 todos={todosByDate.get(dateStr) ?? []}
                 habits={habitsByDate.get(dateStr) ?? []}
+                sessions={sessionsByDate.get(dateStr) ?? []}
                 onClick={() => onSelectDate(dateStr)}
               />
             );
@@ -463,6 +514,9 @@ function MonthView({
               {selectedHabits.map((h) => (
                 <HabitListItem key={h.id} habit={h} onClick={() => onEditHabit(h)} />
               ))}
+              {selectedSessions.map((s) => (
+                <SessionListItem key={s.id} session={s} onClick={() => onOpenSession(s)} />
+              ))}
             </div>
           )}
         </div>
@@ -479,11 +533,13 @@ function WeekView({
   eventsByDate,
   todosByDate,
   habitsByDate,
+  sessionsByDate,
   isLoading,
   onEditEvent,
   onCreateEvent,
   onEditTodo,
   onEditHabit,
+  onOpenSession,
   canCreate,
 }: {
   weekStart: Date;
@@ -491,11 +547,13 @@ function WeekView({
   eventsByDate: Map<string, CalendarEvent[]>;
   todosByDate: Map<string, Todo[]>;
   habitsByDate: Map<string, Habit[]>;
+  sessionsByDate: Map<string, WorkoutSession[]>;
   isLoading: boolean;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
   onEditTodo: (todo: Todo) => void;
   onEditHabit: (habit: Habit) => void;
+  onOpenSession: (session: WorkoutSession) => void;
   canCreate: boolean;
 }) {
   const days = useMemo(() => {
@@ -521,6 +579,7 @@ function WeekView({
           const dayEvents = sortEvents(eventsByDate.get(dateStr) ?? []);
           const dayTodos = todosByDate.get(dateStr) ?? [];
           const dayHabits = habitsByDate.get(dateStr) ?? [];
+          const daySessions = sessionsByDate.get(dateStr) ?? [];
 
           return (
             <div key={dateStr} className="flex flex-col min-h-[200px]">
@@ -601,6 +660,18 @@ function WeekView({
                   </button>
                 ))}
 
+                {daySessions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => onOpenSession(s)}
+                    className="w-full text-left rounded-md px-2 py-1.5 cal-chip-session opacity-90 hover:opacity-100 transition-opacity text-[11px] leading-snug"
+                  >
+                    <div className="font-medium truncate">{sessionLabel(s)}</div>
+                    <div className="opacity-70 text-[10px]">Workout</div>
+                  </button>
+                ))}
+
                 {canCreate && (
                   <button
                     type="button"
@@ -628,11 +699,13 @@ function DayView({
   eventsByDate,
   todosByDate,
   habitsByDate,
+  sessionsByDate,
   isLoading,
   onEditEvent,
   onCreateEvent,
   onEditTodo,
   onEditHabit,
+  onOpenSession,
   canCreate,
 }: {
   selectedDate: string;
@@ -640,11 +713,13 @@ function DayView({
   eventsByDate: Map<string, CalendarEvent[]>;
   todosByDate: Map<string, Todo[]>;
   habitsByDate: Map<string, Habit[]>;
+  sessionsByDate: Map<string, WorkoutSession[]>;
   isLoading: boolean;
   onEditEvent: (ev: CalendarEvent) => void;
   onCreateEvent: (date?: string) => void;
   onEditTodo: (todo: Todo) => void;
   onEditHabit: (habit: Habit) => void;
+  onOpenSession: (session: WorkoutSession) => void;
   canCreate: boolean;
 }) {
   const dayEvents = useMemo(
@@ -653,7 +728,8 @@ function DayView({
   );
   const dayTodos = todosByDate.get(selectedDate) ?? [];
   const dayHabits = habitsByDate.get(selectedDate) ?? [];
-  const total = dayEvents.length + dayTodos.length + dayHabits.length;
+  const daySessions = sessionsByDate.get(selectedDate) ?? [];
+  const total = dayEvents.length + dayTodos.length + dayHabits.length + daySessions.length;
 
   return (
     <div className="flex-1 overflow-auto p-6 max-w-2xl mx-auto w-full">
@@ -782,6 +858,28 @@ function DayView({
               );
             })
           }
+
+          {daySessions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onOpenSession(s)}
+              className="w-full text-left flex items-start gap-4 rounded-xl border bg-card px-5 py-4 hover:bg-accent transition-colors"
+            >
+              <div className="w-20 shrink-0 text-right">
+                <span className="text-xs font-medium text-foreground">
+                  {formatTime(s.started_at)}
+                </span>
+              </div>
+              <div className="w-1 self-stretch rounded-full cal-chip-session shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">{sessionLabel(s)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Workout · {s.exercise_count} exercise{s.exercise_count === 1 ? "" : "s"}
+                </p>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -806,6 +904,8 @@ export default function CalendarPage() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [habitSheetOpen, setHabitSheetOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [sessionSheetOpen, setSessionSheetOpen] = useState(false);
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
 
   // Compute the current week start based on selectedDate (for week/day nav)
   const weekStart = useMemo(() => getWeekStart(new Date(selectedDate + "T00:00:00")), [selectedDate]);
@@ -861,9 +961,17 @@ export default function CalendarPage() {
     params: { query: { limit: 200 } },
   });
 
+  // ── Fetch the current user's logged workout sessions in the window ──────────
+  // Sessions are PERSONAL: the endpoint scopes to the current user server-side,
+  // so another household member's workouts are never returned here.
+  const { data: sessionsData } = $api.useQuery("get", "/workouts/sessions", {
+    params: { query: { from_date: fetchFrom, to_date: fetchTo, limit: 200 } },
+  });
+
   const events = eventsData?.items ?? [];
   const todos = (todosData?.items ?? []).filter((t) => t.due_date != null);
   const activeHabits = (habitsData?.items ?? []).filter((h) => h.status === "active");
+  const sessions = sessionsData?.items ?? [];
 
   // ── Build lookup maps ───────────────────────────────────────────────────────
 
@@ -906,6 +1014,17 @@ export default function CalendarPage() {
     }
     return map;
   }, [activeHabits, fetchFrom, fetchTo]);
+
+  const sessionsByDate = useMemo(() => {
+    const map = new Map<string, WorkoutSession[]>();
+    for (const s of sessions) {
+      const key = sessionDateStr(s);
+      const list = map.get(key) ?? [];
+      list.push(s);
+      map.set(key, list);
+    }
+    return map;
+  }, [sessions]);
 
   // ── Navigation ──────────────────────────────────────────────────────────────
 
@@ -982,6 +1101,17 @@ export default function CalendarPage() {
   function handleHabitClose() {
     setHabitSheetOpen(false);
     setTimeout(() => setEditingHabit(null), 300);
+  }
+
+  // ── Session sheet helpers (read-only) ───────────────────────────────────────
+
+  function openSession(session: WorkoutSession) {
+    setViewingSessionId(session.id);
+    setSessionSheetOpen(true);
+  }
+  function handleSessionClose() {
+    setSessionSheetOpen(false);
+    setTimeout(() => setViewingSessionId(null), 300);
   }
 
   // ── Period label ────────────────────────────────────────────────────────────
@@ -1089,6 +1219,7 @@ export default function CalendarPage() {
             eventsByDate={eventsByDate}
             todosByDate={todosByDate}
             habitsByDate={habitsByDate}
+            sessionsByDate={sessionsByDate}
             isLoading={isLoading}
             onSelectDate={(d) => {
               setSelectedDate(d);
@@ -1102,6 +1233,7 @@ export default function CalendarPage() {
             onCreateEvent={openCreate}
             onEditTodo={openEditTodo}
             onEditHabit={openEditHabit}
+            onOpenSession={openSession}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -1113,11 +1245,13 @@ export default function CalendarPage() {
             eventsByDate={eventsByDate}
             todosByDate={todosByDate}
             habitsByDate={habitsByDate}
+            sessionsByDate={sessionsByDate}
             isLoading={isLoading}
             onEditEvent={openEditEvent}
             onCreateEvent={openCreate}
             onEditTodo={openEditTodo}
             onEditHabit={openEditHabit}
+            onOpenSession={openSession}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -1129,11 +1263,13 @@ export default function CalendarPage() {
             eventsByDate={eventsByDate}
             todosByDate={todosByDate}
             habitsByDate={habitsByDate}
+            sessionsByDate={sessionsByDate}
             isLoading={isLoading}
             onEditEvent={openEditEvent}
             onCreateEvent={openCreate}
             onEditTodo={openEditTodo}
             onEditHabit={openEditHabit}
+            onOpenSession={openSession}
             canCreate={can("calendar", "create")}
           />
         )}
@@ -1156,6 +1292,12 @@ export default function CalendarPage() {
         open={habitSheetOpen}
         habit={editingHabit}
         onClose={handleHabitClose}
+      />
+
+      <SessionSheet
+        open={sessionSheetOpen}
+        sessionId={viewingSessionId}
+        onClose={handleSessionClose}
       />
     </div>
   );

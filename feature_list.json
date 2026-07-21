@@ -1136,7 +1136,7 @@
         "Tap the session chip — verify it opens a read-only session log showing all logged exercises and sets",
         "Verify a day with both a scheduled habit chip and a completed session chip renders both without overlap"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "workouts-001b",
