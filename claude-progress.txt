@@ -5421,3 +5421,93 @@ What was left / caveats
 Recommended next feature: coach-002 (journal signal extraction) — its service
 layer already exists on main and, like this one, likely needs verification more
 than construction.
+
+=== 2026-07-21 — Coding session ===
+
+Worked on: coach-002 (journal signal extraction) and coach-003 (CBT-aware
+coach prompt rewrite), built together on feat/coach-002-003 because coach-003's
+prompts consume coach-002's signals — the CBT moves cannot be judged without
+real extracted signals to reason over.
+
+Status: complete. Both marked passing in feature_list.json.
+
+Commits this session:
+  6764d12  feat(coach-002,coach-003): journal signal lifecycle + CBT prompt fixes
+
+The previous session's guess was right: both phases were already written on
+main and needed verification more than construction. Executing them against a
+live provider surfaced three real defects.
+
+What was done:
+
+1. Deleted journal entries kept feeding the coach. journal_signals declares
+   ON DELETE CASCADE on note_id, but that only fires on Postgres — SQLite does
+   not enforce foreign keys unless PRAGMA foreign_keys is on (it is not), and
+   JournalSignal has no ORM relationship back to Note, so nothing cascaded.
+   delete_all_notes made it worse: a bulk Core DELETE bypasses ORM cascade on
+   both engines. A deleted entry therefore stayed in sentiment_trend and
+   harsh_self_talk_streak forever. Added delete_signals_for_notes and
+   delete_signals_for_household_notes to journal_signal_service and wired both
+   note-deletion paths through them. The household-scoped variant is scoped in
+   SQL, and there is a test proving one household's wipe leaves another's
+   signals alone.
+
+2. The coach flattered its way through real dips. The evening template said
+   "if today was slow, reassure with the trend" — an unconditional order to
+   comfort, sitting in the user message, which the model reads last. Handed a
+   92%-below-average week alongside a confident journal, it reframed the
+   decline as a "deliberate downshift" instead of naming it. Replaced that
+   line with one that asks for an accurate arc, and added an explicit
+   precedence clause to _COACH_METHOD_PROMPT so the method outranks the
+   per-kind template. Also sharpened the both-negative rule, which was
+   producing a menu of next steps where the method asks for exactly one.
+
+3. The one-journal-quote cap was advisory and did not hold. Measured: ~1
+   response in 10 quoted twice. Strengthening the wording helped a little;
+   restating the cap next to the journal entries made it WORSE (1/12 -> 3/20)
+   because naming quoting primes quoting. That result is recorded in a comment
+   in _fmt_narrative so nobody re-tries it. The cap is now enforced in code by
+   _enforce_quote_cap, which unwraps surplus journal-derived quotes and leaves
+   non-journal quotes (goal names, the coach's own phrasing) alone. After the
+   change: 0 name-drops and 0 quote-cap violations across 20 sampled runs
+   spanning both digest kinds and all four tones.
+
+Verification — executed, not registered:
+* Notes saved through the real HTTP API against a live Anthropic provider:
+  signal row appears with plausible values (sentiment -0.65, valence harsh,
+  entry_date parsed from the title); re-save updates that one row rather than
+  duplicating; title-only edit does not re-extract; a note in a non-journal
+  collection extracts nothing; extraction is skipped with the flag off and
+  with no provider configured; a deliberately broken API key still saves the
+  note intact; POST /ai/journal-signals/backfill recovers the notes that
+  failed, and only_outdated_version=true then skips all of them.
+* Digests generated through POST /ai/coach/digest/generate — the registered
+  endpoint, not a reproduction of it — across four narrative/behaviour
+  scenarios (harsh+strong, confident+dip, both-negative, both-positive) and
+  all four tones. Read the replies rather than pattern-matching them: the
+  harsh+strong case reality-tests against the 14-task week in every tone, and
+  only the voice changes.
+* make test (395 passing, 49 new), ruff clean on tests, tsc --noEmit clean.
+
+What was left:
+* No migration, as briefed — collections.kind shipped in 0032 and was
+  backfilled by 0046; journal_signals shipped in 0033.
+* Two of coach-002's verification steps were stale and are rewritten in
+  feature_list.json: they asked for a "Journal-kind backfill: tagged=X..."
+  boot log line from a twin hook that ADR-014 removed when backfills moved
+  into migrations. Same treatment coach-001/coach-001b got — marking a feature
+  passing against steps nobody can perform would be a lie. The equivalent
+  guarantee is covered by tests/test_journal_collection_seed.py.
+* No MCP verb added, on the same reasoning recorded for coach-001: the MCP
+  server deliberately excludes notes, and journal signals are derived from
+  notes, so exposing them to a PAT-bearing agent would widen that boundary.
+  Coach digests remain reachable through the existing /ai/coach/* REST surface.
+* docs/ai-coach-redesign.md is still stale about user_profiles. Untouched
+  again this session.
+* _enforce_quote_cap is a blunt instrument by design — it only unwraps quotes,
+  never rewrites prose. If the coach ever starts quoting via italics or block
+  quotes rather than quotation marks, the cap will silently stop catching it.
+
+Recommended next feature: coach-004 (coach focus text) or coach-006 — both sit
+in the same file and would benefit from the scenario harness this session
+established.

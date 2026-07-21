@@ -737,30 +737,30 @@
       "category": "AI Coach",
       "priority": 1,
       "title": "Journal signal extraction (Phase 2 of AI coach redesign)",
-      "description": "Per-entry structured signal extraction for journal notes. Adds a 'kind' column to collections (kind='journal' identifies journal collections). When a note in a journal-kind collection is saved AND the user has ai_journal_extraction_enabled=true AND a provider is configured, a background asyncio task extracts {sentiment in [-1,+1], self_talk_valence (positive/neutral/harsh/mixed), themes[], notable_phrases[], energy_level, entry_date, extraction_version} and upserts a journal_signals row keyed by note_id. Coach trend helpers (sentiment_trend, harsh_self_talk_streak, dominant_themes_recent) live in journal_signal_service for Phase 3 to use.",
+      "description": "Per-entry structured signal extraction for journal notes. Adds a 'kind' column to collections (kind='journal' identifies journal collections). When a note in a journal-kind collection is saved AND the user has ai_journal_extraction_enabled=true AND a provider is configured, a background asyncio task extracts {sentiment in [-1,+1], self_talk_valence (positive/neutral/harsh/mixed), themes[], notable_phrases[], energy_level, entry_date, extraction_version} and upserts a journal_signals row keyed by note_id. Coach trend helpers (sentiment_trend, harsh_self_talk_streak, dominant_themes_recent) live in journal_signal_service for Phase 3 to use.\n\nSHIPPED (2026-07-21). The 'adds a kind column to collections' line above is stale — collections.kind shipped in migration 0032 and was backfilled by 0046, and journal_signals shipped in 0033. This phase needed no migration. Two verification steps below were also stale and are rewritten: the 'Journal-kind backfill' boot-hook log line no longer exists, because ADR-014 moved backfills into migrations and the twin hook was removed. Fixed during verification: deleting a note left its journal_signals row behind, so a deleted entry kept feeding sentiment_trend and harsh_self_talk_streak — the declared ON DELETE CASCADE only fires on Postgres, and the bulk delete_all_notes path bypassed ORM cascade on both engines.",
       "steps": [
         "Run alembic upgrade head (Postgres) OR restart the API on SQLite; verify journal_signals table exists, collection.kind exists, ai_settings.ai_journal_extraction_enabled exists (default true)",
-        "Check the boot log for 'Journal-kind backfill: tagged=X, seeded=Y, already-tagged=Z' — verify every existing household ends up with at least one collection where kind='journal' after the startup hook runs",
+        "Verify every household ends up with exactly one journal-kind collection, idempotently across repeat runs (tests/test_journal_collection_seed.py). NOTE: the old 'Journal-kind backfill: tagged=X...' boot log line was removed with the twin-hook pattern (ADR-014); the backfill now lives in migration 0046",
         "Sign up a brand-new account; verify the new household gets a Journal collection seeded automatically via the auth/setup flow",
         "In Settings → AI → Journal signals, verify the toggle reads 'On' and the 'Backfill existing entries' button is enabled",
         "Create a new note inside the Journal collection with a meaningful body; verify a journal_signals row appears with non-null sentiment, valence, entry_date, extraction_version=1",
         "Edit that note's content_md; verify the signals row is REPLACED (still one row per note_id, extracted_at advances)",
         "Edit only the title; verify the signals row is NOT re-extracted (title-only changes are skipped)",
-        "Run POST /ai/journal-signals/backfill; verify the response shows scanned/extracted/skipped_empty/skipped_current/errors counts",
+        "Run POST /ai/journal-signals/backfill; verify the response shows scanned/extracted/skipped_empty/skipped_current/errors counts, and that only_outdated_version=true skips rows already at the current version",
         "Toggle 'Extract signals on save' off; create another journal entry; verify NO new signals row is created",
         "Toggle back on; save the same entry again and verify extraction resumes",
-        "Delete a journal note; verify the journal_signals row cascades and is removed",
+        "Delete a journal note; verify the journal_signals row goes with it on SQLite as well as Postgres, and that a household-wide wipe removes only that household's signals",
         "Confirm a non-journal-collection note does NOT trigger extraction",
-        "Restart the API a second time; confirm the backfill log line shows tagged=0 seeded=0 (idempotent)"
+        "Break the provider (bad key, or no key at all) and confirm the note still saves intact and no signals row is written"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-003",
       "category": "AI Coach",
       "priority": 1,
       "title": "CBT-aware coach prompt rewrite (Phase 3 of AI coach redesign)",
-      "description": "Coach prompts rewritten to reason across all three context layers (profile, narrative signals, raw recent entries) plus existing behavioral data. New _fetch_narrative_context helper pulls sentiment trend, harsh-self-talk streak, dominant themes, and the last 5 journal entries verbatim. New _COACH_METHOD_PROMPT system-prompt fragment defines the CBT moves: reality-test harsh self-talk against strong-week data, be honest (not flattering) during real dips, 'bird by bird' register during double-negatives, no manufactured lessons during double-positives, no name-dropping the profile, journal quoting capped at one per response.",
+      "description": "Coach prompts rewritten to reason across all three context layers (profile, narrative signals, raw recent entries) plus existing behavioral data. New _fetch_narrative_context helper pulls sentiment trend, harsh-self-talk streak, dominant themes, and the last 5 journal entries verbatim. New _COACH_METHOD_PROMPT system-prompt fragment defines the CBT moves: reality-test harsh self-talk against strong-week data, be honest (not flattering) during real dips, 'bird by bird' register during double-negatives, no manufactured lessons during double-positives, no name-dropping the profile, journal quoting capped at one per response.\n\nSHIPPED (2026-07-21) with coach-002. Two prompt defects were found by generating real digests rather than inspecting the prompt: (1) the evening template's 'if today was slow, reassure with the trend' was an unconditional order to comfort, and because the user message is read last it overrode the method's honesty rule — a 92%-below-average week came back reframed as a 'deliberate downshift'. The line was replaced and _COACH_METHOD_PROMPT was given explicit precedence over the per-kind template. (2) The one-journal-quote cap did not hold by prompting alone (~1 response in 10 quoted twice), and restating it next to the entries made it worse by priming the behaviour, so it is now enforced in code by _enforce_quote_cap, which unwraps surplus journal quotes and leaves non-journal quotes alone. 0 name-drops and 0 quote-cap violations across 20 sampled runs after the change.",
       "steps": [
         "Generate a morning digest in a state where: (a) the last week's todos show a strong completion record AND (b) recent journal entries are harshly self-critical. Verify the coach reality-tests the self-criticism against the data",
         "Generate an evening digest after a real productivity dip + journal entries that sound confident or upbeat. Verify the coach is honest and grounded, not flattering",
@@ -773,7 +773,7 @@
         "Verify the coach never name-drops the profile across 10 sample runs",
         "Verify the coach quotes at most one short journal phrase per response across 10 sample runs"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "chat-001",
