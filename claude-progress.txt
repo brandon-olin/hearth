@@ -4881,3 +4881,100 @@ SIDE EFFECTS (dev only)
 LEFT / NEXT
 - workouts-002 (template builder UX) still in flight in the main tree; 003/004
   follow. Nothing outstanding for workouts-005.
+
+=== 2026-07-20 — Coding session (workouts-002) ===
+
+WORKED ON
+- workouts-002: workout template builder UX. The pre-gym planning surface —
+  a /workouts/templates list and template detail views — built entirely on the
+  workouts-001 API. NO schema changes, NO migration (alembic head stays 0049).
+
+STATUS: complete. Commit: feat(workouts-002) template builder UX.
+
+DONE — frontend (web/)
+- Routes: /workouts/templates (list) and /workouts/templates/[id] (detail, a
+  server page wrapping a client component). A "Templates" link was added to the
+  workouts page header for discovery.
+- Template list: consumes GET /workouts/templates, which the service already
+  orders by the CURRENT user's last_used_at (derived, no column). Name search +
+  inline create. Relative "Used N days ago" / "Never used" from last_used_at.
+- Template detail: exercise rows show a 3-dot handle | name | target summary |
+  chevron, plus a muted note line. The 3-dot is tap=context-menu (base-ui Menu)
+  / press-hold=drag, separated by a dnd-kit PointerSensor delay-activation
+  constraint (180ms) — one control, both behaviours, per spec. Rows reorder via
+  dnd; a collapsed superset is one draggable unit.
+- Exercise picker (Sheet): GET /workouts/exercises?sort=recent split client-side
+  into "My exercises" (custom) and "Exercise library" (global), each ordered by
+  the current user's recency. Name search (debounced) + inline exercise create
+  (name / muscle group / tracking type).
+- Supersets: link mode swaps 3-dots for checkboxes (tapped row pre-checked);
+  selecting a collapsed superset selects all its members; the 2-5 cap is enforced
+  client-side with a toast at the 6th and the service's SupersetError is surfaced
+  as a fallback toast. Link merges the selection into one fresh group at the
+  highest-ranked position (non-adjacent picks pulled together). Unlink is atomic
+  back to standalone rows in prior internal order. Member reorder lives on the
+  superset detail Sheet (drag handles), never the collapsed main-list row.
+- All position/group math is pure and centralized in lib/workouts/
+  template-order.ts (buildDisplayItems, linkSelection, unlinkGroup, reorderItems,
+  reorderWithinGroup, diffSlots). Structural ops compute a desired flat order,
+  diff against the server slots, and PATCH only what changed (positions renumber
+  0..n-1) sequentially so the service's superset invariants hold. The service
+  rules are surfaced, not duplicated.
+- Minimal local toast primitive (components/workouts/toasts.tsx) — the app had no
+  toast system; kept scoped to the builder.
+
+DONE — backend (api/), read-only, no schema change
+- exercises_service.list_exercises gained an optional user_id + sort="recent":
+  a correlated MAX(workout_sessions.started_at) subquery over the current user's
+  sessions (via session_exercises), NULLs (never-used) last, then alphabetical.
+  Personal recency on a shared catalog, mirroring the template ordering. Default
+  sort="name" preserves existing callers (the workouts page datalist, MCP).
+- library_router GET /workouts/exercises gained the `sort` query param
+  (Literal["name","recent"]). Schema regenerated (web/src/lib/api/schema.d.ts).
+- useSegmentId gained an optional segment index (default 1) so the deeper
+  /workouts/templates/<id> route resolves its id at segment 2.
+
+FIXES caught in browser testing
+- toggleSelect called the toast inside a setState updater; React StrictMode
+  double-invokes updaters in dev, so the cap toast fired twice. Moved the side
+  effect out of the updater (read `selected` directly).
+- The optimistic items-resync signature keyed only on id:position:group, so an
+  inline note/target edit didn't refresh the list until reload. Signature now
+  includes notes + default_sets/reps.
+
+VERIFICATION (executed in a browser against the running dev stack, web :1337 →
+api :1339 on the branch)
+- Seeded the 63 global exercises into the dev SQLite DB via the idempotent
+  exercises_service.ensure_global_exercises (the create_all tier does not run
+  0048's data step) so the library section had real data.
+- Created a template; added from BOTH "My exercises" (a custom Barbell Bench
+  Press) and the global library (Arnold Press, Back Squat, Barbell Curl, Bicycle
+  Crunch, Burpee); library ordered alphabetically (no prior sessions).
+- 3-dot tap opened the context menu with all options; "Link as superset" swapped
+  to checkboxes with the tapped row pre-checked.
+- Selected 3 NON-adjacent exercises (skipping Arnold) and linked → collapsed to
+  one row "Barbell Bench Press + 2 others · 3 exercises" at the top position;
+  Arnold remained standalone.
+- Superset detail Sheet: dragged a member to the top → order persisted across a
+  reload (collapsed label followed the new first member).
+- Link mode 6-member cap: selecting a 6th held selection at 5 and showed the
+  toast "A superset can hold at most 5 exercises." (once, after the purity fix).
+- Dragged the collapsed superset (press-hold on the 3-dot, honoring the delay
+  sensor) to the bottom → moved as a unit, 3 members intact, persisted on reload.
+- Unlinked → the 3 members returned as standalone rows at the former position in
+  prior internal order; no group remained.
+- Added a note via 3-dot → Add note → it renders as a muted italic line below the
+  name (Arnold Press: "Focus on the negative") and persists across reload.
+- Deleted the template → redirected to /workouts/templates, template gone.
+- Per-user ordering is covered by backend tests: test_list_exercises_recent_is_
+  per_user (new) and the existing test_templates_are_shared_ordering_is_personal.
+- Gates: cd web && npx tsc --noEmit clean; eslint clean on touched files;
+  make test 229 passed (+1); ruff clean.
+
+LEFT / NEXT
+- workouts-003 (session logging UX) is the natural next feature; it consumes
+  these templates (start a session from a template, ghost-value prefill). 004
+  (progress charts) and 005 (calendar, being built in parallel) follow.
+- The template detail is a route + Sheets (not nested [id]/[groupId] routes) to
+  stay simple under the Tauri static export; useSegmentId(2) + generateStaticParams
+  keep it desktop-safe. Not yet exercised in an actual Tauri build.

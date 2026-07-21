@@ -1077,7 +1077,7 @@
         "3-dot on superset → 'Unlink superset' — verify both exercises return as standalone rows at the superset's former position",
         "Add a note to an exercise via the 3-dot menu — verify it appears as a muted line below the exercise name in the list"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "workouts-003",
