@@ -153,6 +153,26 @@ async def get_exercise(
     return _exercise_response(ex) if ex else None
 
 
+async def find_exercise_by_name(
+    db: AsyncSession, household_id: uuid.UUID, name: str
+) -> Exercise | None:
+    """Case-insensitive exact-name lookup across the rows this household can
+    see. Used by the MCP surface so an agent can reference an exercise by name
+    rather than UUID (mirrors ``templates_service.find_template_by_name``)."""
+    norm = normalize_name(name)
+    if not norm:
+        return None
+    return (
+        await db.execute(
+            select(Exercise).where(
+                _visible_clause(household_id),
+                Exercise.archived_at.is_(None),
+                func.lower(func.trim(Exercise.name)) == norm,
+            )
+        )
+    ).scalars().first()
+
+
 async def _load_visible(
     db: AsyncSession, exercise_id: uuid.UUID, household_id: uuid.UUID
 ) -> Exercise | None:

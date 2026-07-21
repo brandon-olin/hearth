@@ -308,6 +308,8 @@ async def test_no_tools_for_budget_documents_or_notes():
         "list_workout_templates",
         "create_workout_template",
         "log_workout_session",
+        # workouts (workouts-004)
+        "get_exercise_progress",
     }
     # Sensitive domains are unreachable — no read *or* write tool touches them.
     for forbidden in ("budget", "document", "note"):

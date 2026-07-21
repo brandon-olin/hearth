@@ -16,7 +16,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { Plus, X, Loader2, Dumbbell, Trash2, Check, AlertCircle, ClipboardList } from "lucide-react";
+import { Plus, X, Loader2, Dumbbell, Trash2, Check, AlertCircle, ClipboardList, TrendingUp } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
 type SessionSummary  = components["schemas"]["WorkoutSessionResponse"];
@@ -718,6 +718,12 @@ export default function WorkoutsPage() {
           <h1 className="text-xl font-semibold">Workouts</h1>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/workouts/progress"
+            className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "text-muted-foreground")}
+          >
+            <TrendingUp className="h-4 w-4 mr-1" /> Progress
+          </Link>
           <Link
             href="/workouts/templates"
             className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "text-muted-foreground")}

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -274,3 +274,60 @@ class WorkoutSessionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# ══ workouts-004: per-exercise progress ════════════════════════════════════════
+# Read-only projections over the same first-class sets. Every derived number the
+# charts show (estimated 1RM, volume, max weight) is computed by the client from
+# this payload and NEVER stored — see progress_service for the scoping rules.
+
+
+class ProgressSet(BaseModel):
+    """One working set as it feeds the progress charts.
+
+    Warmup sets never reach this schema — they are excluded from every
+    calculation, so they are excluded from the payload. ``is_warmup`` is
+    therefore always ``False``; it is carried anyway so a client can assert it.
+    """
+
+    reps: int | None
+    weight: float | None
+    is_warmup: bool
+    #: Planned reps. NULL means no target was set — that is NOT a failed set.
+    target_reps: int | None
+
+
+class ProgressSession(BaseModel):
+    """One session's working sets for a single exercise."""
+
+    session_id: uuid.UUID
+    #: UTC calendar date of ``started_at`` (sessions are anchored at noon UTC).
+    session_date: date
+    sets: list[ProgressSet]
+
+
+class ExerciseProgressResponse(BaseModel):
+    exercise: ExerciseResponse
+    #: The most recent ``limit`` sessions, ordered OLDEST to NEWEST.
+    sessions: list[ProgressSession]
+
+
+class ProgressExerciseSummary(BaseModel):
+    """A row in the progress list: one exercise this member has logged enough
+    times to have a trend."""
+
+    exercise_id: uuid.UUID
+    name: str
+    tracking_type: str
+    session_count: int
+    last_logged_at: datetime
+    #: True when no logged working set carried a weight — the client shows the
+    #: reps chart only, never an empty weight chart.
+    is_bodyweight: bool
+    #: Heaviest working set per session over the last few sessions, oldest to
+    #: newest (max reps instead, for bodyweight exercises).
+    sparkline: list[float]
+
+
+class ProgressExerciseListResponse(BaseModel):
+    items: list[ProgressExerciseSummary]

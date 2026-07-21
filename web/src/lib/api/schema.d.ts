@@ -2107,6 +2107,40 @@ export interface paths {
         patch: operations["update_exercise_workouts_exercises__exercise_id__patch"];
         trace?: never;
     };
+    "/workouts/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Progress Exercises */
+        get: operations["list_progress_exercises_workouts_progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/progress/{exercise_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exercise Progress */
+        get: operations["get_exercise_progress_workouts_progress__exercise_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workouts/templates": {
         parameters: {
             query?: never;
@@ -5378,6 +5412,12 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** ExerciseProgressResponse */
+        ExerciseProgressResponse: {
+            exercise: components["schemas"]["ExerciseResponse"];
+            /** Sessions */
+            sessions: components["schemas"]["ProgressSession"][];
+        };
         /** ExerciseResponse */
         ExerciseResponse: {
             /**
@@ -6710,6 +6750,74 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** ProgressExerciseListResponse */
+        ProgressExerciseListResponse: {
+            /** Items */
+            items: components["schemas"]["ProgressExerciseSummary"][];
+        };
+        /**
+         * ProgressExerciseSummary
+         * @description A row in the progress list: one exercise this member has logged enough
+         *     times to have a trend.
+         */
+        ProgressExerciseSummary: {
+            /**
+             * Exercise Id
+             * Format: uuid
+             */
+            exercise_id: string;
+            /** Name */
+            name: string;
+            /** Tracking Type */
+            tracking_type: string;
+            /** Session Count */
+            session_count: number;
+            /**
+             * Last Logged At
+             * Format: date-time
+             */
+            last_logged_at: string;
+            /** Is Bodyweight */
+            is_bodyweight: boolean;
+            /** Sparkline */
+            sparkline: number[];
+        };
+        /**
+         * ProgressSession
+         * @description One session's working sets for a single exercise.
+         */
+        ProgressSession: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Session Date
+             * Format: date
+             */
+            session_date: string;
+            /** Sets */
+            sets: components["schemas"]["ProgressSet"][];
+        };
+        /**
+         * ProgressSet
+         * @description One working set as it feeds the progress charts.
+         *
+         *     Warmup sets never reach this schema — they are excluded from every
+         *     calculation, so they are excluded from the payload. ``is_warmup`` is
+         *     therefore always ``False``; it is carried anyway so a client can assert it.
+         */
+        ProgressSet: {
+            /** Reps */
+            reps: number | null;
+            /** Weight */
+            weight: number | null;
+            /** Is Warmup */
+            is_warmup: boolean;
+            /** Target Reps */
+            target_reps: number | null;
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -12985,6 +13093,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExerciseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_progress_exercises_workouts_progress_get: {
+        parameters: {
+            query?: {
+                /** @description Only list exercises YOU have logged in at least this many sessions. */
+                min_sessions?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressExerciseListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exercise_progress_workouts_progress__exercise_id__get: {
+        parameters: {
+            query?: {
+                /** @description How many of the most recent sessions to return. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                exercise_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExerciseProgressResponse"];
                 };
             };
             /** @description Validation Error */

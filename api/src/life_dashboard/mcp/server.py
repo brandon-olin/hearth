@@ -33,7 +33,12 @@ from life_dashboard.domains.grocery_lists.schemas import GroceryItemAdd
 from life_dashboard.domains.habits import service as habits_service
 from life_dashboard.domains.todos import service as todos_service
 from life_dashboard.domains.todos.schemas import TodoCreate
-from life_dashboard.domains.workouts import exercises_service, sessions_service, templates_service
+from life_dashboard.domains.workouts import (
+    exercises_service,
+    progress_service,
+    sessions_service,
+    templates_service,
+)
 from life_dashboard.domains.workouts.schemas import (
     ExerciseCreate,
     TemplateExerciseCreate,
@@ -489,6 +494,49 @@ async def log_workout_session(
             },
         )
     return session.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def get_exercise_progress(
+    ctx: Context,
+    exercise: str,
+    limit: int = 20,
+) -> dict:
+    """Return how THIS member's performance on one exercise has changed over
+    time — the same personal history the Progress tab charts.
+
+    `exercise` is an exercise NAME (not an ID), matched case-insensitively
+    against the catalog; use list_exercises to see valid names. `limit` caps how
+    many of the most recent sessions come back (default 20, max 200).
+
+    Sessions are ordered OLDEST to NEWEST, each with its `session_date` and the
+    working sets logged that day (`reps`, `weight`, `target_reps`). Warmup sets
+    are excluded, as are sets with nothing logged — so timed and cardio
+    movements (tracking_type "duration" or "distance") return no sessions here.
+
+    Nothing is precomputed: derive trends from the sets. Volume is
+    sum(weight × reps); estimated 1RM is the Epley formula, weight × (1 +
+    reps / 30), and is only meaningful for sets of 10 reps or fewer. A set whose
+    `reps` is below its `target_reps` was a failed set; a NULL `target_reps` is
+    not a failure. A NULL `weight` throughout means a bodyweight exercise —
+    track reps instead.
+
+    Another household member's sessions are never included: workout history is
+    personal even though the exercise catalog is shared."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts")
+        found = await exercises_service.find_exercise_by_name(
+            db, ident.household_id, exercise
+        )
+        if found is None:
+            raise MCPAuthError(
+                f"No exercise named {exercise!r}. Use list_exercises to see "
+                "available names."
+            )
+        result = await progress_service.get_exercise_progress(
+            db, found.id, ident.household_id, ident.user_id, limit=min(limit, 200)
+        )
+    return result.model_dump(mode="json")
 
 
 def mcp_routes():

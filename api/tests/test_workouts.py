@@ -8,6 +8,7 @@ catalog via ``ensure_global_exercises`` (the migration's data step does not run
 on the create_all path).
 """
 import uuid
+from datetime import date, datetime
 
 import pytest
 import pytest_asyncio
@@ -15,6 +16,7 @@ import pytest_asyncio
 from life_dashboard.auth.models import Household, HouseholdMembership, MembershipRole, User
 from life_dashboard.domains.workouts import (
     exercises_service,
+    progress_service,
     sessions_service,
     templates_service,
 )
@@ -471,3 +473,206 @@ async def test_deleting_template_preserves_session_history(db_session, household
     assert len(detail.exercises) == 1
     assert detail.exercises[0].template_exercise_id is None
     assert len(detail.exercises[0].sets) == 2
+
+
+# ── Progress tracking (workouts-004) ──────────────────────────────────────────
+#
+# The endpoint returns a raw time-series; every derived number (max weight,
+# Epley 1RM, volume) is computed client-side. These tests therefore assert on
+# the payload the charts are built from — including the exclusions that make
+# those numbers correct.
+
+
+async def _log(db_session, hid, uid, exercise_id, day, sets, name=None):
+    """Log one session for `uid` on `day` (a day-of-July-2026 int)."""
+    return await sessions_service.create_session(
+        db_session, hid, uid,
+        WorkoutSessionCreate(
+            name=name,
+            started_at=datetime(2026, 7, day, 12, 0, 0),
+            exercises=[SessionExerciseCreate(exercise_id=exercise_id, sets=sets)],
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_progress_series_is_oldest_to_newest_and_excludes_warmups(
+    db_session, household
+):
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    # Logged out of order so the ordering assertion means something.
+    await _log(db_session, hid, uid, ex[0], 10, [
+        WorkoutSetCreate(reps=10, weight=45, is_warmup=True),   # warmup — excluded
+        WorkoutSetCreate(reps=8, weight=135),
+        WorkoutSetCreate(reps=8, weight=135),
+    ])
+    await _log(db_session, hid, uid, ex[0], 3, [
+        WorkoutSetCreate(reps=5, weight=125),
+    ])
+    await _log(db_session, hid, uid, ex[0], 17, [
+        WorkoutSetCreate(reps=6, weight=145),
+    ])
+
+    progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, uid)
+    assert progress is not None
+    assert [s.session_date for s in progress.sessions] == [
+        date(2026, 7, 3), date(2026, 7, 10), date(2026, 7, 17)
+    ]
+    # The warmup set is absent from the payload entirely — not merely flagged.
+    middle = progress.sessions[1]
+    assert len(middle.sets) == 2
+    assert all(s.is_warmup is False for s in middle.sets)
+    assert all(s.weight == 135 for s in middle.sets)
+    # Volume for that session (warmup excluded) is 2 × 135 × 8.
+    assert sum(s.weight * s.reps for s in middle.sets) == 2160
+    # Epley on the heaviest set of the last session: 145 × (1 + 6/30) = 174.
+    last = progress.sessions[-1].sets[0]
+    assert last.weight * (1 + last.reps / 30) == pytest.approx(174.0)
+
+
+@pytest.mark.asyncio
+async def test_progress_never_includes_another_members_sets(db_session, household):
+    """Progress history is PERSONAL even though the exercise catalog is SHARED.
+    Bob training the same catalog exercise must never appear in Alice's charts,
+    and the filter must be server-side — not a discard in the client."""
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+
+    await _log(db_session, hid, alice, ex[0], 1, [WorkoutSetCreate(reps=5, weight=100)])
+    await _log(db_session, hid, alice, ex[0], 8, [WorkoutSetCreate(reps=5, weight=105)])
+    # Bob, same household, same shared exercise, wildly different numbers.
+    await _log(db_session, hid, bob, ex[0], 2, [WorkoutSetCreate(reps=5, weight=315)])
+    await _log(db_session, hid, bob, ex[0], 9, [WorkoutSetCreate(reps=5, weight=325)])
+
+    alice_progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, alice)
+    assert alice_progress is not None
+    assert len(alice_progress.sessions) == 2
+    alice_weights = [s.weight for sess in alice_progress.sessions for s in sess.sets]
+    assert alice_weights == [100, 105]
+    assert 315 not in alice_weights and 325 not in alice_weights
+    assert [s.session_date for s in alice_progress.sessions] == [
+        date(2026, 7, 1), date(2026, 7, 8)
+    ]
+
+    # And symmetrically: Bob sees only his own.
+    bob_progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, bob)
+    assert bob_progress is not None
+    assert [s.weight for sess in bob_progress.sessions for s in sess.sets] == [315, 325]
+
+    # The list of "exercises logged in at least 2 sessions" is per-user too:
+    # Alice's row counts her 2 sessions, not the household's 4.
+    alice_list = await progress_service.list_progress_exercises(db_session, hid, alice)
+    assert [i.exercise_id for i in alice_list.items] == [ex[0]]
+    assert alice_list.items[0].session_count == 2
+    assert alice_list.items[0].sparkline == [100.0, 105.0]
+
+
+@pytest.mark.asyncio
+async def test_progress_list_requires_two_sessions_and_sorts_by_recency(
+    db_session, household
+):
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    # ex[0]: two sessions, the older one. ex[1]: one session only.
+    await _log(db_session, hid, uid, ex[0], 1, [WorkoutSetCreate(reps=5, weight=100)])
+    await _log(db_session, hid, uid, ex[0], 4, [WorkoutSetCreate(reps=5, weight=110)])
+    await _log(db_session, hid, uid, ex[1], 20, [WorkoutSetCreate(reps=5, weight=50)])
+    # ex[2]: two sessions, the most recent.
+    await _log(db_session, hid, uid, ex[2], 5, [WorkoutSetCreate(reps=12, weight=30)])
+    await _log(db_session, hid, uid, ex[2], 21, [WorkoutSetCreate(reps=12, weight=35)])
+
+    listing = await progress_service.list_progress_exercises(db_session, hid, uid)
+    ids = [i.exercise_id for i in listing.items]
+    # One-session exercises are absent; most recently logged sorts first.
+    assert ex[1] not in ids
+    assert ids == [ex[2], ex[0]]
+
+
+@pytest.mark.asyncio
+async def test_progress_bodyweight_exercise_reports_null_weights(db_session, household):
+    """weight IS NULL throughout ⇒ is_bodyweight, and the sparkline tracks reps
+    so the client can render the reps chart instead of an empty weight chart."""
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    await _log(db_session, hid, uid, ex[0], 2, [WorkoutSetCreate(reps=8), WorkoutSetCreate(reps=7)])
+    await _log(db_session, hid, uid, ex[0], 9,
+               [WorkoutSetCreate(reps=10), WorkoutSetCreate(reps=9)])
+
+    progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, uid)
+    assert progress is not None
+    assert all(s.weight is None for sess in progress.sessions for s in sess.sets)
+    assert [s.reps for sess in progress.sessions for s in sess.sets] == [8, 7, 10, 9]
+
+    row = (await progress_service.list_progress_exercises(db_session, hid, uid)).items[0]
+    assert row.is_bodyweight is True
+    assert row.sparkline == [8.0, 10.0]  # max reps per session, oldest → newest
+
+
+@pytest.mark.asyncio
+async def test_progress_carries_target_reps_for_failure_detection(db_session, household):
+    """A logged rep count below target_reps is a failed set; a NULL target is
+    not a failure. The endpoint carries both so the client can mark the ✗."""
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    await _log(db_session, hid, uid, ex[0], 1, [
+        WorkoutSetCreate(reps=8, target_reps=8, weight=100),   # hit target
+    ])
+    await _log(db_session, hid, uid, ex[0], 8, [
+        WorkoutSetCreate(reps=5, target_reps=8, weight=105),   # FAILED
+    ])
+    await _log(db_session, hid, uid, ex[0], 15, [
+        WorkoutSetCreate(reps=3, weight=110),                  # no target — not a failure
+    ])
+
+    progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, uid)
+    assert progress is not None
+    failed = [
+        any(s.target_reps is not None and s.reps is not None and s.reps < s.target_reps
+            for s in sess.sets)
+        for sess in progress.sessions
+    ]
+    assert failed == [False, True, False]
+
+
+@pytest.mark.asyncio
+async def test_progress_limit_returns_the_most_recent_sessions(db_session, household):
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    for day in range(1, 6):
+        await _log(db_session, hid, uid, ex[0], day, [WorkoutSetCreate(reps=5, weight=100 + day)])
+
+    progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, uid, limit=3)
+    assert progress is not None
+    # Newest three, still handed back oldest-first.
+    assert [s.session_date for s in progress.sessions] == [
+        date(2026, 7, 3), date(2026, 7, 4), date(2026, 7, 5)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_progress_warmup_only_session_is_not_a_session(db_session, household):
+    """Warmup sets are excluded from every calculation — a session with nothing
+    but warmups contributes no data point, so it cannot lift an exercise over
+    the two-session threshold."""
+    hid, uid = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    await _log(db_session, hid, uid, ex[0], 1, [WorkoutSetCreate(reps=5, weight=100)])
+    await _log(db_session, hid, uid, ex[0], 8,
+               [WorkoutSetCreate(reps=10, weight=45, is_warmup=True)])
+
+    progress = await progress_service.get_exercise_progress(db_session, ex[0], hid, uid)
+    assert progress is not None
+    assert len(progress.sessions) == 1
+    assert progress.sessions[0].session_date == date(2026, 7, 1)
+    # Only one real session ⇒ below the threshold, absent from the list.
+    listing = await progress_service.list_progress_exercises(db_session, hid, uid)
+    assert listing.items == []
+
+
+@pytest.mark.asyncio
+async def test_progress_unknown_exercise_returns_none(db_session, household):
+    hid, uid = household["hid"], household["alice"]
+    assert await progress_service.get_exercise_progress(
+        db_session, uuid.uuid4(), hid, uid
+    ) is None

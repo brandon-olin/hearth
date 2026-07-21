@@ -26,14 +26,17 @@ from life_dashboard.auth.models import User
 from life_dashboard.core.database import get_db
 from life_dashboard.domains.workouts import (
     exercises_service,
+    progress_service,
     sessions_service,
     templates_service,
 )
 from life_dashboard.domains.workouts.schemas import (
     ExerciseCreate,
     ExerciseListResponse,
+    ExerciseProgressResponse,
     ExerciseResponse,
     ExerciseUpdate,
+    ProgressExerciseListResponse,
     SessionExerciseCreate,
     SessionExerciseResponse,
     TemplateExerciseCreate,
@@ -136,6 +139,49 @@ async def delete_exercise(
     )
     if not ok:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
+
+
+# ── Progress (workouts-004) ──────────────────────────────────────────────────
+#
+# Declared before the ``/templates`` and ``/sessions`` groups purely for
+# readability — the paths are distinct, so ordering carries no routing meaning
+# here. Both reads are PERSONAL: the service filters created_by_user_id, so a
+# second household member's sets can never reach this response.
+
+@router.get("/progress", response_model=ProgressExerciseListResponse)
+async def list_progress_exercises(
+    min_sessions: int = Query(
+        default=progress_service.MIN_SESSIONS,
+        ge=1,
+        le=50,
+        description="Only list exercises YOU have logged in at least this many sessions.",
+    ),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProgressExerciseListResponse:
+    return await progress_service.list_progress_exercises(
+        db, current_user.household_id, current_user.id,
+        min_sessions=min_sessions, limit=limit,
+    )
+
+
+@router.get("/progress/{exercise_id}", response_model=ExerciseProgressResponse)
+async def get_exercise_progress(
+    exercise_id: uuid.UUID,
+    limit: int = Query(
+        default=20, ge=1, le=200,
+        description="How many of the most recent sessions to return.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExerciseProgressResponse:
+    progress = await progress_service.get_exercise_progress(
+        db, exercise_id, current_user.household_id, current_user.id, limit=limit
+    )
+    if progress is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return progress
 
 
 # ── Templates ────────────────────────────────────────────────────────────────
