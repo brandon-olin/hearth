@@ -16,6 +16,7 @@ from life_dashboard.domains.grocery_lists.schemas import (
     GroceryListResponse,
     GroceryListUpdate,
 )
+from life_dashboard.events import semantic
 
 # ── Child loaders ─────────────────────────────────────────────────────────────
 
@@ -193,17 +194,39 @@ async def update_grocery_item(
     if item is None:
         return None
 
-    # Verify the parent list belongs to this household.
-    owned = (await db.execute(
-        select(GroceryList.id).where(
+    # Verify the parent list belongs to this household. Loaded in full because
+    # the check-off event below inherits its household_id and visibility.
+    parent = (await db.execute(
+        select(GroceryList).where(
             GroceryList.id == list_id, GroceryList.household_id == household_id
         )
     )).scalar_one_or_none()
-    if owned is None:
+    if parent is None:
         return None
+
+    was_checked = item.is_checked
 
     for field in data.model_fields_set:
         setattr(item, field, getattr(data, field))
+
+    # Only the un-checked → checked transition is an event; re-checking an
+    # already-checked item (a double-tap, a retried PATCH) emits nothing.
+    if item.is_checked and not was_checked:
+        semantic.record(
+            db,
+            event="grocery.item_checked",
+            entity_type="grocery_item",
+            entity_id=item.id,
+            descriptor_from=parent,
+            summary={
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "category": item.category,
+                "list_id": parent.id,
+                "list_name": parent.name,
+            },
+        )
 
     await db.commit()
     await db.refresh(item)
@@ -225,16 +248,37 @@ async def add_grocery_item(
 
     Returns None if the list doesn't exist in this household (→ 404).
     """
-    owned = (await db.execute(
-        select(GroceryList.id).where(
+    # The whole row, not just the id: grocery_items carries no household_id or
+    # visibility of its own, so the semantic event below has to borrow the
+    # parent list's descriptor (see events/semantic.py).
+    parent = (await db.execute(
+        select(GroceryList).where(
             GroceryList.id == list_id, GroceryList.household_id == household_id
         )
     )).scalar_one_or_none()
-    if owned is None:
+    if parent is None:
         return None
 
     item = GroceryItem(list_id=list_id, **data.model_dump())
     db.add(item)
+    await db.flush()  # get item.id before the event names it
+
+    semantic.record(
+        db,
+        event="grocery.item_added",
+        entity_type="grocery_item",
+        entity_id=item.id,
+        descriptor_from=parent,
+        summary={
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "category": item.category,
+            "list_id": parent.id,
+            "list_name": parent.name,
+        },
+    )
+
     await db.commit()
     await db.refresh(item)
     return GroceryItemResponse.model_validate(item)

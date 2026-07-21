@@ -22,6 +22,12 @@ transaction (and does emit); where a child-only write must invalidate a parent
 view, the follow-up is either to add the parent to that write or to publish an
 explicit event for it. The universal producer here intentionally stays
 zero-configuration for the 25 household-scoped parent tables.
+
+Semantic events (webhook-001) ride the same two listeners: domain services queue
+them on ``session.info`` under their own key (events/semantic.py) and they are
+published here, alongside the invalidations, once the transaction is durable.
+This file owns the *timing* for both kinds; nothing about the invalidation
+producer changes.
 """
 from __future__ import annotations
 
@@ -31,7 +37,8 @@ import uuid
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from life_dashboard.events.bus import InvalidationEvent, bus
+from life_dashboard.events.bus import InvalidationEvent, SemanticEvent, bus
+from life_dashboard.events.semantic import SEMANTIC_PENDING_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +101,17 @@ def _capture_changes(session: Session, flush_context) -> None:
 
 @event.listens_for(Session, "after_commit")
 def _publish_changes(session: Session) -> None:
-    """Publish the pending descriptors captured during this transaction.
+    """Publish everything captured during this transaction, now it is durable.
 
-    De-duplicates by (entity_type, entity_id) keeping the last action seen, so a
-    create-then-update in one transaction emits a single event. Never raises —
-    invalidation is best-effort and must not break the committed write."""
+    Invalidations de-duplicate by (entity_type, entity_id) keeping the last
+    action seen, so a create-then-update in one transaction emits a single
+    event. Semantic events are NOT de-duplicated: each one is a distinct thing
+    that happened, and a receiver dedupes on the delivery id instead.
+
+    Never raises — publication is best-effort and must not break the committed
+    write."""
     pending: list[InvalidationEvent] = session.info.pop(_PENDING_KEY, [])
-    if not pending:
-        return
+    semantic: list[SemanticEvent] = session.info.pop(SEMANTIC_PENDING_KEY, [])
 
     deduped: dict[tuple[str, uuid.UUID], InvalidationEvent] = {}
     for ev in pending:
@@ -118,9 +128,25 @@ def _publish_changes(session: Session) -> None:
                 exc_info=True,
             )
 
+    for sev in semantic:
+        try:
+            bus.publish_semantic(sev)
+        except Exception:  # noqa: BLE001 — telemetry must never break a write
+            logger.warning(
+                "Failed to publish semantic event %s for %s/%s",
+                sev.event,
+                sev.entity_type,
+                sev.entity_id,
+                exc_info=True,
+            )
+
 
 @event.listens_for(Session, "after_rollback")
 @event.listens_for(Session, "after_soft_rollback")
 def _discard_changes(session: Session, *args) -> None:
-    """Drop captured descriptors on rollback — the changes never happened."""
+    """Drop captured descriptors on rollback — the changes never happened.
+
+    Covers both kinds: a semantic event queued in a transaction that then rolls
+    back must never reach a webhook receiver."""
     session.info.pop(_PENDING_KEY, None)
+    session.info.pop(SEMANTIC_PENDING_KEY, None)

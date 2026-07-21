@@ -163,6 +163,53 @@ Apply this pattern anywhere you compare a DB datetime to an aware datetime to av
 
 ---
 
+## Events — invalidations vs semantic events
+
+Two kinds of event leave a service function, and they are produced very differently.
+
+**Invalidations are automatic.** `events/emit.py` sweeps every household-scoped row touched
+in a transaction and publishes `InvalidationEvent(entity_type=<tablename>, action=…)` after
+commit. No domain code calls it, and no domain code should change it — it feeds the SSE
+stream, so breaking it breaks live UI on every page.
+
+**Semantic events are explicit.** A named event (`todo.completed`) is a *meaning*, which the
+universal producer cannot infer — it deliberately discards which fields moved. Emit one from
+the service function, after the row exists and before the commit:
+
+```python
+from life_dashboard.events import semantic
+
+await db.flush()                       # entity_id must be real
+semantic.record(
+    db,
+    event="todo.completed",            # must exist in webhooks/summaries.py
+    entity_type="todo",
+    entity_id=todo.id,
+    descriptor_from=todo,              # supplies household_id + visibility
+    summary={"title": todo.title, "status": todo.status},
+)
+```
+
+Rules that are load-bearing, not stylistic:
+
+- **Gate on the transition, not the request.** Emit only when the state actually changed
+  (`prev_status != "done" and data.status == "done"`), so a double-tap or retried PATCH
+  emits once. Idempotent writes must have idempotent events.
+- **Child tables borrow their parent's descriptor.** `grocery_items` and
+  `habit_occurrences` have no `household_id` or visibility of their own, so pass the parent
+  row as `descriptor_from` — the service function is the only layer that knows it. Load the
+  whole parent row, not just its id.
+- **The summary is a proposal, not the payload.** `webhooks/summaries.py` holds the one
+  per-event allowlist and the delivery worker filters through it before signing. Adding a
+  field to a summary here changes nothing on the wire until it is added there too — which
+  is the point.
+- **Scope lives in one function.** `events/scope.py can_see` filters both event kinds. Never
+  add a second visibility check; a new filter may only narrow what it already allows.
+- Rollback safety is inherited: a queued event on a transaction that rolls back is dropped
+  by the existing listener. Never publish to the bus directly from a service function.
+
+---
+
 ## JSONB fields
 
 JSONB columns store flexible structured data without requiring migrations for sub-field changes. Typed as `dict[str, Any] | None` (SQLAlchemy `JSON` column type) in models, and as `dict[str, Any] | None` in Pydantic schemas.

@@ -12,6 +12,7 @@ from life_dashboard.domains.calendar_events.schemas import (
     CalendarEventUpdate,
 )
 from life_dashboard.domains.notifications import service as notifications
+from life_dashboard.events import semantic
 
 
 async def create_event(
@@ -45,6 +46,24 @@ async def create_event(
     )
     db.add(event)
     await db.flush()  # get event.id before committing
+
+    # calendar_events has no VisibilityMixin — every household member sees every
+    # event — so this carries the default "household" descriptor.
+    semantic.record(
+        db,
+        event="calendar.event_created",
+        entity_type="calendar_event",
+        entity_id=event.id,
+        household_id=household_id,
+        descriptor_from=event,
+        summary={
+            "title": event.title,
+            "location": event.location,
+            "starts_at": event.starts_at,
+            "ends_at": event.ends_at,
+            "all_day": event.all_day,
+        },
+    )
 
     # Notify all other household members that a new event was added.
     # Skip external-sync events (source is set) to avoid flooding the feed

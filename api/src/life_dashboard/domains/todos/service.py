@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from life_dashboard.core.visibility import apply_visibility_filter
 from life_dashboard.domains.notifications import service as notifications
 from life_dashboard.domains.todos.models import Todo
+from life_dashboard.events import semantic
 from life_dashboard.domains.todos.schemas import (
     TodoCreate,
     TodoListResponse,
@@ -107,6 +108,20 @@ async def create_todo(
     )
     db.add(todo)
     await db.flush()  # get todo.id before committing
+
+    semantic.record(
+        db,
+        event="todo.created",
+        entity_type="todo",
+        entity_id=todo.id,
+        descriptor_from=todo,
+        summary={
+            "title": todo.title,
+            "status": todo.status,
+            "priority": todo.priority,
+            "due_date": todo.due_date,
+        },
+    )
 
     # Notify the assignee when a todo is created already assigned to someone.
     if todo.assigned_to_user_id is not None:
@@ -249,15 +264,34 @@ async def update_todo(
 
     todo.updated_at = datetime.now(tz=timezone.utc)
 
+    # A completion is a real domain event, unlike the bare "todos row updated"
+    # the universal producer emits — gated on the same pending → done transition
+    # as the recurrence spawn below, so a repeated done PATCH emits once.
+    completed_now = (
+        "status" in data.model_fields_set
+        and data.status == "done"
+        and prev_status != "done"
+    )
+    if completed_now:
+        semantic.record(
+            db,
+            event="todo.completed",
+            entity_type="todo",
+            entity_id=todo.id,
+            descriptor_from=todo,
+            summary={
+                "title": todo.title,
+                "status": todo.status,
+                "priority": todo.priority,
+                "due_date": todo.due_date,
+                "completed_at": todo.completed_at,
+            },
+        )
+
     # Auto-spawn the next instance when a recurring todo is completed.
     # The completed todo is preserved as history; a fresh pending copy is created.
     next_todo: Todo | None = None
-    if (
-        "status" in data.model_fields_set
-        and data.status == "done"
-        and prev_status != "done"  # only on a real pending → done transition
-        and todo.recurring
-    ):
+    if completed_now and todo.recurring:
         rule = todo.recurring
         base = todo.due_date or date.today()
         next_due = _next_due_date(base, rule)

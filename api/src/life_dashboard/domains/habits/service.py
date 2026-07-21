@@ -17,6 +17,7 @@ from life_dashboard.domains.habits.schemas import (
     OccurrenceResponse,
     OccurrenceUpdate,
 )
+from life_dashboard.events import semantic
 
 
 def _habit_response(habit: Habit) -> HabitResponse:
@@ -421,6 +422,26 @@ async def get_habit_by_name(
     return (await db.execute(query.limit(1))).scalar_one_or_none()
 
 
+def _record_check_in(db: AsyncSession, habit: Habit, occ: HabitOccurrence) -> None:
+    """Queue the habit.checked_in semantic event for this occurrence.
+
+    Called from both check-in paths (a fresh occurrence and an existing pending
+    one being completed) so the two cannot drift."""
+    semantic.record(
+        db,
+        event="habit.checked_in",
+        entity_type="habit_occurrence",
+        entity_id=occ.id,
+        descriptor_from=habit,
+        summary={
+            "habit_id": habit.id,
+            "habit_name": habit.name,
+            "scheduled_date": occ.scheduled_date,
+            "completed_at": occ.completed_at,
+        },
+    )
+
+
 async def check_in_habit(
     db: AsyncSession,
     habit_id: uuid.UUID,
@@ -442,16 +463,19 @@ async def check_in_habit(
     habit is not in this household or not visible to the caller. ``created`` is
     False when an occurrence for that date already existed.
     """
-    visible = (await db.execute(
+    # The whole habit row, not just its id: habit_occurrences carries no
+    # household_id or visibility, so the check-in event borrows the parent
+    # habit's descriptor (see events/semantic.py).
+    habit = (await db.execute(
         apply_visibility_filter(
-            select(Habit.id).where(
+            select(Habit).where(
                 Habit.id == habit_id, Habit.household_id == household_id
             ),
             Habit,
             user_id,
         )
     )).scalar_one_or_none()
-    if visible is None:
+    if habit is None:
         return None, False
 
     now = datetime.now(timezone.utc)
@@ -466,9 +490,12 @@ async def check_in_habit(
     )).scalar_one_or_none()
 
     if existing is not None:
+        # Only a real pending → completed transition is an event. A repeated
+        # check-in of an already-completed day is a no-op and emits nothing.
         if existing.status != "completed":
             existing.status = "completed"
             existing.completed_at = now
+            _record_check_in(db, habit, existing)
         await db.commit()
         await db.refresh(existing)
         return _occurrence_response(existing), False
@@ -480,6 +507,8 @@ async def check_in_habit(
         completed_at=now,
     )
     db.add(occ)
+    await db.flush()  # get occ.id before the event names it
+    _record_check_in(db, habit, occ)
     await db.commit()
     await db.refresh(occ)
     return _occurrence_response(occ), True
