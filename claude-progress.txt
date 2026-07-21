@@ -5839,3 +5839,56 @@ What was left / notes for next time:
 
 Recommended next feature: onboarding-003 (per-section empty states and
 first-visit hints), which completes the Onboarding category.
+
+=== 2026-07-21 — Verification session (subscription-001) ===
+
+Worked on: subscription-001 (Subscription tier tracking — schema stubs for
+Stripe integration). Status: complete — closed as passing. No code changes;
+this was a verification pass, like email-001 before it.
+
+Commits this session: one closeout commit (feature_list.json +
+claude-progress.txt only).
+
+What was done:
+* Replayed the full migration history (0001..head) onto a throwaway Postgres DB
+  the way Railway's preDeployCommand does, then read the real column types out
+  of information_schema rather than trusting the models:
+    subscription_status  varchar(20)  NOT NULL  DEFAULT 'free'
+    stripe_customer_id   text         NULL
+    is_exempt            boolean      NOT NULL  DEFAULT false
+  A fresh INSERT INTO households (name) defaults to free / false, and
+  is_exempt survives an UPDATE — steps 1–3 of the entry, done against a
+  migration-built DB rather than a create_all() one.
+* Confirmed production returns deployment_tier=cloud: GET
+  https://hearth.zone/api/app/config → {"deployment_tier":"cloud",
+  "email_enabled":true}. That is step 4, and it corroborates email-001's
+  closure (email_enabled is only true when the tier is cloud).
+* Confirmed settings.deployment_tier (local | self_hosted | cloud, default
+  local) exists and is a live gate: /app/config, the OAuth metadata document
+  (404s off cloud), PAT rate limiting, forgot-password, the invite flow, and
+  the webhook SSRF policy all branch on it.
+* Grepped the whole API for readers of subscription_status / stripe_customer_id
+  / is_exempt: there are none outside auth/models.py. That is the correct state
+  for this entry, which says in its own text that checkout, the webhook handler
+  and feature gating are not built. There is no subscription check that could
+  fail to honour is_exempt, because there is no subscription check.
+
+Verification: make test → 492 passed. No source files touched, so no ruff/tsc
+delta.
+
+What was left / notes for next time:
+* is_exempt and the tier gate are inert until enforcement exists. Whichever
+  entry builds Stripe checkout + the webhook handler owns making them real, and
+  should carry a test that is_exempt=true bypasses the check and that the check
+  is a no-op on local/self_hosted.
+* subscription_status has no CHECK constraint — the five-value set
+  (free|trialing|active|past_due|canceled) lives in a comment on the model and
+  in migration 0039's docstring. ADR-015 moved the enum columns to VARCHAR +
+  CHECK; this column never had a native enum, so it was not part of that sweep.
+  The entry that starts writing the column should add the constraint.
+* No Stripe entries exist in feature_list.json yet. Checkout, the webhook
+  handler, and feature gating each want their own.
+
+Recommended next feature: onboarding-003 (per-section empty states and
+first-visit hints), unchanged from the previous session — this session added no
+code.
