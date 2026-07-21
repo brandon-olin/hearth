@@ -5240,3 +5240,84 @@ LEFT / NEXT
   that is now the next migration-bearing build, and the slot is free.
 - Recommended next feature: proposal-001 (agent proposals) — spec is complete
   and it no longer contends with webhook-001 for a migration.
+
+=== 2026-07-21 — Coding session ===
+
+Worked on: proposal-001 — agent proposals (propose permission tier, proposals
+model, audit double-attribution). Status: COMPLETE.
+
+Commits this session:
+  2ed5974  feat(proposal-001): propose permission tier, proposals model, audit
+           double-attribution
+
+What was done
+-------------
+A third permission tier ordered read < propose < write. An agent write that
+previously either executed or 403'd now has a middle outcome: it is captured as
+a pending Proposal for a human to approve or reject.
+
+New package api/src/life_dashboard/proposals/ — models.py (one table), service.py
+(record / approve / reject / expiry sweep), executors.py (tool name -> the
+function that performs its write), schemas.py. Migration 0051, one table, single
+head confirmed.
+
+Design decisions that firmed up during the build, all recorded in
+plans/open-hearth/agent-proposals.md:
+
+* The propose ceiling is an OPT-IN "propose" key inside a domain's action config
+  ({"todos": {"create": "member", "propose": "viewer"}}) with no default.
+  merge_with_defaults never invents it, so the backward-compatibility guarantee
+  is mechanical rather than a promise — no existing household can resolve to
+  propose unless an admin explicitly sets it.
+* Idempotency is a SHA-256 fingerprint over (tool, args, proposer, token) under
+  a PARTIAL unique index (WHERE status='pending'). A hash rather than a JSON
+  comparison because JSON equality is not portable across Postgres and SQLite,
+  and because folding the two nullable proposer columns into the digest makes
+  them dedupe — SQL NULLs never compare equal, so a NULL-bearing unique index
+  would let every household-agent proposal through. Partial so that re-asking
+  AFTER a decision is a new request, not a duplicate.
+* Deciding is an atomic UPDATE ... WHERE status='pending' RETURNING id claim,
+  not SELECT ... FOR UPDATE. The executor's own service call commits, which
+  would release the lock mid-approval; the claim is what actually stops two
+  admins executing one write twice.
+* Each MCP write tool split into a thin tool plus a registered _perform_*
+  function. "Approval executes through the same service function as the direct
+  path" is now structural rather than a convention — there is exactly one copy
+  of the write, and the approval path calls it.
+* proposals.token_id is CASCADE, NOT ON DELETE SET NULL (the opposite of
+  audit_log.token_id). Under SET NULL a revoked token and a household-agent's
+  legitimately absent token are indistinguishable and the stale-proposer guard
+  fails open. Verified in both real databases, not just asserted.
+
+Verification actually executed
+------------------------------
+* make migrate-verify — full history 0001..0051 replays clean on Postgres.
+* 0051 applied FORWARD on a SQLite DB stamped at 0050 (the desktop tier's real
+  upgrade path); partial unique index, CHECK constraint and CASCADE FKs
+  confirmed present on BOTH engines by inspecting the live schemas.
+* The partial unique index was exercised directly against Postgres: a duplicate
+  pending fingerprint is refused by the database itself, and the same
+  fingerprint is accepted again once the first proposal is decided.
+* make test — 327 pass, including 29 new in api/tests/test_proposals.py.
+  ruff check tests clean.
+* All 19 feature_list verification steps have a corresponding test.
+
+What was left / caveats
+-----------------------
+* One deliberate forward reference: the proposed-status message tells the agent
+  to "Check back with get_proposal_status(proposal_id)", a tool proposal-002
+  adds. The copy is implemented verbatim as the track doc requires. Until
+  proposal-002 lands, an agent following that instruction will hit an unknown
+  tool. The underlying capability exists and is tested at the service layer
+  (scoped get_proposal / list_proposals, which confine an agent to its own
+  proposals) — only the MCP verb is missing, and it is explicitly proposal-002's
+  scope.
+* No approval UI, no notifications, no bus events — proposal-002.
+* GET /households/permissions now returns an optional "propose" field per
+  domain. web/ types were not regenerated (nothing consumes it yet);
+  proposal-002 regenerates them when it builds the queue UI.
+
+Recommended next feature: proposal-002 (approval queue UI + realtime
+notification + the MCP status tools). It closes the forward reference above and
+is the surface that makes proposal-001 usable by a household rather than only by
+tests. No migration, so it does not contend with any other build.

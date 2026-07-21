@@ -1623,7 +1623,7 @@
         "Verify running the sweep twice does not double-process or resurrect any proposal",
         "Verify ruff and pytest pass, and mypy/type checks if configured for the api package"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "proposal-002",
