@@ -4743,3 +4743,85 @@ LEFT / NEXT
   there until a migration runs; exercises_service.ensure_global_exercises() is the
   idempotent seeder to wire into that path if/when the desktop tier needs it. The
   active local tier is Postgres, where the migration seeds normally.
+
+=== 2026-07-20 — Coding session (workouts-001b) ===
+
+WORKED ON
+- workouts-001b: legacy workout model cutover. workouts-001 (migration 0048)
+  added the session/exercise/set model and backfilled the legacy
+  workouts/exercise_entries tables, but LEFT THEM LIVE AND WRITABLE behind the
+  old /workouts endpoints — two writable representations of the same data that
+  would diverge the moment anyone logged a workout. Retired the legacy model
+  entirely so there is one representation.
+
+STATUS: complete. Commit: feat(workouts-001b) retire legacy workout model.
+
+DONE
+- Migration 0049 (down_revision 0048): drops exercise_entries then workouts,
+  but ONLY after a safety-net backfill. 0048's backfill skips entirely if any
+  workout_sessions row already exists ("backfill skipped — N already present"),
+  so on a DB where a session was created through the new API before 0048 ran,
+  the legacy rows were never migrated — dropping there would destroy them. 0049
+  counts legacy workouts with no corresponding session, migrates them with the
+  same logic as 0048's _backfill, then drops and prints the counts. Correspondence
+  keys on (household_id, created_by_user_id, created_at): 0048 copied the legacy
+  created_at onto its session, and a new-API session carries its own now(), so the
+  microsecond-precision tuple distinguishes "already migrated" from "unrelated
+  session" with no false positives and no duplication. All table ops are
+  existence-guarded via the inspector (no-op where the tables are already gone,
+  e.g. a fresh SQLite/Tauri DB stamped at head), portable SQL only, all data work
+  through typed Core sa.table()s. downgrade recreates the table STRUCTURE but
+  cannot restore rows — documented as forward-only for data.
+- Deleted domains/workouts/router.py + service.py; removed the legacy
+  Workout/ExerciseEntry ORM models and their Pydantic schemas; removed the
+  router-registration ordering hack + comment in main.py (~line 571). The
+  library router (exercises/templates/sessions) is now the only /workouts surface.
+- ai/tools.py coach tools (create/list/get/update/delete_workout) repointed from
+  the deleted legacy service onto sessions_service/exercises_service. create_workout
+  resolves each entry name to a catalog exercise (get-or-create) and translates the
+  aggregate metrics payload into first-class WorkoutSetCreate rows; started_at is
+  anchored at noon UTC to match the migrations. All five now thread user_id
+  (sessions are personal). MCP tools (mcp/server.py) already pointed at the new
+  model — no change needed.
+- web/workouts/page.tsx rebuilt on /workouts/sessions + /workouts/exercises with
+  no compatibility adapter: session list grouped by started_at date, an editor
+  Sheet with add-exercise composer (name → catalog resolution + tracking-type
+  select), first-class set rows whose fields follow the exercise's tracking_type
+  (weight×reps / distance+duration / duration), auto-save on sets and header.
+  VisibilityPicker removed (sessions have no per-workout visibility). Delete-all
+  loops the session delete (no bulk endpoint). Regenerated schema.d.ts from the
+  live openapi; updated realtime/invalidation-map.ts for the new tables.
+- Tests: test_workouts_api.py legacy assertions retired (GET /workouts now 404);
+  added tests/test_ai_workout_tools.py exercising the migrated coach tools against
+  the new model (strength/cardio translation, custom-exercise minting, list/update/
+  delete round-trip, personal-scope isolation). test_workouts.py already covered
+  the new service layer and was left as-is.
+
+VERIFICATION (executed, not just registered)
+- make migrate-verify: full Postgres 0001..0049 replay clean. alembic heads: 0049.
+- Seeded replay #1 (normal): upgrade 0047, insert household+member+legacy workout
+  (strength {sets:3,reps:8,weight_kg:60} + cardio {1800s,5000m}), upgrade to head.
+  0048 produced 1 session / 2 session_exercises / 4 sets; 0049 reported "1 already
+  migrated by 0048, 0 to migrate now" — no duplication. Rows verified in the new
+  tables; legacy tables dropped.
+- Seeded replay #2 (skip): upgrade 0048, insert a new-API workout_sessions row AND
+  an un-migrated legacy workout (distinct created_at) with entries, upgrade 0049.
+  Safety net reported "0 already migrated, 1 to migrate now"; migrated 1 session /
+  2 exercises / 3 sets / 1 custom exercise; the pre-existing session untouched;
+  legacy tables dropped.
+- make test: 228 pass (was 223 for workouts-001; +5 AI-tool tests, legacy REST
+  assertions updated). ruff clean. cd web && npx tsc --noEmit clean.
+- Browser E2E on the running dev stack (web :1337 → api :1339, branch code, legacy
+  GET /workouts confirmed 404): started a workout, added "Barbell Bench Press"
+  (resolved to the global catalog, Strength/weight×reps), logged 135×8 and 135×6
+  with auto-save, hard-reloaded — list showed "Push Day · 1 exercise" and reopening
+  showed both sets persisted; deleted to clean up. No console errors.
+
+LEFT / NEXT
+- workouts-002 (template builder UX) remains the natural next feature; 003/004/005
+  follow. The progress endpoint (GET /workouts/progress/:exercise_id) is still
+  deferred to workouts-004.
+- The AI create_workout tool still accepts the legacy free-text entries+metrics
+  shape as its agent-facing contract (translated internally). If a future feature
+  wants the coach to log against templates or superset groups, extend that tool
+  rather than reintroducing a second data model.

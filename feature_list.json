@@ -1139,6 +1139,24 @@
       "passes": false
     },
     {
+      "id": "workouts-001b",
+      "category": "Workouts",
+      "priority": 2,
+      "phase": "v1.1",
+      "title": "Legacy workout model cutover — retire Workout/ExerciseEntry for one session-based representation",
+      "description": "workouts-001 (migration 0048) added the session/exercise/set model and backfilled the legacy workouts/exercise_entries tables into it, but left the legacy tables live and writable behind the old /workouts endpoints — two writable representations of the same data. This retires the legacy model entirely so there is one representation.\n\n- Migration 0049 (down_revision 0048) drops exercise_entries then workouts. Before dropping it runs a safety-net backfill for any legacy workout 0048 never migrated: 0048's backfill SKIPS entirely if any workout_sessions row already exists, so on a DB where a session was created through the new API before 0048 ran, the legacy rows were never copied. 0049 keys correspondence on (household_id, created_by_user_id, created_at) — 0048 copied the legacy created_at onto its session — to migrate only the un-migrated rows with no false positives, then drops. downgrade recreates the table structure but cannot restore rows (documented as forward-only for data). Existence-guarded so it is a no-op where the tables are already absent.\n- Deleted domains/workouts/router.py + service.py, the legacy Workout/ExerciseEntry models, and their schemas. Removed the router-registration ordering hack in main.py.\n- Migrated web/workouts/page.tsx onto /workouts/sessions + /workouts/exercises (no compatibility adapter); regenerated schema.d.ts; updated the realtime invalidation map for the new tables.\n- Repointed the ai/tools.py coach workout tools (create/list/get/update/delete) onto the session model, translating aggregate metrics into first-class sets and resolving exercise names against the catalog. MCP tools already pointed at the new model.",
+      "steps": [
+        "make migrate-verify — full Postgres replay 0001..0049 clean; alembic heads shows a single head 0049",
+        "Seeded replay (normal case): upgrade to 0047, insert a household + member + a legacy workout with entries, upgrade to head — confirm the rows arrived in workout_sessions/session_exercises/workout_sets (via 0048) and 0049 did NOT duplicate them",
+        "Seeded replay (skip case): upgrade to 0048, insert a workout_sessions row AND a legacy workouts row, upgrade to 0049 — confirm the legacy row was migrated by the safety net (not dropped)",
+        "make test — full suite green, including new AI-tool coverage (tests/test_ai_workout_tools.py) and the updated REST/MCP surface (tests/test_workouts_api.py)",
+        "cd web && npx tsc --noEmit — clean against the regenerated schema; ruff clean",
+        "Load /workouts in the browser and log a workout end to end — start workout, add an exercise by name (catalog resolution), log weight×reps sets with auto-save, confirm persistence across a hard reload, then delete",
+        "Confirm the legacy GET /workouts route is gone (404) and grep finds no references to the deleted Workout/ExerciseEntry model or legacy service outside historical migrations"
+      ],
+      "passes": true
+    },
+    {
       "id": "meal-001",
       "category": "Recipes",
       "priority": 1,
