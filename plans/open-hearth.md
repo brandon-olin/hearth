@@ -98,11 +98,12 @@ Coordinate with `plans/marketing-site-spec.md`.
 
 Post-MCP work that deepens the "software is APIs agents talk to" position:
 
-- **Outbound webhooks** — *DESIGN SETTLED 2026-07-20; filed as `webhook-001` /
-  `webhook-002`; not yet built.* Hearth as event source; design in
-  `plans/open-hearth/outbound-webhooks.md`. Bus exists (realtime-001) but emits
-  **table-level invalidations, not semantic events** — `webhook-001` builds the semantic
-  layer as a prerequisite. Migration-bearing: serialize against `proposal-001`.
+- **Outbound webhooks** — *`webhook-001` BUILT 2026-07-21; `webhook-002` (MCP management
+  tools, delivery-log UI, HA UI preset) not started.* Hearth as event source; design in
+  `plans/open-hearth/outbound-webhooks.md`. The semantic event layer shipped with it:
+  named domain events ride the same commit-time plumbing as the invalidation producer
+  (`events/semantic.py`), and `events/scope.py can_see` filters both kinds. Catalog v1 is
+  the six events in `webhooks/summaries.py`, which is also the single payload allowlist.
 - **Agent proposals** — *SPEC COMPLETE 2026-07-20 — filed as `proposal-001` /
   `proposal-002`, ready to build.* Third permission tier `read < propose < write`;
   approval queue; design in `plans/open-hearth/agent-proposals.md`. Safely re-opens
@@ -125,7 +126,7 @@ Post-MCP work that deepens the "software is APIs agents talk to" position:
 |---|---|---|
 | License | **DECIDED 2026-07-17: AGPL-3.0** | Switched from MIT while Brandon is sole copyright holder. LICENSE + README updated. Prior snapshots remain MIT. Add DCO/CLA before first outside contributor for future flexibility. |
 | Scoped API token design | OPEN — MCP track owns this | Per-member tokens with scope claims; reused by feeds, HA, federation. |
-| Internal event bus | SHIPPED as `realtime-001` — **semantic layer pending in `webhook-001`** | `events/` package. In-process asyncio pub/sub keyed by household; swappable to PG LISTEN/NOTIFY. **What shipped emits table-level invalidations only** (`entity_type`=tablename, `action`=created/updated/deleted) via universal SQLAlchemy `after_flush`/`after_commit` listeners — there are no named domain events and no `bus.publish` calls under `domains/`. Named semantic events (`todo.completed`, `grocery.item_added`, …) are built by `webhook-001` on the same commit-time plumbing. Child tables without `household_id` (`grocery_items`, `habit_occurrences`) emit nothing today. Consumers: real-time UI (SSE invalidation), outbound webhooks, HA track, notifications/automations later. |
+| Internal event bus | SHIPPED as `realtime-001`; **semantic layer shipped in `webhook-001` (2026-07-21)** | `events/` package. In-process asyncio pub/sub keyed by household; swappable to PG LISTEN/NOTIFY. **What shipped emits table-level invalidations only** (`entity_type`=tablename, `action`=created/updated/deleted) via universal SQLAlchemy `after_flush`/`after_commit` listeners — there are no named domain events and no `bus.publish` calls under `domains/`. Named semantic events (`todo.completed`, `grocery.item_added`, …) now exist alongside those invalidations on a second bus channel, queued by domain services onto `session.info` and published by the same `after_commit` listener (`events/semantic.py`). Child tables without `household_id` (`grocery_items`, `habit_occurrences`) emit by borrowing their parent's household and visibility descriptor. Consumers: real-time UI (SSE invalidation), outbound webhooks, HA track, notifications/automations later. |
 | MCP transport & mounting | OPEN — MCP track owns this | FastMCP mounted in FastAPI vs separate process; localhost (tier 1) vs Tailscale HTTP (tier 2). |
 
 ---
@@ -187,8 +188,8 @@ Post-MCP work that deepens the "software is APIs agents talk to" position:
   payload variant. `webhook-001` + `webhook-002` filed. Also noted: the "sensitive" data
   scope in root CLAUDE.md has no counterpart in `core/visibility.py`
   (`household|personal|members`) — worth reconciling the vocabulary. Track doc status →
-  DESIGN SETTLED. Build not started; `webhook-001` is migration-bearing and must serialize
-  against `proposal-001`.
+  DESIGN SETTLED. `webhook-001` built 2026-07-21 (migration `0050`); `proposal-001` is
+  now free to take the next migration slot.
 - **2026-07-17** — Event bus direction set via `realtime-001` (feature_list.json):
   bus + SSE invalidation stream for real-time UI; skinny events (no payloads), scope-filtered
   per connection. Same bus feeds HA inbound (track 4) when that track opens.

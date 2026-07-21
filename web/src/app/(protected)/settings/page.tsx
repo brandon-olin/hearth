@@ -35,6 +35,7 @@ import { VisibilitySettingsSection } from "@/components/settings/visibility-sett
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { HomeAssistantSection } from "@/components/settings/home-assistant-section";
 import { WorkoutsSection } from "@/components/settings/workouts-section";
+import { WebhooksSection } from "@/components/settings/webhooks-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
@@ -4498,7 +4499,12 @@ export default function SettingsPage() {
         {active === "navigation"  && <NavigationSection />}
         {active === "account"     && <AccountSection />}
         {active === "tokens"      && <AccessTokensSection />}
-        {active === "integrations" && <HomeAssistantSection />}
+        {active === "integrations" && (
+          <div className="space-y-10">
+            <HomeAssistantSection />
+            <WebhooksSection />
+          </div>
+        )}
         {active === "workouts"    && <WorkoutsSection />}
         {active === "household"   && isAdmin && <HouseholdSection />}
         {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}

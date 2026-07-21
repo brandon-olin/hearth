@@ -1,7 +1,9 @@
 # Outbound webhooks — Hearth as an event source
 
-Parent: `plans/open-hearth.md`. Status: **DESIGN SETTLED 2026-07-20 — ready to build,
-filed as `webhook-001` / `webhook-002`. Not yet started.**
+Parent: `plans/open-hearth.md`. Status: **`webhook-001` BUILT 2026-07-21** (semantic event
+layer, subscriptions, signed delivery worker, settings UI, docs recipe — migration `0050`).
+**`webhook-002` not started** (MCP management tools, delivery-log UI, HA UI preset,
+per-subscription filters if demand appears). User-facing docs: `docs/webhooks.md`.
 Prereq: internal event bus (shipped, `realtime-001`) — but see the catalog audit below: the
 bus emits table-level invalidations, not semantic events, so `webhook-001` must build the
 semantic layer first. Sibling: HA inbound (unfiled).

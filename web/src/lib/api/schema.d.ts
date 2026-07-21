@@ -946,6 +946,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Event Catalog
+         * @description The deliverable event catalog, with the exact summary fields each carries.
+         *
+         *     Publishing the allowlist is intentional: a subscriber should be able to see
+         *     what a payload can contain before pointing it anywhere.
+         */
+        get: operations["list_event_catalog_webhooks_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Subscriptions */
+        get: operations["list_subscriptions_webhooks_get"];
+        put?: never;
+        /**
+         * Create Subscription
+         * @description Create a subscription owned by the calling member.
+         *
+         *     The response carries the signing secret — the only time it is ever returned.
+         */
+        post: operations["create_subscription_webhooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Subscription */
+        delete: operations["delete_subscription_webhooks__subscription_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Subscription
+         * @description Pause, resume, relabel, or change which events a subscription receives.
+         */
+        patch: operations["update_subscription_webhooks__subscription_id__patch"];
+        trace?: never;
+    };
     "/voice/alexa": {
         parameters: {
             query?: never;
@@ -8106,6 +8173,145 @@ export interface components {
             code: string;
         };
         /** WorkoutSessionCreate */
+        /** WebhookEventCatalogResponse */
+        WebhookEventCatalogResponse: {
+            /** Items */
+            items: components["schemas"]["WebhookEventInfo"][];
+        };
+        /**
+         * WebhookEventInfo
+         * @description One entry of the deliverable event catalog.
+         */
+        WebhookEventInfo: {
+            /** Event */
+            event: string;
+            /** Description */
+            description: string;
+            /** Summary Fields */
+            summary_fields: string[];
+        };
+        /**
+         * WebhookSubscriptionCreate
+         * @description Create a subscription. The secret is generated server-side and shown once.
+         */
+        WebhookSubscriptionCreate: {
+            /**
+             * Url
+             * @description Absolute http(s) URL to POST events to.
+             */
+            url: string;
+            /**
+             * Event Patterns
+             * @description Event names or wildcards to deliver, e.g. ['todo.completed', 'grocery.*']. GET /webhooks/events lists the catalog.
+             */
+            event_patterns: string[];
+            /**
+             * Description
+             * @description Optional label shown in settings.
+             */
+            description?: string | null;
+        };
+        /**
+         * WebhookSubscriptionCreated
+         * @description The create response — the ONLY time the signing secret is returned.
+         */
+        WebhookSubscriptionCreated: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /**
+             * Created By User Id
+             * Format: uuid
+             */
+            created_by_user_id: string;
+            /** Description */
+            description: string | null;
+            /** Url */
+            url: string;
+            /** Event Patterns */
+            event_patterns: string[];
+            /** Active */
+            active: boolean;
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Disabled Reason */
+            disabled_reason: string | null;
+            /** Last Delivery At */
+            last_delivery_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Secret */
+            secret: string;
+        };
+        /** WebhookSubscriptionListResponse */
+        WebhookSubscriptionListResponse: {
+            /** Items */
+            items: components["schemas"]["WebhookSubscriptionResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * WebhookSubscriptionResponse
+         * @description A subscription as read back. The secret is never included.
+         */
+        WebhookSubscriptionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /**
+             * Created By User Id
+             * Format: uuid
+             */
+            created_by_user_id: string;
+            /** Description */
+            description: string | null;
+            /** Url */
+            url: string;
+            /** Event Patterns */
+            event_patterns: string[];
+            /** Active */
+            active: boolean;
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Disabled Reason */
+            disabled_reason: string | null;
+            /** Last Delivery At */
+            last_delivery_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * WebhookSubscriptionUpdate
+         * @description Partial update. Setting ``active`` re-enables an auto-disabled subscription.
+         */
+        WebhookSubscriptionUpdate: {
+            /** Active */
+            active?: boolean | null;
+            /** Event Patterns */
+            event_patterns?: string[] | null;
+            /** Description */
+            description?: string | null;
+        };
         WorkoutSessionCreate: {
             /** Template Id */
             template_id?: string | null;
@@ -9841,6 +10047,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_event_catalog_webhooks_events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEventCatalogResponse"];
+                };
+            };
+        };
+    };
+    list_subscriptions_webhooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionListResponse"];
+                };
+            };
+        };
+    };
+    create_subscription_webhooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookSubscriptionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_subscription_webhooks__subscription_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_subscription_webhooks__subscription_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookSubscriptionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
