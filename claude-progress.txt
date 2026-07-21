@@ -5617,3 +5617,94 @@ What was left / notes for next time:
 Recommended next feature: proposal-003 (web-UI propose), which is now a branch
 in the REST write path plus nothing else, or webhook-002 (webhook management
 tools) to finish the agent side of the egress story.
+
+=== 2026-07-21 — Coding session ===
+
+Worked on: journal-001 + journal-002 (Talk-it-out guided journaling and its
+four check-in modes), built and merged together on feat/journal-001-002.
+
+Status: complete. Both flipped to passes=true.
+
+Commits this session:
+* c2f1b66 feat(journal-001,journal-002): resume transcript, save via service,
+  session bus event
+
+What was done:
+
+The session flow, the mode picker, the canned openers, the synthesis prompt
+and the append-on-save endpoint were already on main from an earlier build.
+Nothing on main had been executed against a real provider, though, so this
+session was mostly verification — and the verification found three things.
+
+1. Reopening a session rendered blank. The overlay called /ai/journal/start,
+   got back the existing conversation_id, and never fetched the turns. The
+   old placeholder ("Picking back up. Take your time.") papered over it, and
+   the comment beside it claimed the history "joins on next send", which it
+   does not — the messages only ever existed server-side. Worse, 'Finish'
+   gates on the CLIENT-side user-turn count, so a resumed session could not
+   be wrapped up at all until the user typed again. The overlay now
+   rehydrates from GET /ai/conversations/{id} when start returns is_new=false
+   and needs_mode_pick=false, filtering tool turns out.
+
+2. The save endpoint assembled the note body inline in the router — content
+   layout, divider rules, transcript formatting, ~40 lines of domain logic in
+   an HTTP handler, with a third copy of the transcript formatter (the second
+   is in synthesize_journal_summary). Moved to ai/service.py as
+   compose_journal_entry() (pure, so the divider rules are testable with no
+   DB), format_journal_transcript() (now shared with synthesis), and
+   save_journal_session().
+
+3. No agent surface at all. See below.
+
+The MCP verb question is worth recording because the answer is "deliberately
+not a tool". mcp/server.py excludes notes entirely for sensitive-data
+concentration, and a journal entry is the most personal text in the app — a
+tool that could start a session or read a transcript would hand exactly that
+to any PAT holder. The agent surface is therefore the journal.session_saved
+bus event: mode, included_transcript, message_count, appended_to_existing,
+and no entry text, with the reasoning recorded in mcp/server.py's docstring
+and webhooks/summaries.py so a later reader sees a decision rather than a
+gap. Journal notes are personal-visibility, so events/scope.py can_see
+already restricts delivery to the entry's own author; no second filter.
+
+Also tightened the synthesis prompt to forbid a leading markdown heading —
+a live run produced "# Journal Entry" above the summary, which is wrong for
+text appended into a page the user may have started writing themselves.
+
+New: api/tests/test_journal_sessions.py, 40 tests. Every HTTP endpoint is
+called through the ASGI app rather than imported, for the reason the file's
+docstring gives.
+
+Verification (executed, not registered — scripts/smoke_coach.py exists
+because a previous journal build shipped a missing import that only surfaced
+on execution):
+* 471 pytest passing (431 before), ruff clean, tsc --noEmit clean.
+* Real sessions run in all four modes against Anthropic, reading the output.
+  Rant mode genuinely stays with the user — "Third time. Same song, same
+  surprised face. That's infuriating. What else?" — no reframe, no
+  reality-test. That contradicts coach-003's CBT move ON PURPOSE; if a future
+  session "fixes" it, test_rant_mode_tells_the_model_to_stay_put_rather_than_
+  reality_test will fail and say so.
+* Day review branched correctly on local_hour (9 → "Looking ahead at today",
+  20 → "What's standing out from today").
+* Openers returned in 6-7ms — canned, no provider round trip.
+* Save appended below a divider to a note with pre-existing hand-written
+  content, leaving it verbatim; saved twice, still appending.
+* Transcript toggle verified both ways.
+* Both saved entries produced journal_signals rows via coach-002's extractor
+  (sentiment -0.45 / -0.65, themes, energy_level) — the write→extraction loop
+  closes.
+
+What was left / notes for next time:
+* The UI change was verified through tsc, the API contract test, and the
+  underlying endpoint against the live API — NOT by driving the overlay in a
+  browser. Worth an eyeball on the next UI pass.
+* generate_journal_opener() / _JOURNAL_OPENER_PROMPT in ai/service.py are now
+  dead: journal-002's canned openers replaced them and nothing calls them.
+  Left in place this session (deleting them is unrelated to either feature),
+  but they are dead weight and a plausible small cleanup.
+* docs/webhooks.md's event table was already missing the proposal.* rows that
+  proposal-002 added. Only the journal row was added here — the proposal drift
+  belongs to that branch and touching it invites a conflict.
+
+Recommended next feature: proposal-003 (web-UI propose), or webhook-002.

@@ -887,7 +887,7 @@
         "Toggle OFF 'Save with transcript'; click Save — verify the journal note has the summary appended",
         "Re-open the same day's entry and click 'Talk it out' again — verify the session RESUMES"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "journal-002",
@@ -906,7 +906,7 @@
         "Click 'blank slate' link — verify the picker disappears with no opener",
         "Close the modal AFTER picking a mode and typing something — verify reopening goes straight to the conversation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-005",
