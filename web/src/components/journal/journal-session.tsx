@@ -109,6 +109,15 @@ async function jpost<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function jget<T>(path: string): Promise<T> {
+  const res = await fetch(`${apiBaseUrl}${path}`, { headers: await authHeaders() });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "conversation" | "synthesizing" | "review" | "saving";
@@ -186,6 +195,29 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
         // Picker visibility — backend computes this directly.
         setShowModePicker(resp.needs_mode_pick);
         setPhase("conversation");
+
+        // Resuming: pull the turns the user already had. Without this the
+        // overlay reopens blank — the transcript lives on the server, and
+        // an empty client-side history also hides 'Finish' (it gates on
+        // the user-turn count), so a session you walked away from could
+        // never be wrapped up. Only for resumes: a brand-new conversation
+        // has nothing to fetch beyond the opener we just rendered.
+        if (!resp.is_new && !resp.needs_mode_pick) {
+          const detail = await jget<{
+            messages: { id: string; role: string; content: string }[];
+          }>(`/ai/conversations/${resp.conversation_id}`);
+          if (cancelled) return;
+          const history = detail.messages
+            // Tool turns are plumbing (the silent update_profile call),
+            // never something said to or by the user.
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              id: m.id,
+              role: m.role as Role,
+              content: m.content,
+            }));
+          if (history.length > 0) setMessages(history);
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to start session");
@@ -461,13 +493,12 @@ export function JournalSession({ noteId, noteTitle, onClose, onSaved }: JournalS
                   </button>
                 </div>
               )}
-              {/* Empty-state placeholder for resumed sessions that
-                  already have a mode set but the messages array on the
-                  client is still empty (existing transcript lives on
-                  the backend and joins on next send). */}
+              {/* Blank-slate path: the user waved off the mode picker, so
+                  there is no opener and no history by design. Anything
+                  with prior turns has been hydrated above. */}
               {!showModePicker && messages.length === 0 && phase === "conversation" && (
                 <p className="text-base text-muted-foreground italic">
-                  Picking back up. Take your time.
+                  Blank page. Start wherever you want.
                 </p>
               )}
               {messages.map((m) => (

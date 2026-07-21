@@ -773,8 +773,6 @@ async def save_journal_session(
     """
     from life_dashboard.ai.models import AiConversation
     from life_dashboard.domains.notes.models import Note
-    from life_dashboard.domains.notes.service import update_note as notes_update_note
-    from life_dashboard.domains.notes.schemas import NoteUpdate
 
     conv = (await db.execute(
         select(AiConversation).where(
@@ -801,48 +799,15 @@ async def save_journal_session(
             detail="Target journal note no longer exists.",
         )
 
-    # Assemble final content: existing + (divider if existing) + summary
-    # + (transcript section if requested).
-    existing = (note.content_md or "").rstrip()
-    summary = data.content_md.strip()
-
-    parts: list[str] = []
-    if existing:
-        parts += [existing, "", "---", ""]
-    parts.append(summary)
-
-    if data.include_transcript:
-        # Re-format the transcript locally from the saved messages — no
-        # need to re-run the model (synthesize_journal_summary would, but
-        # we already have the summary the user just edited). This is the
-        # working artifact, not the summary.
-        from life_dashboard.ai.models import AiMessageRole
-        recent = await service.get_recent_messages(db, conv.id, limit=200)
-        role_label = {
-            AiMessageRole.user: "You",
-            AiMessageRole.assistant: "Coach",
-        }
-        transcript_lines: list[str] = []
-        for msg in recent:
-            label = role_label.get(msg.role, str(msg.role.value).title())
-            transcript_lines.append(f"**{label}:** {msg.content.strip()}")
-            transcript_lines.append("")
-        transcript_md = "\n".join(transcript_lines).strip()
-        if transcript_md:
-            parts += ["", "---", "", "## Conversation transcript", "", transcript_md]
-
-    final_content = "\n".join(parts)
-
-    # Update the note. Goes through the normal notes service path so
-    # backlinks resolve + the existing maybe_propose_from_notes /
-    # maybe_extract_signals hooks fire automatically.
-    await notes_update_note(
+    note_id = await service.save_journal_session(
         db,
-        note_id=note.id,
+        conversation=conv,
+        note=note,
         household_id=current_user.household_id,
-        data=NoteUpdate(content_md=final_content),
+        summary_md=data.content_md,
+        include_transcript=data.include_transcript,
     )
-    return JournalSaveResponse(note_id=note.id)
+    return JournalSaveResponse(note_id=note_id)
 
 
 # ── Chat (streaming) ──────────────────────────────────────────────────────────

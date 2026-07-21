@@ -906,7 +906,10 @@ Rules:
   intention, a thing to remember), end on it. Otherwise end on the
   emotional truth of where they landed.
 - Output ONLY the summary markdown. NO preamble like 'Here is your
-  summary' or 'Today you...'."""
+  summary' or 'Today you...'.
+- Do NOT open with a heading ('# Journal Entry', '## Today'). The entry is
+  already titled, and this text is appended into a page the user may have
+  started writing themselves — start with the first sentence."""
 
 
 # journal-001 Phase B: opener prompt. Kept separate from the in-session
@@ -1080,6 +1083,134 @@ def _fallback_opener(time_label: str, harsh_streak: int) -> str:
     return "I'm here. Take your time."
 
 
+# journal-001: the divider that separates pre-existing entry content from the
+# session's contribution, and the summary from the optional transcript. A
+# literal `---` on its own line — thematic break in every markdown renderer,
+# and the thing the feature spec names.
+_JOURNAL_DIVIDER = "---"
+_JOURNAL_TRANSCRIPT_HEADING = "## Conversation transcript"
+
+_TRANSCRIPT_ROLE_LABELS = {
+    AiMessageRole.user: "You",
+    AiMessageRole.assistant: "Coach",
+}
+
+
+def format_journal_transcript(messages) -> str:
+    """Render saved session messages as the markdown transcript block.
+
+    Tool-role turns are dropped: they are plumbing (the silent update_profile
+    call), never something the user said or was told, and a raw tool payload in
+    someone's journal is noise at best.
+    """
+    lines: list[str] = []
+    for msg in messages:
+        if msg.role not in _TRANSCRIPT_ROLE_LABELS:
+            continue
+        body = msg.content.strip()
+        if not body:
+            continue
+        lines.append(f"**{_TRANSCRIPT_ROLE_LABELS[msg.role]}:** {body}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def compose_journal_entry(
+    existing_md: str | None,
+    summary_md: str,
+    transcript_md: str | None = None,
+) -> str:
+    """Assemble the note body a finished journal session saves.
+
+    APPEND semantics, not replace — whatever the user had already written
+    today survives verbatim at the top. Layout:
+
+        <existing content>          (only when non-empty)
+        ---                         (only when existing content was non-empty)
+        <summary>
+        ---                         (only when a transcript was requested)
+        ## Conversation transcript
+        <transcript>
+
+    Pure function so the divider rules are testable without a database.
+    """
+    existing = (existing_md or "").rstrip()
+    parts: list[str] = []
+    if existing:
+        parts += [existing, "", _JOURNAL_DIVIDER, ""]
+    parts.append(summary_md.strip())
+
+    transcript = (transcript_md or "").strip()
+    if transcript:
+        parts += ["", _JOURNAL_DIVIDER, "", _JOURNAL_TRANSCRIPT_HEADING, "", transcript]
+
+    return "\n".join(parts)
+
+
+async def save_journal_session(
+    db: AsyncSession,
+    *,
+    conversation: AiConversation,
+    note,
+    household_id: uuid.UUID,
+    summary_md: str,
+    include_transcript: bool,
+) -> uuid.UUID:
+    """Append a finished journal session to its target note.
+
+    Goes through the notes service rather than touching the row directly, so
+    backlink resolution and the coach hooks (maybe_propose_from_notes,
+    maybe_extract_signals) fire exactly as they do for a hand-typed entry —
+    that is what closes the loop from writing to coach-002's signal
+    extraction.
+
+    Emits ``journal.session_saved`` before the notes service commits. The
+    summary is deliberately content-free: the fact that a session happened,
+    which lens it used, and how long it ran. A receiver that is entitled to
+    the entry itself fetches it back through the REST API with its own
+    credentials — the same rule the rest of the event catalog follows, and
+    the reason journal text never rides the bus.
+    """
+    from life_dashboard.domains.notes.schemas import NoteUpdate
+    from life_dashboard.domains.notes.service import update_note as notes_update_note
+    from life_dashboard.events import semantic
+
+    transcript_md: str | None = None
+    message_count = 0
+    if include_transcript:
+        messages = await get_recent_messages(
+            db, conversation.id, limit=_CONTEXT_MESSAGE_LIMIT * 10
+        )
+        message_count = len(messages)
+        transcript_md = format_journal_transcript(messages)
+
+    existing_md = note.content_md or ""
+    final_content = compose_journal_entry(existing_md, summary_md, transcript_md)
+
+    semantic.record(
+        db,
+        event="journal.session_saved",
+        entity_type="note",
+        entity_id=note.id,
+        descriptor_from=note,
+        household_id=household_id,
+        summary={
+            "mode": conversation.mode or "blank",
+            "included_transcript": include_transcript,
+            "message_count": message_count,
+            "appended_to_existing": bool(existing_md.strip()),
+        },
+    )
+
+    await notes_update_note(
+        db,
+        note_id=note.id,
+        household_id=household_id,
+        data=NoteUpdate(content_md=final_content),
+    )
+    return note.id
+
+
 async def synthesize_journal_summary(
     db: AsyncSession,
     provider: AIProvider,
@@ -1101,20 +1232,12 @@ async def synthesize_journal_summary(
 
     # Build a readable transcript (the working artifact, only persisted
     # when the user opts in).
-    transcript_lines: list[str] = []
-    role_label = {
-        AiMessageRole.user: "You",
-        AiMessageRole.assistant: "Coach",
-    }
-    for msg in recent:
-        label = role_label.get(msg.role, str(msg.role.value).title())
-        transcript_lines.append(f"**{label}:** {msg.content.strip()}")
-        transcript_lines.append("")
-    transcript_md = "\n".join(transcript_lines).strip()
+    transcript_md = format_journal_transcript(recent)
 
     # Build a flat textual rendering of the transcript for the model.
     flat = "\n".join(
-        f"{role_label.get(m.role, str(m.role.value).title())}: {m.content.strip()}"
+        f"{_TRANSCRIPT_ROLE_LABELS.get(m.role, str(m.role.value).title())}: "
+        f"{m.content.strip()}"
         for m in recent
     )
     user_msg = (

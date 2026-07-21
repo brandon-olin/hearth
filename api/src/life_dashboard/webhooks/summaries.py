@@ -54,6 +54,19 @@ EVENT_SUMMARY_FIELDS: dict[str, tuple[str, ...]] = {
         "summary", "domain", "tool", "status", "proposed_by", "decided_by",
         "decided_at", "reject_reason",
     ),
+    # journal-001/002. The agent surface for guided journaling is this event
+    # and nothing else — there is deliberately no MCP tool that reads or
+    # writes journal entries, for the same reason notes have none at all
+    # (see mcp/server.py). So the allowlist here is the whole privacy
+    # decision, and it carries no entry text: which lens the session used,
+    # whether the transcript was kept, how long it ran, and whether it
+    # appended to something already written. `entity_id` is the note, so a
+    # receiver entitled to the entry fetches it back through the REST API
+    # with its own credentials. Journal entries are personal visibility, so
+    # events/scope.py can_see already restricts delivery to the author.
+    "journal.session_saved": (
+        "mode", "included_transcript", "message_count", "appended_to_existing",
+    ),
 }
 
 #: Human-readable blurbs for the subscription UI and the docs recipe. Kept
@@ -67,6 +80,7 @@ EVENT_DESCRIPTIONS: dict[str, str] = {
     "calendar.event_created": "A calendar event was created",
     "proposal.created": "An agent asked for approval to do something",
     "proposal.decided": "A pending approval request was approved or rejected",
+    "journal.session_saved": "A guided journal session was saved to an entry",
 }
 
 #: Every deliverable event name, sorted — the catalog surface for validation,

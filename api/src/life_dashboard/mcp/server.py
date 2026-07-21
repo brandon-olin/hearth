@@ -16,6 +16,17 @@ Design rules carried from the track doc (plans/open-hearth/mcp-server.md):
   results to shared + that member's personal scope. Budget, documents, and
   notes have no tool at all (sensitive-data concentration), so they are
   unreachable over MCP regardless of token scope.
+
+The notes exclusion covers **guided journaling** (journal-001/002) too, and
+that is the deliberate answer to the "no feature ships without its MCP verb"
+rule rather than an oversight. A journal session is the most sensitive text in
+the app; a tool that could start one, read the transcript, or save an entry
+would hand exactly that to any PAT holder. The agent surface for the feature is
+therefore the ``journal.session_saved`` bus event (webhooks/summaries.py), which
+carries the fact of a session and its check-in mode but no entry text — the same
+"receiver fetches the entity back with its own credentials" shape the rest of
+the catalog uses. Revisit this only alongside a per-domain consent model, not by
+adding a tool here.
 """
 from __future__ import annotations
 

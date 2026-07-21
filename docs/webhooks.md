@@ -48,6 +48,7 @@ fields each event can carry.
 | `grocery.item_checked` | An item is checked off | same as above |
 | `habit.checked_in` | A habit is checked in for a day | `habit_id`, `habit_name`, `scheduled_date`, `completed_at` |
 | `calendar.event_created` | A calendar event is created | `title`, `location`, `starts_at`, `ends_at`, `all_day` |
+| `journal.session_saved` | A guided journal session is saved to an entry | `mode`, `included_transcript`, `message_count`, `appended_to_existing` |
 
 Subscribe with exact names (`todo.completed`), a domain wildcard (`todo.*`), or
 `*` for everything.
@@ -63,6 +64,13 @@ A subscription is **member-owned**: it delivers only events its owner could see
 in the app. Another member's personal to-do, or a `members`-scoped item you were
 not shared on, is never delivered — not even as a bare "something changed".
 Event patterns narrow that further; they can never widen it.
+
+**No entry text, ever.** `journal.session_saved` tells you that a journaling
+session happened and which check-in mode it used — never a word of what was
+written. Journal entries are notes, and notes carry personal visibility, so the
+event reaches only its own author's subscriptions to begin with. This is also
+why there is no MCP tool for journaling: the bus event is the entire agent
+surface for that feature, deliberately.
 
 ---
 
