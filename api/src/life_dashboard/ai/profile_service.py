@@ -7,12 +7,19 @@ the chatbot already reads it, and we want one canonical profile blob shared
 between chat and coach).
 
 This module owns:
-  - Reading and directly-editing the profile
-  - The proposed-update workflow (list / accept / reject)
+  - Reading and directly-editing the profile (debug surface only — the
+    profile is not shown to end users)
   - The bootstrap pass that drafts the initial profile from existing
     notes, documents, and the last 90 days of behavioural data
+  - The notes-driven incremental proposer that keeps it current
+  - The weekly scheduled refresh (integrate + decay)
 
-Design reference: docs/ai-coach-redesign.md.
+All of these write memory_text directly and record an already-accepted row
+in user_profile_updates as an audit trail. The accept/reject queue this
+started as was removed in coach-005 — see UserProfileUpdate in models.py.
+
+Design reference: docs/ai-coach-redesign.md, which is stale where it
+describes a separate user_profiles table.
 """
 from __future__ import annotations
 
@@ -696,22 +703,27 @@ async def maybe_propose_from_notes(
 ) -> None:
     """Fire-and-forget hook called from notes service after create/update.
 
-    If enough new notes have accumulated since the last proposer run, this
-    spawns a background task that drafts a proposed profile update and
-    queues it for the user to accept or reject. Otherwise it returns
+    If enough net-new notes have accumulated since the last proposer run,
+    this spawns a background task that revises the profile in place (or
+    decides there's nothing worth recording). Otherwise it returns
     immediately. Never raises — failures are logged and swallowed (this
     runs after every note save and must never block or break the write).
 
     Why the counter approach: a single user can never trigger more than
     one proposer call per N new notes, even if many notes are saved in
-    rapid succession.
+    rapid succession. The counter advances here, *before* the task runs,
+    so a SKIP costs the same as an applied update — otherwise a user whose
+    notes keep returning SKIP would pay for a provider call on every
+    single save.
     """
     try:
         memory = await get_or_create_memory(db, user_id)
 
-        # Skip if bootstrap hasn't run yet — we don't want to silently
-        # populate a profile from scratch via the incremental path. The
-        # user must opt in once via the explicit Build my profile button.
+        # Skip if bootstrap hasn't run yet. The incremental path revises an
+        # existing profile against a 15-note window; letting it draft from
+        # scratch would produce a profile built on whatever the user happened
+        # to write last week. Bootstrap reads the whole history — it goes
+        # first, always.
         if memory.last_bootstrapped_at is None:
             return
 

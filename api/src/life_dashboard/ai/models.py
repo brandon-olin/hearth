@@ -102,11 +102,16 @@ class MemberAiMemory(Base):
 
     `memory_text` is the user's profile — a markdown document, sectioned by
     H2 headers, ~500-800 tokens. Originally written by the legacy lazy chat
-    memory refresh; as of the AI coach redesign (Phase 1) it is also written
-    by the bootstrap pass and the proposed-diffs accept flow, and read by
-    coach_service when assembling digest prompts.
+    memory refresh; it is now also written directly by the bootstrap pass and
+    the notes-driven incremental proposer, and read by coach_service when
+    assembling digest prompts.
 
-    See docs/ai-coach-redesign.md for the full design.
+    Reusing this column rather than adding a user_profiles table is
+    deliberate: the chatbot already read memory_text, so one blob keeps chat
+    and coach speaking about the same person.
+
+    Note that docs/ai-coach-redesign.md is stale on this point — it describes
+    a user_profiles table that was never built.
     """
 
     __tablename__ = "member_ai_memory"
@@ -124,9 +129,10 @@ class MemberAiMemory(Base):
     # new conversation activity has accumulated to warrant a silent refresh.
     conversation_count_at_last_update: Mapped[int] = mapped_column(Integer, default=0)
     # NULL = the richer bootstrap pass (reads notes/documents + behavioural
-    # data, proposes diffs through user_profile_updates) has never run for
-    # this user. Distinct from last_updated_at, which advances on any
-    # accepted change.
+    # data and writes memory_text directly) has never run for this user.
+    # Distinct from last_updated_at, which advances on any change. Also the
+    # gate the incremental proposer checks — it stays silent until bootstrap
+    # has run at least once, so it never drafts a profile from scratch.
     last_bootstrapped_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -140,16 +146,24 @@ class MemberAiMemory(Base):
 
 
 class UserProfileUpdate(Base):
-    """One proposed change to a user's profile (member_ai_memory.memory_text).
+    """Audit log of changes applied to a user's profile.
 
-    Created by the bootstrap pass and, in Phase 4, by the incremental
-    background refresher. The user reviews pending updates and either
-    accepts (proposed_content_md is copied into memory_text) or rejects
-    (status flips, memory_text unchanged). The AI never silently rewrites
-    the profile via this surface — that is the whole point of the table.
+    Written by the bootstrap pass, the notes-driven incremental proposer, the
+    update_profile chat tool, and the weekly scheduled refresh. Every row is
+    inserted with status='accepted' — the profile is a silent background
+    service, so the write has already happened by the time the row exists.
 
-    `source` values: "bootstrap" | "incremental" | "manual"
-    `status`  values: "pending"   | "accepted"    | "rejected" | "superseded"
+    This started life as a review queue (the user accepted or rejected each
+    proposal). That surface was removed in coach-005: it put a chore in front
+    of a feature whose entire value is that it maintains itself. The
+    pending/rejected/superseded statuses and the accept/reject endpoints
+    remain for debugging and for the historical rows, but nothing produces a
+    pending row any more.
+
+    `source` values: "bootstrap" | "incremental" | "manual" | "scheduled" |
+                     "direct_edit"
+    `status`  values: "accepted" (current) | "pending" | "rejected" |
+                      "superseded" (legacy)
     """
 
     __tablename__ = "user_profile_updates"

@@ -5321,3 +5321,103 @@ Recommended next feature: proposal-002 (approval queue UI + realtime
 notification + the MCP status tools). It closes the forward reference above and
 is the surface that makes proposal-001 usable by a household rather than only by
 tests. No migration, so it does not contend with any other build.
+
+=== 2026-07-21 — Coding session ===
+
+Feature(s): coach-001 + coach-001b + coach-005, built and verified as ONE end
+state (the AI profile as a silent background service).
+
+Status: complete.
+
+Commits this session
+--------------------
+* feat(coach-001): silent AI profile — bootstrap, incremental proposer, key
+  validation
+
+What was done
+-------------
+Most of the implementation was already on main from an earlier session; this
+session's job was to reach the coach-005 end state, delete what coach-005
+supersedes, and — the actual gap — prove any of it works. There was zero
+automated coverage and no record of the endpoints ever having been called.
+
+* Deleted ProfileSubSection (~250 lines) from web/settings/page.tsx along with
+  its AiProfile / AiProfileUpdate / AiBootstrapResponse types. It was already
+  unreachable (not rendered anywhere), so this changes no behaviour — but a
+  dead accept/reject UI for a flow that no longer exists is a trap for the next
+  reader. aiFetch stays; JournalSignalsSubSection still uses it.
+* Added api/tests/test_ai_profile.py — 19 tests over all three features, every
+  HTTP endpoint driven through the ASGI app rather than imported.
+* Corrected the docstrings across ai/models.py, ai/schemas.py, ai/router.py and
+  ai/profile_service.py that still described the pending/accept/reject queue.
+  Documentation only — the diff contains no executable change. UserProfileUpdate
+  now documents what it actually is: an append-only audit log whose rows are
+  inserted with status='accepted'.
+
+Verification (executed, not assumed)
+------------------------------------
+Gate: 345 tests pass (326 pre-existing + 19 new), ruff clean on tests,
+`tsc --noEmit` clean.
+
+The new tests were mutation-checked rather than trusted for passing on the
+first run — five deliberate breakages, each caught:
+  removing the pre-persist validate() gate            → 3 failures
+  removing the notes_at_last_proposal advance          → 3 failures
+  removing the "bootstrap must run first" guard        → 1 failure
+  making bootstrap queue a pending row again           → 3 failures
+  dropping memory_text from the chat system prompt     → 1 failure
+
+Live run against a throwaway copy of the real dev database (API on :1341, real
+Anthropic key, real notes) — nothing in the real DB was touched:
+  * POST /ai/profile/bootstrap → 200 in 9.4s. Drafted 2567 chars from 7 notes,
+    1 document, 8 completed todos, 15 projects, 4 habits. The output is
+    specific to the user's own material — named relationships, the house
+    renovation, the TMJ/jaw pattern, substance use under stress — not generic
+    filler. memory_text written directly, last_bootstrapped_at stamped, zero
+    pending rows.
+  * PATCH /ai/settings with a deliberately invalid key → 400 "Invalid API key —
+    Anthropic rejected the credentials", and the previously-stored working key
+    was still intact afterwards (verified by reading the column, not the
+    response).
+  * PATCH /ai/settings with a valid key for a profile-less user → 200 in 0.97s
+    (bootstrap is detached, so the save does not block), and ~20s later the
+    background task had written a 2307-char profile from 26 notes / 14
+    documents / 3 goals / 11 habits.
+  * 5 notes created through POST /notes → exactly one proposer call, counter
+    26→31, revision applied directly to memory_text.
+  * 5 low-signal notes (errands, appointments) → proposer returned SKIP,
+    memory_text unchanged, counter still advanced 31→36. Two batches of five
+    notes cost exactly two provider calls.
+  * last_bootstrapped_at reset to NULL, 5 more notes → zero proposer calls and
+    the counter did not move.
+  * POST /ai/coach/digest/generate → the digest reads as if it knows the user
+    (references the painting push, suggests the TMJ work, uses "slow and
+    deliberate") without ever mentioning a profile.
+
+What was left / caveats
+-----------------------
+* No migration was written or needed — last_bootstrapped_at and
+  user_profile_updates shipped in 0030/0031, notes_at_last_proposal in 0031.
+  proposal-001 landed migration 0051 on main during this session; there is no
+  overlap with these files.
+* coach-001's and coach-001b's verification steps in feature_list.json were
+  rewritten to the shipped behaviour. Their original steps described the
+  accept/reject UI that coach-005 removed — marking them passing against steps
+  nobody can perform would have been a lie. Descriptions record the
+  supersession rather than hiding it.
+* The accept/reject endpoints (/ai/profile/updates/{id}/accept|reject) are
+  retained as a debug surface per the brief, but nothing produces a pending row
+  any more, so they are effectively dead. Worth deleting when something else
+  touches this file.
+* No MCP verb added, deliberately. The MCP server excludes notes, documents and
+  budget by design ("sensitive-data concentration"); the profile is derived
+  from exactly those sources, so exposing it to a PAT-bearing agent would
+  widen that boundary. The agent surface for the profile is the in-app chat's
+  update_profile tool plus the /ai/profile/* REST endpoints.
+* docs/ai-coach-redesign.md remains stale (it describes a user_profiles table
+  that was never built). Not rewritten this session; the code now says so at
+  each point where a reader would otherwise trust it.
+
+Recommended next feature: coach-002 (journal signal extraction) — its service
+layer already exists on main and, like this one, likely needs verification more
+than construction.

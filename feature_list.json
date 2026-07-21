@@ -699,39 +699,38 @@
       "category": "AI Coach",
       "priority": 1,
       "title": "User profile + bootstrap pass (Phase 1 of AI coach redesign)",
-      "description": "A persistent, per-user markdown profile that captures who the user is — current focuses, values, recurring patterns, what drains/works, things to not bring up. Stored on the existing member_ai_memory.memory_text column (reused rather than introducing a new user_profiles table — the chatbot was already reading it). The new bits: (1) last_bootstrapped_at column on member_ai_memory so we can tell whether the richer bootstrap pass has run; (2) a new user_profile_updates table holding proposed AI changes that the user accepts or rejects — the AI never silently rewrites the profile via this surface. (3) A bootstrap pass (POST /ai/profile/bootstrap) reads the user's notes, documents, active goals/projects/habits, and the last 90 days of completed todos to draft an initial profile. (4) The coach now loads the profile into its system prompt alongside the existing behavioral context; the chatbot already read memory_text so it benefits automatically. (5) A new 'Profile' subsection in Settings → AI: view current profile, edit directly, run bootstrap, review/accept/reject pending proposals. See docs/ai-coach-redesign.md for the full design.",
+      "description": "A persistent, per-user markdown profile that captures who the user is — current focuses, values, recurring patterns, what drains/works, things to not bring up. Stored on the existing member_ai_memory.memory_text column (reused rather than introducing a new user_profiles table — the chatbot was already reading it). The new bits: (1) last_bootstrapped_at column on member_ai_memory so we can tell whether the richer bootstrap pass has run; (2) a new user_profile_updates table holding proposed AI changes that the user accepts or rejects — the AI never silently rewrites the profile via this surface. (3) A bootstrap pass (POST /ai/profile/bootstrap) reads the user's notes, documents, active goals/projects/habits, and the last 90 days of completed todos to draft an initial profile. (4) The coach now loads the profile into its system prompt alongside the existing behavioral context; the chatbot already read memory_text so it benefits automatically. (5) A new 'Profile' subsection in Settings → AI: view current profile, edit directly, run bootstrap, review/accept/reject pending proposals. See docs/ai-coach-redesign.md for the full design.\n\nSHIPPED (2026-07-21) as one end state together with coach-001b and coach-005. coach-005 removed the Settings → AI 'Profile' subsection and switched the bootstrap pass from queueing a pending UserProfileUpdate to writing member_ai_memory.memory_text directly, so the ProfileSubSection UI and the accept/reject review flow described above were never built — the steps below are rewritten to the behaviour that actually shipped. user_profile_updates survives as an append-only audit log (rows are inserted with status='accepted'); nothing produces a pending row.",
       "steps": [
-        "Run alembic upgrade head; verify last_bootstrapped_at exists on member_ai_memory and user_profile_updates table exists with the documented columns",
-        "Navigate to Settings → AI and find the new 'Profile' subsection at the top — for an existing user with empty memory_text it shows 'Your profile is empty' with a 'Build my profile' button",
-        "Click 'Build my profile' — bootstrap pass runs, creates a pending user_profile_update with source=bootstrap; the pending card appears below the empty state",
-        "Review the proposed profile content; accept it",
-        "Verify member_ai_memory.memory_text is populated and last_updated_at advances; the Profile section now renders the accepted content",
-        "Trigger a coach digest (POST /ai/coach/digest/generate) — verify the digest reads naturally as if it knows the user (the system prompt now includes a 'What you know about this person' fragment with the profile content)",
-        "Open the chat surface and start a new conversation — verify the response is grounded in the profile (e.g. references a current focus or stated preference without name-dropping the profile)",
-        "Edit the profile directly via the UI textarea; verify the edit persists (PATCH /ai/profile) and shows in the next coach run",
-        "Bootstrap again to create a second pending proposal, then reject it — verify status flips to rejected (POST /ai/profile/updates/{id}/reject returns 204) and memory_text is unchanged",
-        "Bootstrap a third time, then accept one of two pending proposals — verify the other still-pending one is automatically marked 'superseded' (so the user never accepts a stale-base proposal by mistake)"
+        "Run alembic upgrade head; verify last_bootstrapped_at exists on member_ai_memory and the user_profile_updates table exists (both shipped in 0030/0031 — no new migration)",
+        "POST /ai/profile/bootstrap as a user with real notes, documents, goals and habits — verify 200 with bootstrap_skipped=false",
+        "Query member_ai_memory — verify memory_text is populated directly and last_bootstrapped_at is stamped; verify NO pending user_profile_updates row exists (the returned row is an audit record with status='accepted')",
+        "Read the drafted profile — verify it is specific to the user's own material (named focuses, observed patterns) rather than generic filler",
+        "Verify the proposer prompt included all declared sources: notes, documents, active goals/projects/habits, and completed todos from the last 90 days",
+        "POST /ai/coach/digest/generate — verify the digest is grounded in the profile and never name-drops it",
+        "Start a chat conversation — verify the assembled system prompt carries the profile (the chatbot already read memory_text, so it benefits with no change of its own)",
+        "GET /ai/profile and PATCH /ai/profile still work as a debug/repair surface, though no UI renders them",
+        "POST /ai/profile/bootstrap for a user with no notes/documents/behavioural data — verify bootstrap_skipped=true with a reason, and that last_bootstrapped_at is still stamped",
+        "POST /ai/profile/bootstrap with no AI provider configured — verify 503"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-001b",
       "category": "AI Coach",
       "priority": 1,
       "title": "Notes-driven incremental profile proposer (Phase 1.5 of AI coach redesign)",
-      "description": "Closes the 'profile goes stale between bootstrap clicks' gap. After every N net-new notes (default 5) created or updated by a user, a background task runs the same proposer prompt as bootstrap but with a smaller, fresher source bundle (the last 15 notes). It either creates a pending UserProfileUpdate (source='incremental') or returns SKIP silently — the system prompt biases hard toward SKIP. Counter `notes_at_last_proposal` lives on member_ai_memory and advances even when the proposer skips, so each user can never trigger more than one proposer call per N new notes. Skips entirely until bootstrap has run at least once.",
+      "description": "Closes the 'profile goes stale between bootstrap clicks' gap. After every N net-new notes (default 5) created or updated by a user, a background task runs the same proposer prompt as bootstrap but with a smaller, fresher source bundle (the last 15 notes). It either creates a pending UserProfileUpdate (source='incremental') or returns SKIP silently — the system prompt biases hard toward SKIP. Counter `notes_at_last_proposal` lives on member_ai_memory and advances even when the proposer skips, so each user can never trigger more than one proposer call per N new notes. Skips entirely until bootstrap has run at least once.\n\nSHIPPED (2026-07-21) with coach-001 and coach-005. Per coach-005 the proposer applies its revision directly to memory_text instead of creating a pending UserProfileUpdate; the audit row is written with status='accepted'. Steps below rewritten to the shipped behaviour.",
       "steps": [
-        "Run alembic upgrade head; verify notes_at_last_proposal exists on member_ai_memory",
-        "As a user who has NOT yet run bootstrap, create 6 new notes; verify NO UserProfileUpdate rows are created (incremental skips until bootstrap has run)",
-        "Run bootstrap and accept the proposal; profile is now populated",
-        "Create 4 new notes; verify NO proposer call yet (under threshold)",
-        "Create the 5th new note; verify a background proposer call fires (logs show 'Incremental proposer' messages) and notes_at_last_proposal advances to the new total",
-        "If the proposer found durable signal: a pending UserProfileUpdate with source='incremental' appears in Settings → AI → Profile",
-        "If the proposer returned SKIP: no new pending update appears, but notes_at_last_proposal still advanced — verify by adding 5 more notes and watching for the next proposer run",
-        "Accept the incremental proposal; verify memory_text is replaced and last_updated_at advances",
-        "Verify a note write that fails the proposer call (e.g. AI provider misconfigured) does NOT block the note save — the note commit completes, errors are logged"
+        "Verify notes_at_last_proposal exists on member_ai_memory (shipped in 0031 — no new migration)",
+        "As a user who has NOT yet run bootstrap, create 6 notes; verify NO proposer call fires and notes_at_last_proposal does not advance",
+        "After bootstrap has run, create 4 notes; verify NO proposer call yet (under the threshold of 5)",
+        "Create the 5th note; verify exactly one background proposer call fires and notes_at_last_proposal advances to the new total",
+        "When the proposer finds durable signal: verify memory_text is replaced directly and an audit row with source='incremental', status='accepted' is written",
+        "When the proposer returns SKIP: verify memory_text is unchanged but notes_at_last_proposal still advanced — then add 4 more notes and confirm no second call (one call per 5 notes, never one per note)",
+        "Verify a note write whose proposer call fails (AI provider misconfigured) does NOT block the note save — the commit lands and the error is logged",
+        "Verify a note update runs the same threshold gate, attributed to the note's author; net-new note count is the unit, so edits alone never trigger a call"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-002",
@@ -818,7 +817,7 @@
       "category": "AI Coach",
       "priority": 1,
       "title": "Silent profile + auto-bootstrap on API key save + key validation",
-      "description": "Three connected UX changes that turn the AI profile from a user-facing surface into a quiet background service. (1) ProfileSubSection removed from Settings → AI; profile is no longer visible or editable to end users (backend /ai/profile/* endpoints remain for debugging). (2) Bootstrap pass and the notes-driven incremental proposer now write directly to member_ai_memory.memory_text instead of queueing pending updates. (3) AIProvider gains a validate() method; AnthropicProvider implements it via a max_tokens=1 probe call. PATCH /ai/settings calls validate() before persisting a new key — bad keys return 400. (4) On a successful new-key save, /ai/settings fires the bootstrap pass in a background asyncio task if the user has no profile yet.",
+      "description": "Three connected UX changes that turn the AI profile from a user-facing surface into a quiet background service. (1) ProfileSubSection removed from Settings → AI; profile is no longer visible or editable to end users (backend /ai/profile/* endpoints remain for debugging). (2) Bootstrap pass and the notes-driven incremental proposer now write directly to member_ai_memory.memory_text instead of queueing pending updates. (3) AIProvider gains a validate() method; AnthropicProvider implements it via a max_tokens=1 probe call. PATCH /ai/settings calls validate() before persisting a new key — bad keys return 400. (4) On a successful new-key save, /ai/settings fires the bootstrap pass in a background asyncio task if the user has no profile yet.\n\nSHIPPED (2026-07-21) together with coach-001 and coach-001b as a single end state — the ProfileSubSection and review flow coach-001 originally specified were never built rather than built-then-deleted.",
       "steps": [
         "In Settings → AI, verify there is NO 'Profile' subsection",
         "Save a deliberately invalid Anthropic API key — verify the request returns 400 with a clear message and that ai_settings.api_key_encrypted is NOT updated",
@@ -830,7 +829,7 @@
         "Write 5+ new journal entries; verify the incremental proposer auto-applies updates directly to memory_text",
         "Verify that clearing the key via clear_api_key=true does NOT delete memory_text"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-006",

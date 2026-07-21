@@ -244,12 +244,12 @@ ProfileUpdateStatus = Literal["pending", "accepted", "rejected", "superseded"]
 
 
 class ProfileResponse(BaseModel):
-    """Current accepted user profile.
+    """Current user profile.
 
     content_md is the same data stored on member_ai_memory.memory_text — a
     markdown document, sectioned by H2 headers, that both the coach and the
     chatbot read on every interaction. Empty string until the bootstrap pass
-    has run and the user has accepted the first proposed update.
+    has run (which happens automatically once an API key is configured).
     """
     content_md: str
     last_updated_at: datetime
@@ -284,10 +284,11 @@ class ProfileUpdateListResponse(BaseModel):
 class BootstrapResponse(BaseModel):
     """Returned by POST /ai/profile/bootstrap.
 
-    `update` is the newly-created pending proposal the user must review.
+    `update` is the audit record of the profile that was just applied — it is
+    written with status='accepted', there is nothing to review.
     `bootstrap_skipped` is true when the pass produced no usable signal
     (e.g. a brand-new user with no notes/journal/documents) — in that case
-    no update is created and the user can populate the profile manually.
+    memory_text is left alone, though last_bootstrapped_at is still stamped.
     """
     update: ProfileUpdateResponse | None
     bootstrap_skipped: bool = False

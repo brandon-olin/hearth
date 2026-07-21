@@ -353,7 +353,10 @@ async def get_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_ai_enabled),
 ) -> ProfileResponse:
-    """Return the current accepted user profile (empty string if never set)."""
+    """Return the current user profile (empty string if never set).
+
+    Debug surface. The profile is a background service — no UI reads this.
+    """
     return await profile_service.get_profile(db, current_user.id)
 
 
@@ -363,12 +366,12 @@ async def patch_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_ai_enabled),
 ) -> ProfileResponse:
-    """Directly edit the profile content.
+    """Directly overwrite the profile content.
 
-    Bypasses the proposed-update workflow — the user is always trusted to
-    write their own profile. The AI never writes here directly; it only ever
-    proposes via /ai/profile/bootstrap and (in Phase 4) the incremental
-    refresher.
+    Debug/repair surface, not a user-facing editor — Settings no longer
+    renders the profile at all. The bootstrap pass and the incremental
+    proposer write memory_text themselves; this is how a human corrects
+    them when they get something wrong.
     """
     return await profile_service.update_profile(db, current_user.id, data.content_md)
 
@@ -378,11 +381,16 @@ async def bootstrap_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_ai_enabled),
 ) -> BootstrapResponse:
-    """Run the bootstrap pass: read this user's notes, documents, and recent
-    behavioural data, ask the AI to draft an initial profile, and create a
-    pending UserProfileUpdate for the user to review.
+    """Run the bootstrap pass: read this user's notes, documents, active
+    goals/projects/habits and the last 90 days of completed todos, then draft
+    a profile and write it straight to member_ai_memory.memory_text.
 
-    Idempotent — safe to re-run. Accepting any one update supersedes the rest.
+    Normally fired automatically in the background when an API key is saved;
+    this endpoint exists to re-run it by hand. Idempotent — a re-run drafts
+    fresh content that replaces the previous profile. The returned
+    UserProfileUpdate is an audit record of what was applied (status is
+    already 'accepted'), not something awaiting review.
+
     Returns bootstrap_skipped=True with a reason when there's no usable signal.
     """
     user_settings = await service.get_or_create_settings(db, current_user.id)
