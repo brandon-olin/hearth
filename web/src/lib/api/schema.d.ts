@@ -12839,6 +12839,8 @@ export interface operations {
         parameters: {
             query?: {
                 search?: string | null;
+                /** @description 'name' (alphabetical) or 'recent' (most-recently-used by you first). */
+                sort?: "name" | "recent";
                 limit?: number;
                 offset?: number;
             };

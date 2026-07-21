@@ -12,7 +12,11 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from life_dashboard.domains.workouts.models import Exercise
+from life_dashboard.domains.workouts.models import (
+    Exercise,
+    SessionExercise,
+    WorkoutSession,
+)
 from life_dashboard.domains.workouts.schemas import (
     ExerciseCreate,
     ExerciseListResponse,
@@ -71,13 +75,21 @@ async def ensure_global_exercises(db: AsyncSession) -> int:
 async def list_exercises(
     db: AsyncSession,
     household_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     *,
     search: str | None = None,
+    sort: str = "name",
     limit: int = 100,
     offset: int = 0,
 ) -> ExerciseListResponse:
-    """List the global library + this household's active custom exercises,
-    ordered by name. ``search`` matches the name case-insensitively."""
+    """List the global library + this household's active custom exercises.
+
+    ``search`` matches the name case-insensitively. ``sort`` is either ``"name"``
+    (alphabetical, the default) or ``"recent"`` — most-recently-used by the
+    CURRENT user first, derived through their sessions (never-used exercises sort
+    last, then alphabetically). Recency is PERSONAL like template ordering: the
+    catalog is shared but "recently used" means recently used *by you*.
+    """
     query = select(Exercise).where(
         _visible_clause(household_id),
         Exercise.archived_at.is_(None),
@@ -88,13 +100,46 @@ async def list_exercises(
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar_one()
-    rows = (
-        await db.execute(
-            query.order_by(Exercise.name.asc()).limit(limit).offset(offset)
+
+    if sort == "recent" and user_id is not None:
+        # Per-user recency as a correlated subquery: MAX(started_at) over the
+        # current user's sessions that included this exercise. Someone else's use
+        # must not surface an exercise up your picker.
+        last_used = (
+            select(func.max(WorkoutSession.started_at))
+            .select_from(SessionExercise)
+            .join(WorkoutSession, SessionExercise.session_id == WorkoutSession.id)
+            .where(
+                SessionExercise.exercise_id == Exercise.id,
+                WorkoutSession.created_by_user_id == user_id,
+            )
+            .correlate(Exercise)
+            .scalar_subquery()
         )
-    ).scalars().all()
+        rows = (
+            await db.execute(
+                query.add_columns(last_used.label("last_used_at"))
+                # NULLs (never used by this user) sort last on both engines.
+                .order_by(
+                    last_used.is_(None).asc(),
+                    last_used.desc(),
+                    Exercise.name.asc(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        items = [_exercise_response(row[0]) for row in rows]
+    else:
+        rows = (
+            await db.execute(
+                query.order_by(Exercise.name.asc()).limit(limit).offset(offset)
+            )
+        ).scalars().all()
+        items = [_exercise_response(e) for e in rows]
+
     return ExerciseListResponse(
-        items=[_exercise_response(e) for e in rows],
+        items=items,
         total=total,
         limit=limit,
         offset=offset,

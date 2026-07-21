@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
@@ -64,13 +65,18 @@ _NOT_FOUND = "Not found"
 @router.get("/exercises", response_model=ExerciseListResponse)
 async def list_exercises(
     search: str | None = Query(default=None, max_length=200),
+    sort: Literal["name", "recent"] = Query(
+        default="name",
+        description="'name' (alphabetical) or 'recent' (most-recently-used by you first).",
+    ),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ExerciseListResponse:
     return await exercises_service.list_exercises(
-        db, current_user.household_id, search=search, limit=limit, offset=offset
+        db, current_user.household_id, current_user.id,
+        search=search, sort=sort, limit=limit, offset=offset,
     )
 
 

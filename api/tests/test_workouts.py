@@ -99,6 +99,40 @@ async def test_custom_exercise_not_visible_to_other_household(db_session, househ
     assert other is None
 
 
+# ── Exercise picker ordering (per-user recency) ───────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_exercises_recent_is_per_user(db_session, household):
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    # Alice logs a session using ex[1] only.
+    await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            exercises=[SessionExerciseCreate(exercise_id=ex[1], sets=[WorkoutSetCreate(reps=5)])],
+        ),
+    )
+    # For Alice, ex[1] (recently used) sorts ahead of ex[0] (never used).
+    alice_recent = await exercises_service.list_exercises(
+        db_session, hid, alice, sort="recent", limit=500
+    )
+    alice_ids = [e.id for e in alice_recent.items]
+    assert alice_ids[0] == ex[1]
+    assert alice_ids.index(ex[1]) < alice_ids.index(ex[0])
+    # For Bob, Alice's use does not leak — with no sessions of his own, recent
+    # order is purely alphabetical, so his list matches the name-sorted list and
+    # ex[1] is NOT floated to the front.
+    bob_recent = await exercises_service.list_exercises(
+        db_session, hid, bob, sort="recent", limit=500
+    )
+    bob_by_name = await exercises_service.list_exercises(db_session, hid, bob, limit=500)
+    assert [e.id for e in bob_recent.items] == [e.id for e in bob_by_name.items]
+    assert bob_recent.items[0].id != ex[1]
+    # Default sort is alphabetical and unaffected.
+    names = [e.name for e in bob_by_name.items]
+    assert names == sorted(names)
+
+
 # ── Superset rules (template) ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio

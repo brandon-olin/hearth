@@ -21,8 +21,13 @@ import { useParams } from "next/navigation";
  *   /collections/<id>
  *   /recipes/<id>
  *   /recipes/<id>/edit
+ *
+ * `segmentIndex` selects which path segment holds the id in the fallback path.
+ * It defaults to 1 (the second segment) for the routes above; deeper routes
+ * whose id sits further along pass their own index, e.g.
+ *   /workouts/templates/<id>  → useSegmentId(2)
  */
-export function useSegmentId(): string {
+export function useSegmentId(segmentIndex = 1): string {
   const params = useParams<{ id: string }>();
 
   // Happy path: useParams returned a real, non-sentinel value.
@@ -34,7 +39,7 @@ export function useSegmentId(): string {
   if (typeof window !== "undefined") {
     // pathname = "/projects/31662b7b-..." → ["projects", "31662b7b-..."]
     const segments = window.location.pathname.split("/").filter(Boolean);
-    const candidate = segments[1]; // always the second segment for these routes
+    const candidate = segments[segmentIndex];
     if (candidate && candidate !== "index") {
       return candidate;
     }
