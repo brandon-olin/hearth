@@ -1100,7 +1100,7 @@
         "Verify Settings → Workouts has a toggle to re-enable the prompt",
         "Verify the 'Save as template' secondary button is still accessible on the session summary even when the prompt is disabled"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "workouts-004",

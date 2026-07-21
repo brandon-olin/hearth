@@ -5061,3 +5061,108 @@ LEFT / NEXT
   generateStaticParams dance for the Tauri static export, and a single exercise's
   chart has no reason to be linkable on its own. Revisit only if deep-linking to
   one exercise's progress becomes a real need.
+
+=== 2026-07-21 — Coding session ===
+
+WORKED ON
+workouts-003 — Workout session logging UX (live logging, ghost values, rest
+timer, save-as-template prompt). Built on branch feat/workouts-003 in
+.claude/worktrees/workouts-003.
+
+STATUS: complete. All 12 feature_list verification steps executed in a browser
+against a two-member household; feature_list workouts-003 flipped to passing.
+
+COMMITS
+- 838fce7 feat(workouts-003): workout session logging UX — ghost values, rest
+  timer, finish summary
+- (this commit) chore(workouts-003): mark feature passing, log session
+
+WHAT WAS DONE
+
+No migration, no new columns — webhook-001 owns slot 0050 and this feature
+needed neither. Everything new is derived from the workouts-001 tables.
+
+- GHOST VALUES ARE PER-USER. GET /workouts/sessions/{id}/prefill keys on
+  template_exercise_id AND filters WorkoutSession.created_by_user_id to the
+  requesting member. Templates are household-shared, so the un-predicated
+  version in the original spec text would have pre-filled a member with another
+  member's weights. Resolution order: the member's own most recent LOGGED
+  session for that slot (a started-and-abandoned session is skipped via an
+  EXISTS on a completed set), then the template's default_weight/default_reps,
+  then empty. Never another member's data at any step. Keying on the slot, not
+  the exercise, is what keeps a heavy bench slot and a back-off bench slot in
+  one template tracking separately. Implemented with one ROW_NUMBER() window
+  query per key type — not one query per exercise.
+- POST /workouts/sessions/{id}/finish + GET .../summary: duration, working
+  volume (Σ weight×reps over COMPLETED non-warmup sets), sets and exercises
+  completed, from_template. finish is idempotent — an already-finished session
+  keeps its original ended_at, so a double-tap cannot stretch a duration.
+- POST /workouts/sessions/{id}/save-as-template derives slot defaults from what
+  was logged (default_sets = working set count, default_reps = the MODAL rep
+  count so one failed set doesn't rewrite the plan, default_weight = heaviest).
+  A read plus a create; the session is never mutated.
+- MCP verbs for all three (get_workout_prefill, finish_workout_session,
+  save_session_as_template) plus an _as_uuid helper so a malformed id argument
+  returns an agent-readable message instead of a 500.
+- Web /workouts/sessions/[id]: overview, exercise detail, superset-by-round
+  detail. Reuses workouts-002's buildDisplayItems (generalised over an
+  OrderedRow interface) and its supersetLabel rule rather than forking them, so
+  collapsed supersets look identical in the builder and the logger.
+- The rest timer is a MODULE-LEVEL store holding an absolute endsAt, not
+  component state. That is the whole reason it survives navigating to the
+  overview and back — the spec's requirement. Mirrored to sessionStorage so a
+  hard reload doesn't drop a running rest. Supersets fire it only when the last
+  set in a round is checked off.
+- Warmup sets: smaller, W badge, above the working sets, excluded from the
+  completion indicator and from volume.
+- prompt_save_as_template lives in the existing users.preferences JSON column
+  (Settings → Workouts), NOT a new column. PATCH /auth/me merges, so theme /
+  sidebar / dashboard keys survive untouched (verified).
+
+VERIFICATION (executed, not assumed)
+- make test: 251 passed (+13 new in test_workouts.py, incl. the cross-user
+  ghost-value test and the modal-reps save-as-template derivation). ruff clean
+  on tests. cd web && npx tsc --noEmit clean; eslint clean on the new files.
+- Ran the worktree API on :1341 and web on :1342 against a COPY of the dev DB
+  (api/wk3-test.db) with known test passwords, seeded a 4-slot template (two
+  bench slots at different protocols + a 2-exercise superset) and one prior
+  logged session for the owner at 185/190/195.
+- Walked the loop in Chrome: ghost values appeared as the owner's own
+  185/190/195 (muted italic), focusing a field cleared the ghost for that field
+  only and left the suggestion as a placeholder, checking a set off with an
+  untouched field logged the suggestion, the timer started at the template's
+  120s and read 1:57 → 1:46 (overview) → 1:34 (back in detail) without
+  resetting, a warmup set kept the indicator at "✓ 3/3 sets", the superset
+  timer stayed on the previous rest after the first exercise and restarted with
+  the superset label only when the round closed, "+ Add round" added a set to
+  both members, and the summary volume matched by hand: 200×8 + 190×8 + 195×8 +
+  45×8 + 55×8 = 5,480 lbs, 3/4 exercises, 5 working sets.
+- Blank session: prompt appeared; "Don't ask me again" + Skip wrote
+  prompt_save_as_template=false (confirmed on /auth/me); the next blank session
+  showed no prompt but kept the secondary Save as template button; Settings →
+  Workouts re-enabled it.
+- CROSS-USER: logged in as child@hearth.local (same household, same shared
+  template) — saw no sessions at all, the template listed as "You haven't used
+  this yet", and ghost values of 135/95/40/50 (the template's defaults). The
+  owner's 185/190/195 never appeared.
+
+BUG FOUND AND FIXED DURING THE BROWSER PASS
+The first run showed 135 (the template default) instead of the owner's history.
+Cause: starting from a template MATERIALIZES each set with default_weight
+already stored, and the set row preferred the stored value over the API's
+suggestion. Fixed by making the suggestion outrank the stored value on any set
+that has not been logged, and by promoting the effective values into local
+state when a set is checked off so the row keeps showing what it just wrote.
+
+LEFT / NEXT
+- The pre-workouts-003 sheet editor in workouts/page.tsx was removed so there
+  is one place a session is logged; its name/date/notes/delete affordances moved
+  into the logger's collapsed "Workout details" panel. The calendar's read-only
+  session sheet (workouts-005) is untouched.
+- New sessions now carry the real start time rather than the old noon-UTC
+  anchor, because the logger's duration counts from it. The workouts list groups
+  by LOCAL date to match, the way the calendar's sessionDateStr already did.
+  progress_service still buckets by UTC date, so a session started after ~7pm
+  US-local can chart one day later than it reads in the list — worth revisiting
+  if it bothers anyone, but not worth a migration.
+- All Workouts features (001, 001b, 002, 003, 004, 005) now pass.
