@@ -5511,3 +5511,109 @@ What was left:
 Recommended next feature: coach-004 (coach focus text) or coach-006 — both sit
 in the same file and would benefit from the scenario harness this session
 established.
+
+=== 2026-07-21 — Coding session (proposal-002 + webhook-003) ===
+
+Worked on: proposal-002 (agent proposals — approval queue UI, scoped realtime,
+MCP status tools) with webhook-003 (the proposal.* webhook catalog addition)
+folded in, exactly as webhook-003's own RELATIONSHIP paragraph anticipated.
+
+Status: complete. Both entries flipped to passes=true.
+
+Commit: 51f9702 feat(proposal-002,webhook-003) — merged to local main, not pushed.
+No migration; alembic heads still reports a single head (0051).
+
+What was done:
+
+* THE AUDIENCE IS A VISIBILITY DESCRIPTOR, NOT BRANCHING LOGIC. A proposal is
+  visible to the household's owners/admins plus the member who asked. That is
+  exactly the `members` rule — creator, plus an explicit share list — so
+  proposals/events.py builds a descriptor with visibility="members",
+  created_by_user_id=proposer (NULL for a household agent) and
+  shared_with_user_ids=(admin ids). "Routing is all admins" is therefore a
+  VALUE. Per-domain approver routing (the declared v2) changes which ids go in
+  that tuple and nothing else — no consumer and no scope code has to move.
+
+* Consequence worth knowing for anyone touching events: `proposals` had to join
+  emit.py's _DENYLIST_TABLES. The universal invalidation producer reads only a
+  row's own columns, so it would have emitted a household-wide event — telling
+  every member that *something* was awaiting approval, which is precisely the
+  leak realtime-001's scope filter exists to prevent. The service emits its own
+  scoped invalidation through a new emit.record_invalidation(), which rides the
+  same commit-time plumbing and so inherits the same rollback drop and the same
+  can_see filter. tests/test_proposal_queue.py has a test that fails if the
+  denylist entry is removed.
+
+* ONE FILTER, as briefed. Both the SSE stream and the webhook worker pass the
+  same descriptor through events/scope.py can_see. No second filter was added.
+  proposals/events.py:can_see_proposal is the REST queue's gate and runs that
+  same function, so "was told about it" and "may open it" cannot drift apart —
+  there is a test asserting the two agree member by member.
+
+* APPROVING IS HUMAN-ONLY, STRUCTURALLY. /proposals maps to no PAT scope domain,
+  so auth's deny-by-default refuses every token — an agent's and the
+  account-linking token a voice device carries — without anyone having to
+  remember a check. Verified live: 403 "not accessible with a personal access
+  token". There is no approve/reject MCP tool and no approval voice intent.
+
+* The expiry sweep now emits proposal.decided as well. Without it a timed-out
+  proposal would sit in an open queue behind an approve button guaranteed to
+  fail. RETURNING makes the events idempotent for free — the second sweep
+  returns no ids and announces nothing.
+
+* Agent surface: list_my_proposals and get_proposal_status, confined to the
+  calling TOKEN's own proposals (the copy promises "belongs to this token", so
+  the filter matches the promise). Each result carries a `message` written to be
+  relayed rather than a status string to be interpreted.
+
+* Voice: voice/auth.authorize now resolves a tier and returns a VoiceDecision,
+  mirroring mcp.auth. The propose tier speaks "I'll have to ask about that one
+  … as soon as someone says yes" instead of "you don't have permission" — a kid
+  told the latter stops asking. Proposals recorded from voice use the MCP tool
+  name as their executor key, so a voice ask and an agent ask replay identically.
+
+* Web: /proposals page, dashboard widget, nav entry, invalidation-map entry.
+  A decided proposal renders the decision and who made it in the slot the
+  approve/decline buttons occupied — never a control already known to fail.
+
+Verified (executed, against a real stack — API on :1341, web on :1342, a real
+webhook receiver on :1345, four seeded members across two households):
+* make test 431 passing (36 new in tests/test_proposal_queue.py), ruff clean on
+  tests, tsc --noEmit clean.
+* Proposed a todo through the MCP add_todo tool with a propose-scoped token,
+  approved it in the browser as Alice, confirmed the todo row was created.
+* Second admin: Bob's approve/decline from outside the browser flipped Alice's
+  OPEN queue live over SSE to "Declined by Bob · <time>" with the reason quoted
+  and no buttons — no reload. A second approve on an already-decided proposal
+  returns 409 "already approved — first decision wins" and creates no second
+  write.
+* Webhook: an admin-owned subscription on proposal.* received proposal.created
+  and proposal.decided (reason included); a member-owned subscription in the
+  same household matching the same pattern received NOTHING. No `args` in any
+  payload.
+* Agent loop: get_proposal_status returned "Declined by Alice. The reason given
+  was: '<reason>' — relay that to the user in your own words…". Yes, relayable.
+  Foreign/unknown/malformed ids each answer with the problem plus the next tool.
+* Viewer view: the kid sees only their own request, no approve controls, and
+  the page copy changes to "waiting on a household admin".
+
+What was left / notes for next time:
+* Per-domain approver routing stays unbuilt on purpose (v2, lands in
+  permissions_config). No routing config entered the schema.
+* proposal-003 (web-UI propose for restricted members) is untouched. The table
+  and this queue already handle it: source="web", token_id NULL, and the queue
+  filters/labels need no change.
+* Batch approval UX (proposal-002's open question) was NOT built. The model
+  supports deciding N rows in one transaction; nothing in the UI does it yet.
+* A dev-environment trap that cost real time here, worth knowing: the app's
+  service worker (hearth-v2 cache) served a STALE JS chunk for ~20 minutes, so
+  SSE invalidation looked broken when the code was fine. If realtime seems dead
+  in dev, unregister the service worker and clear caches before debugging.
+* feature_list.json carried pre-existing uncommitted planning edits (the
+  webhook-003 entry itself, plus description updates on coach-002/coach-007/
+  subscription-001) into this session's chore commit — they were in the working
+  tree on main before this build started.
+
+Recommended next feature: proposal-003 (web-UI propose), which is now a branch
+in the REST write path plus nothing else, or webhook-002 (webhook management
+tools) to finish the agent side of the egress story.
