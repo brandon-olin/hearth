@@ -5166,3 +5166,77 @@ LEFT / NEXT
   US-local can chart one day later than it reads in the list — worth revisiting
   if it bothers anyone, but not worth a migration.
 - All Workouts features (001, 001b, 002, 003, 004, 005) now pass.
+
+=== 2026-07-21 — Coding session (webhook-001) ===
+
+WORKED ON
+webhook-001 — outbound webhooks: semantic event layer, subscriptions, signed
+delivery worker, settings UI, receiver docs. Built on feat/webhook-001 in
+.claude/worktrees/webhook-001, rebased onto main after workouts-003 landed.
+
+STATUS: complete — every verification step in the feature entry executed, not
+just registered.
+
+COMMITS
+- 674cbf1  feat(webhook-001): semantic event layer on the commit-time plumbing
+- ac929f2  feat(webhook-001): subscriptions, signed delivery worker, SSRF policy
+- 1e58c11  feat(webhook-001): webhooks settings UI + receiver docs
+- (this one) chore(webhook-001): mark feature passing, log session
+
+WHAT WAS DONE
+The prerequisite was real: events/emit.py is a TABLE-level invalidation
+producer, so todo.completed did not exist and grocery/habit child events could
+not emit at all. The semantic layer was built first, on the SAME commit-time
+plumbing rather than beside it — services queue a SemanticEvent onto
+session.info under its own key and the existing after_commit listener publishes
+it, so rollback safety and "a publish failure never breaks a committed write"
+are inherited rather than reimplemented. The universal producer is untouched;
+SSE invalidation still fires for the same writes (asserted in
+test_semantic_events.py). events/scope.py can_see now types on the visibility
+descriptor both event kinds share — one scope function, no second filter.
+
+Child events borrow the PARENT's household_id and visibility descriptor, which
+is what makes grocery_items and habit_occurrences emittable at all.
+
+webhooks/summaries.py is both the catalog and the single payload allowlist,
+applied at dispatch and again immediately before signing. Delivery is
+at-least-once off a durable queue table, signed
+`t=<unix>, v1=HMAC-SHA256(secret, "<t>.<body>")`, retried 30s/5m/30m/2h/6h then
+failed, with a full unbroken cycle auto-disabling the subscription. Secrets are
+encrypted (signing needs cleartext) and creation fails with 503 rather than
+storing plaintext when FIELD_ENCRYPTION_KEY is unset. SSRF is tier-keyed and
+re-resolves DNS on every attempt; self-hosted keeps LAN targets working.
+
+VERIFICATION (executed)
+- make migrate-verify equivalent: full 0001→0050 replay on Postgres, twice
+  (pre- and post-rebase), zero native enum columns, both tables + indexes as
+  designed. Also replayed on the SQLite/desktop path (create_all → stamp 0049 →
+  upgrade head); `alembic heads` returns exactly 0050.
+- 298 pytest passing (was 287 on this branch + 11 from main); ruff clean on
+  tests; `tsc --noEmit` clean; eslint problem count unchanged from main.
+- LIVE, against a real API on :1345 with a real localhost receiver and the real
+  background worker — 23/23 checks: HMAC verified against the documented recipe,
+  tampered body rejected, replayed body with a stale t rejected, retry reused
+  the delivery id with byte-identical bytes and a fresh signature, and a
+  PERSONAL todo created by member A delivered NOTHING to member B's
+  subscription. audit_log ended with exactly one row per lifecycle action and
+  ZERO rows for the delivery attempts.
+- Walked the UI in Chrome: created a webhook through Settings → Integrations →
+  Webhooks (HA URL accepted on the self-hosted tier), saw the secret revealed
+  once, and confirmed Active / Paused / Auto-disabled render distinctly with the
+  worker's reason shown.
+
+A real bug was caught before commit: disabled_reason is String(200) but the
+auto-disable message embeds the last delivery error, which an SSRF rejection
+pushes past 240 chars — that would have raised a DataError on Postgres at the
+exact moment we were recording a failure. Truncated in one place, with a test.
+
+LEFT / NEXT
+- webhook-002 is the follow-up: MCP management tools (list_webhooks /
+  create_webhook), the delivery-log UI, the HA UI preset, and per-subscription
+  filters if demand appears. MCP parity for webhook-001 is the outbound event
+  itself, per the root CLAUDE.md "tool, resource, or bus event" rule.
+- proposal.created / proposal.decided join the catalog once proposal-001 lands;
+  that is now the next migration-bearing build, and the slot is free.
+- Recommended next feature: proposal-001 (agent proposals) — spec is complete
+  and it no longer contends with webhook-001 for a migration.

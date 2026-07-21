@@ -1679,7 +1679,7 @@
         "Verify the secret is shown once on create and is not retrievable afterwards through the API or UI",
         "Verify tsc --noEmit passes for the web changes, and ruff + pytest for the api changes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "webhook-002",
