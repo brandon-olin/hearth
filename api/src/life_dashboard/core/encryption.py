@@ -59,6 +59,19 @@ def _get_fernet() -> MultiFernet | None:
     return MultiFernet([Fernet(k) for k in keys])
 
 
+def encryption_enabled() -> bool:
+    """True if column encryption is actually active in this process.
+
+    Deliberately asks ``_get_fernet`` rather than reading settings, because the
+    key is read from the *environment* here — a value present only in a .env file
+    parsed by pydantic-settings would report configured while columns silently
+    stored plaintext. Callers that must never persist a plaintext secret (webhook
+    subscription secrets, which have to be decryptable for signing) gate on this
+    and refuse the write.
+    """
+    return _get_fernet() is not None
+
+
 class EncryptedText(TypeDecorator):
     """SQLAlchemy column type that transparently encrypts/decrypts Text values.
 

@@ -58,6 +58,13 @@ from life_dashboard.setup.router import router as setup_router
 from life_dashboard.uploads.router import router as uploads_router
 from life_dashboard.voice import router as voice_router
 
+# webhook-001: importing the models registers them on Base.metadata so the
+# dev/sqlite create_all path builds both tables; real deployments get them from
+# migration 0050.
+from life_dashboard.webhooks import models as webhook_models  # noqa: F401
+from life_dashboard.webhooks import worker as webhook_worker
+from life_dashboard.webhooks.router import router as webhooks_router
+
 logger = logging.getLogger(__name__)
 
 
@@ -404,12 +411,19 @@ async def lifespan(app: FastAPI):
         )
         scheduler = None
 
+    # webhook-001: the outbound delivery worker — one task draining semantic
+    # events from the bus into the durable queue, one attempting due deliveries.
+    webhook_worker.start()
+
     # mcp-001: a mounted sub-app's own lifespan never runs, so the MCP
     # streamable-HTTP session manager must be started here, from the host
     # app's lifespan, or every /mcp request fails with "task group not
     # initialized". The mount itself happens below at import time.
     async with mcp_server.session_manager.run():
         yield
+
+    await webhook_worker.stop()
+    logger.info("Webhook worker stopped")
 
     if scheduler is not None:
         scheduler.shutdown(wait=False)
@@ -546,6 +560,10 @@ app.include_router(oauth_router)
 # (deny-by-default keeps PATs out); the after_commit producer is installed by
 # the events import above.
 app.include_router(realtime_router)
+# webhook-001: outbound webhook management at /webhooks. Web-session only for
+# the same deny-by-default reason — a PAT must not be able to create a new
+# egress channel for household data.
+app.include_router(webhooks_router)
 # voice-002: Alexa skill webhook at /voice/alexa. Authenticates via the account-
 # linking PAT (minted by the OAuth grant on the cloud tier, or pasted directly on
 # self-hosted) and drives the same domain services as the MCP write tools.

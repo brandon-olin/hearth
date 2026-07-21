@@ -12,11 +12,15 @@ class AuditSource(str, Enum):
     mcp    — an MCP tool call authenticated by a PAT.
     voice  — an Alexa (or other voice-platform) intent authenticated by a PAT.
     script — a maintenance/seed script authenticated by a PAT.
+    system — the API itself acting with no human or token behind it, e.g. the
+             webhook worker auto-disabling a subscription whose endpoint died.
+             Both attribution columns are NULL for these.
     """
     web = "web"
     mcp = "mcp"
     voice = "voice"
     script = "script"
+    system = "system"
 
 
 class AuditLogResponse(BaseModel):
