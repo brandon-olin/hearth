@@ -320,6 +320,13 @@ async def test_no_tools_for_budget_documents_or_notes():
         # defeat the propose tier entirely.
         "list_my_proposals",
         "get_proposal_status",
+        # onboarding (onboarding-001 / onboarding-002). clear_sample_data is
+        # the one tool that touches budget rows, and it never reads one: it
+        # deletes seeded transactions by id from the sample-data manifest, so
+        # no budget content crosses the boundary and a transaction a person
+        # entered is unreachable by construction.
+        "get_onboarding_status",
+        "clear_sample_data",
     }
     # Sensitive domains are unreachable — no read *or* write tool touches them.
     for forbidden in ("budget", "document", "note"):

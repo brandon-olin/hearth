@@ -5708,3 +5708,134 @@ What was left / notes for next time:
   belongs to that branch and touching it invites a conflict.
 
 Recommended next feature: proposal-003 (web-UI propose), or webhook-002.
+
+
+=== 2026-07-21 — Coding session ===
+
+Worked on: onboarding-001 (first-run wizard) + onboarding-002 (sample household
+data). Built together on feat/onboarding-001 — they are not separable:
+onboarding-002 triggers off the completion of onboarding-001's wizard, so
+shipping either alone leaves a dangling half.
+
+Status: complete. Both features pass every verification step.
+
+Commits this session:
+* feat(onboarding-001,onboarding-002): first-run wizard at /welcome + sample
+  household data
+
+Two schema decisions, both taken to AVOID schema:
+* The wizard-completion flag is NOT a new column. It lives in the existing
+  users.preferences JSON as "onboarding_completed", per MEMBER not per
+  household — a partner joining an established household months later has not
+  been onboarded and must still see the wizard. A household-level flag would
+  silently skip them. Registration and /setup already wrote this key;
+  POST /households/members now writes it too (an invited member previously got
+  a NULL preferences blob, which reads as "already onboarded").
+* Demo records are NOT tagged in place. The spec's "demo: true metadata flag"
+  taken literally is a column on eight domain tables. Instead ONE new table,
+  demo_data_records (household_id, entity_type, entity_id), records what the
+  seeder created; clearing deletes by that manifest. Migration 0052 is the only
+  migration in this build.
+
+What was done:
+
+API — new life_dashboard/onboarding/ package (models, schemas, service):
+* seed_demo_data — 5 to-dos (one overdue, one due today), 3 habits, 1 account +
+  1 category group + 4 categories + 12 transactions across the current month,
+  2 recipes with ingredients and steps, 1 goal linked to 1 project, 1 note in
+  the Journal collection. Idempotent: short-circuits on the manifest, and the
+  UNIQUE(household_id, entity_type, entity_id) constraint backstops a race.
+* household_has_real_data — the guard that makes "never seed over someone's
+  work" true. Checks twelve tables (broader than the eight the seeder writes
+  to: a household full of contacts and calendar events is in use even if its
+  to-do list is empty), discounting both the manifest and the bootstrap rows
+  every household gets at signup (system To-dos project, default Journal).
+* clear_demo_data — deletes by manifest, child-first, and does by hand what the
+  FK declarations promise. That last part is load-bearing: the SQLite/Tauri
+  tier does not enable PRAGMA foreign_keys, so relying on ON DELETE CASCADE /
+  SET NULL would orphan recipe ingredients and leave to-dos pointing at a
+  deleted project on desktop while working fine on Postgres. A to-do the user
+  filed inside the sample project is unparented, not deleted.
+* The one place clearing could destroy real content is the sample budget
+  account: budget_transactions.account_id CASCADEs, so a transaction the user
+  added to it would go with the account. That account is checked before
+  deletion and retained if it holds a non-seeded transaction — and its manifest
+  row is dropped anyway, because at that point the account is the user's, and
+  keeping it flagged would leave the banner up with nothing left to clear.
+* Endpoints on the households router (NOT a new prefix — a new prefix is
+  deny-by-default in pat_scopes.py and would be invisible to agents):
+  GET /households/onboarding, GET|POST|DELETE /households/demo-data.
+
+MCP (the "no feature ships without its MCP verb" rule):
+* get_onboarding_status — read on the household scope.
+* clear_sample_data — write on the household scope, full propose-tier support
+  via register_executor, audited. It is the only tool that reaches budget and
+  notes rows, and it never reads one: it deletes seeded rows by manifest id.
+  That is why it does not breach those two domains' exclusion from the tool
+  surface. Documented in the tool docstring and in test_mcp_server.py's
+  allowlist, which is the test that would have caught an accidental exposure.
+
+Web:
+* The wizard moved from /onboarding to /welcome (the route the feature asks
+  for). /onboarding survives as a redirect — that path is baked into invite
+  emails already in people's inboxes. verify-email, accept-invite, and the API
+  docstrings now point at /welcome.
+* New Welcome screen ahead of the existing steps; the purpose step was reshaped
+  to the six modules the spec names (plus Calendar & goals and Contacts).
+* Module selections now drive the DASHBOARD as well as the sidebar — picking
+  Finances and Habits lands you on a Budget widget and a Habits widget.
+  lib/onboarding/modules.ts holds the module data and both derivations as pure
+  functions (no React) so the layout logic can be reasoned about on its own.
+* (protected)/layout.tsx redirects to /welcome when preferences
+  .onboarding_completed === false. Strictly === false: a MISSING key means an
+  account that predates the wizard, and those users must never be dropped back
+  into onboarding.
+* "Skip setup" completes onboarding with defaults rather than leaving the flag
+  unset — an unset flag is a loop, not a skip.
+* SampleDataBanner on the dashboard; renders nothing unless the API says sample
+  data is present, so it self-hides once cleared.
+
+Verification — executed, not registered:
+* make migrate-verify (full 0001..0052 replay on throwaway Postgres): OK.
+* pytest 492 passed (21 new in test_onboarding_demo_data.py). ruff clean on
+  tests and on the new package. tsc --noEmit clean. eslint unchanged from main
+  (130 problems before and after).
+* End-to-end against a live API on a migration-built Postgres DB: fresh signup
+  → login → wizard status → complete wizard → seed → all five domains readable
+  through their own endpoints → seed again (declined, no duplicates) → add a
+  real to-do → clear → real to-do survives, every seeded row gone, Journal and
+  system project survive → clear again (200, no-op) → seed refused on a
+  household with data → second member created with the flag false.
+* In a real browser: signed in as a brand-new user, got bounced to /welcome,
+  walked all six screens, confirmed the sidebar narrowed to exactly Habits +
+  Budget and the dashboard came up with the Budget and Habits widgets and
+  seeded content in both. /budget rendered the donut chart and the transaction
+  list. Created a real to-do, clicked "Clear sample data" — banner vanished,
+  widgets emptied, the real to-do survived. Logged in as the invited second
+  member: saw the wizard despite the household having data, and "Skip setup"
+  landed cleanly on a default dashboard with the full sidebar.
+
+One real bug found and fixed during browser verification: the seeder originally
+wrote budget data into the "Household" profile, but the budget page auto-selects
+profiles[0] ordered by (sort_order, name) — which is "Personal". A new user
+would have opened /budget to "No transactions yet" on a page holding twelve of
+them, one dropdown away. The seeder now resolves the profile with the same
+ordering the UI uses, with a regression test pinning the two together.
+
+What was left / notes for next time:
+* onboarding-003 (progressive first-visit hints) is the natural follow-on and
+  is the third entry in this category.
+* The sample note is created with visibility="household", but the notes service
+  filters notes to their creator unconditionally ("notes are always personal").
+  So a second household member does not see the sample journal entry. That is
+  the notes domain's own rule, not a bug here, but worth knowing if notes ever
+  gain shared visibility.
+* GET /notes with no arguments returns only UNCOLLECTED notes by design, so the
+  sample entry is reachable via the Journal sidebar entry, not the base /notes
+  list. This surprised the verification script before it surprised a user.
+* A stale service worker (hearth-v2 cache) served a cached app shell during
+  browser testing and made a working guard look broken for a while. Worth
+  remembering when a frontend change appears not to take effect in dev.
+
+Recommended next feature: onboarding-003 (per-section empty states and
+first-visit hints), which completes the Onboarding category.

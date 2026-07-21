@@ -42,6 +42,7 @@ import { CalendarWeekWidget } from "@/components/dashboard/calendar-week-widget"
 import { BudgetWidget } from "@/components/dashboard/budget-widget";
 import { ProposalsWidget } from "@/components/dashboard/proposals-widget";
 import { AddWidgetSheet } from "@/components/dashboard/add-widget-sheet";
+import { SampleDataBanner } from "@/components/dashboard/sample-data-banner";
 import { Button } from "@/components/ui/button";
 import { Settings2, Plus, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -411,6 +412,10 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col min-h-full">
+      {/* onboarding-002: only renders when this household still holds seeded
+          sample data; self-hides once it's cleared. */}
+      <SampleDataBanner />
+
       {/* ── Header strip ──────────────────────────────────────────────────── */}
       <div className="border-b bg-muted/20 px-6 py-5 shrink-0">
         <div className="flex items-start justify-between gap-4">

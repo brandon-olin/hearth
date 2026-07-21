@@ -38,6 +38,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from life_dashboard.audit.decorator import resolve_actor_user_id
 from life_dashboard.audit.schemas import AuditSource
+from life_dashboard.auth.service import get_user_by_id
 from life_dashboard.core.database import AsyncSessionLocal
 from life_dashboard.domains.calendar_events import service as calendar_service
 from life_dashboard.domains.calendar_events.schemas import CalendarEventCreate
@@ -60,6 +61,7 @@ from life_dashboard.domains.workouts.schemas import (
 )
 from life_dashboard.mcp.audit_hook import record_mcp_write
 from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_pat
+from life_dashboard.onboarding import service as onboarding_service
 from life_dashboard.proposals import service as proposals_service
 from life_dashboard.proposals.executors import register_executor
 from life_dashboard.proposals.labels import label_one
@@ -956,6 +958,83 @@ async def get_proposal_status(ctx: Context, proposal_id: str) -> dict:
             raise MCPAuthError(proposals_service.UNKNOWN_PROPOSAL_MESSAGE)
         item = await label_one(db, ProposalResponse.model_validate(proposal))
     return {**item.model_dump(mode="json"), "message": proposals_service.status_message(item)}
+
+
+# ── Onboarding & sample data (onboarding-001 / onboarding-002) ───────────────
+
+
+@mcp_server.tool()
+async def get_onboarding_status(ctx: Context) -> dict:
+    """Where this household and member stand in first-run setup: whether the
+    member has finished the welcome wizard, which modules they said they care
+    about, whether the household holds any real content yet, and whether it is
+    still showing sample data.
+
+    Useful before suggesting anything to a new household — a household that is
+    still exploring sample data has not told you anything about itself yet, and
+    `household_has_data: false` means every to-do and habit you can see was put
+    there by the seeder, not by a person.
+
+    `modules` is a subset of: finance, habits, meals, tasks, health, notes,
+    planning, contacts. Empty means the member skipped the question, which is
+    "no preference", not "none of them"."""
+    async with AsyncSessionLocal() as db:
+        decision = await authorize(db, ctx, "household", "read")
+        user = await get_user_by_id(db, decision.user_id)
+        if user is None:
+            raise MCPAuthError("Token owner no longer exists.")
+        return {
+            "household_id": str(decision.household_id),
+            "household_name": decision.household_name,
+            "wizard_completed": onboarding_service.wizard_completed(user),
+            "modules": onboarding_service.wizard_modules(user),
+            "household_has_data": await onboarding_service.household_has_real_data(
+                db, decision.household_id
+            ),
+            "sample_data": (
+                await onboarding_service.demo_data_status(db, decision.household_id)
+            ).model_dump(mode="json"),
+        }
+
+
+@register_executor("clear_sample_data")
+async def _perform_clear_sample_data(db, ident) -> dict:
+    result = await onboarding_service.clear_demo_data(db, ident.household_id)
+    if result.cleared:
+        await record_mcp_write(
+            db, ident, action="delete", entity_type="household_demo_data",
+            entity_id=ident.household_id, payload={"counts": result.counts},
+        )
+    return result.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def clear_sample_data(ctx: Context) -> dict:
+    """Remove the sample content Hearth seeds into a brand-new household, once
+    the household has started entering its own.
+
+    Deletes only what the seeder created — every to-do, habit, recipe, note and
+    transaction the household wrote itself survives, including anything filed
+    inside a sample project. Idempotent: with nothing seeded it answers
+    `cleared: false` and deletes nothing, which is a success, not an error.
+
+    Check `get_onboarding_status` first if you are unsure there is anything to
+    clear. A household that requires approval for this answers
+    `status: "proposed"` — a pending request waiting on a human, not a refusal.
+
+    This is the one tool that reaches budget and notes rows, and it does so
+    without ever reading one: it deletes seeded rows by id from the sample-data
+    manifest. No budget or note content is returned, and anything a person wrote
+    is out of its reach by construction — which is why it does not breach the
+    exclusion those two domains have from the tool surface."""
+    async with AsyncSessionLocal() as db:
+        decision = await authorize(db, ctx, "household", "write")
+        if decision.proposed:
+            return await _propose(
+                db, decision, domain="household", tool="clear_sample_data", args={},
+                summary="Clear the household's sample data",
+            )
+        return await _perform_clear_sample_data(db, decision)
 
 
 def mcp_routes():

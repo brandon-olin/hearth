@@ -22,7 +22,7 @@ function LoginForm() {
   const appConfig = useAppConfig();
   const searchParams = useSearchParams();
 
-  // ?next= is used by /accept-invite to send the user to /onboarding after login.
+  // ?next= is used by /accept-invite to send the user to /welcome after login.
   // Sanitise to relative paths only to prevent open redirect.
   const rawNext = searchParams.get("next") ?? "";
   const nextPath = rawNext.startsWith("/") ? rawNext : "/";

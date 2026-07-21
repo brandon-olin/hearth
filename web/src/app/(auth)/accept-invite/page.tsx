@@ -69,7 +69,7 @@ function AcceptInviteForm() {
       // Store the access token so the protected layout sees an authenticated session.
       setAccessToken(data.access_token);
       // Hard-navigate to onboarding so the auth context re-initialises with the new session.
-      window.location.replace("/onboarding");
+      window.location.replace("/welcome");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set password.");
     } finally {

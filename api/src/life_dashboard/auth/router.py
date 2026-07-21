@@ -130,8 +130,8 @@ async def register(
         is_active=True,
         email_verified=False,
         # Flag consumed by the frontend to trigger the post-registration
-        # onboarding wizard (household name, theme, nav).  Flipped to True
-        # when the user completes /onboarding.
+        # onboarding wizard at /welcome (household name, modules, theme, nav).
+        # Flipped to True when the user finishes it. See onboarding/service.py.
         preferences={"onboarding_completed": False},
     )
     db.add(user)

@@ -22,7 +22,7 @@ import { validatePassword } from "@/lib/auth/password-policy";
  * Collects name, email, and password.  Submits to POST /setup which
  * creates the first household + admin account, sends a verification email,
  * and returns a pending response.  The user then continues to /verify-email
- * and /onboarding for household naming, theme, and nav customization.
+ * and /welcome for household naming, module selection, theme, and nav.
  */
 export default function SetupPage() {
   const router = useRouter();

@@ -40,7 +40,7 @@ export interface paths {
          *     sends a verification email, and returns a RegistrationPendingResponse.
          *
          *     The client must call POST /auth/verify-email with the OTP to get a session.
-         *     After verification the client is redirected to /onboarding for household
+         *     After verification the client is redirected to /welcome for household
          *     name, theme, and nav customization.
          *
          *     Returns 409 Conflict once any user exists.
@@ -1262,6 +1262,70 @@ export interface paths {
         put: operations["update_permissions_households_permissions_put"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/households/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Onboarding Status
+         * @description Whether this member still needs the first-run wizard, and what the
+         *     household already holds.
+         *
+         *     ``wizard_completed`` is read from the caller's own preferences: a partner who
+         *     joins an established household has not been onboarded and gets False here
+         *     even though the household is full of data.
+         */
+        get: operations["get_onboarding_status_households_onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/households/demo-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Demo Data
+         * @description Whether this household is still holding sample data, and how much of it.
+         *     Drives the dashboard's "Exploring with sample data" banner.
+         */
+        get: operations["get_demo_data_households_demo_data_get"];
+        put?: never;
+        /**
+         * Seed Demo Data
+         * @description Fill an empty household with explorable sample content.
+         *
+         *     Called by the first-run wizard on completion. Declines — with 200 and
+         *     ``seeded: false`` — when the household already has sample data or any
+         *     content the user created; seeding over someone's work is the one outcome
+         *     this must never produce. Idempotent, so a retry or a double-tapped Finish
+         *     button cannot double the data.
+         */
+        post: operations["seed_demo_data_households_demo_data_post"];
+        /**
+         * Clear Demo Data
+         * @description Remove every record the sample-data seeder created, and only those.
+         *
+         *     Deletes by manifest id, so anything the user made while exploring survives —
+         *     including a to-do they filed inside the sample project, which is unparented
+         *     rather than deleted. Idempotent: clearing twice returns 200 with zero counts.
+         */
+        delete: operations["clear_demo_data_households_demo_data_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4798,6 +4862,23 @@ export interface components {
             context?: components["schemas"]["ChatContextRef"] | null;
         };
         /**
+         * ClearDemoDataResponse
+         * @description Result of clearing sample data. Idempotent: a second call returns 200
+         *     with ``cleared`` False and all-zero counts rather than erroring.
+         */
+        ClearDemoDataResponse: {
+            /** Cleared */
+            cleared: boolean;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
+            /** Retained */
+            retained?: {
+                [key: string]: number;
+            };
+        };
+        /**
          * ClientRegistrationRequest
          * @description RFC 7591 client metadata. Only the fields Hearth honours are modelled;
          *     unknown members are ignored so a spec-complete client can register.
@@ -5250,6 +5331,18 @@ export interface components {
         DeleteMeRequest: {
             /** Password */
             password: string;
+        };
+        /**
+         * DemoDataStatus
+         * @description What the dashboard banner needs to decide whether to show itself.
+         */
+        DemoDataStatus: {
+            /** Present */
+            present: boolean;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
         };
         /** DocumentChildrenResponse */
         DocumentChildrenResponse: {
@@ -6816,6 +6909,23 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /**
+         * OnboardingStatusResponse
+         * @description Per-member onboarding state, plus the household context the wizard needs.
+         *
+         *     ``wizard_completed`` is read from ``users.preferences`` and is per member,
+         *     never per household — someone who joins an established household later has
+         *     not been onboarded and should still see the wizard.
+         */
+        OnboardingStatusResponse: {
+            /** Wizard Completed */
+            wizard_completed: boolean;
+            /** Modules */
+            modules?: string[];
+            /** Household Has Data */
+            household_has_data: boolean;
+            demo_data: components["schemas"]["DemoDataStatus"];
+        };
         /** PATCreateRequest */
         PATCreateRequest: {
             /** Name */
@@ -7602,6 +7712,24 @@ export interface components {
         SaveAsTemplateRequest: {
             /** Name */
             name?: string | null;
+        };
+        /**
+         * SeedDemoDataResponse
+         * @description Result of asking for sample data.
+         *
+         *     ``seeded`` False is a normal, successful outcome — the household already
+         *     had content, or already has sample data. ``reason`` says which, so the
+         *     caller (and an agent) can tell "nothing to do" from "something went wrong".
+         */
+        SeedDemoDataResponse: {
+            /** Seeded */
+            seeded: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
         };
         /**
          * SeedProfilesResponse
@@ -10730,6 +10858,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_onboarding_status_households_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStatusResponse"];
+                };
+            };
+        };
+    };
+    get_demo_data_households_demo_data_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoDataStatus"];
+                };
+            };
+        };
+    };
+    seed_demo_data_households_demo_data_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeedDemoDataResponse"];
+                };
+            };
+        };
+    };
+    clear_demo_data_households_demo_data_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearDemoDataResponse"];
                 };
             };
         };

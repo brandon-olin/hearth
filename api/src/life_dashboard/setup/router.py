@@ -65,7 +65,7 @@ async def complete_setup(
     sends a verification email, and returns a RegistrationPendingResponse.
 
     The client must call POST /auth/verify-email with the OTP to get a session.
-    After verification the client is redirected to /onboarding for household
+    After verification the client is redirected to /welcome for household
     name, theme, and nav customization.
 
     Returns 409 Conflict once any user exists.
@@ -82,7 +82,7 @@ async def complete_setup(
 
     email = body.email.lower().strip()
 
-    # Household — default name, user will rename it in /onboarding
+    # Household — default name, user will rename it in /welcome
     display_name = body.display_name.strip() or email.split("@")[0]
     household = Household(name=f"{display_name}'s Home")
     db.add(household)

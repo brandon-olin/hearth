@@ -22,6 +22,13 @@ from life_dashboard.core.permissions import (
     validate_permissions_config,
 )
 from life_dashboard.core.settings import settings
+from life_dashboard.onboarding import service as onboarding_service
+from life_dashboard.onboarding.schemas import (
+    ClearDemoDataResponse,
+    DemoDataStatus,
+    OnboardingStatusResponse,
+    SeedDemoDataResponse,
+)
 
 
 def _generate_temp_password(length: int = 12) -> str:
@@ -345,6 +352,12 @@ async def add_member(
             is_active=True,
             email_verified=True,  # admin created this — no verification needed
             force_password_change=True,
+            # onboarding-001: the wizard flag is per member, not per household.
+            # Someone invited into an established household has not been
+            # onboarded — without this they inherit a NULL preferences blob,
+            # read as "already onboarded", and land in a full app having never
+            # been asked what they care about.
+            preferences={onboarding_service.WIZARD_FLAG_KEY: False},
         )
         db.add(new_user)
         await db.flush()
@@ -510,3 +523,76 @@ async def update_permissions(
         config={domain: DomainPermissions(**actions) for domain, actions in validated.items()},
         domains=CONFIGURABLE_DOMAINS,
     )
+
+
+# ── Onboarding & sample data (onboarding-001 / onboarding-002) ────────────────
+#
+# These live on the households router rather than a router of their own so they
+# inherit the "household" PAT scope mapping (auth/pat_scopes.py) — a new prefix
+# would be deny-by-default and unreachable to agents until someone remembered to
+# map it. The wizard flag itself is per *member* (users.preferences), not per
+# household; only the sample data is household-wide.
+
+
+@router.get("/onboarding", response_model=OnboardingStatusResponse)
+async def get_onboarding_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OnboardingStatusResponse:
+    """Whether this member still needs the first-run wizard, and what the
+    household already holds.
+
+    ``wizard_completed`` is read from the caller's own preferences: a partner who
+    joins an established household has not been onboarded and gets False here
+    even though the household is full of data.
+    """
+    return OnboardingStatusResponse(
+        wizard_completed=onboarding_service.wizard_completed(current_user),
+        modules=onboarding_service.wizard_modules(current_user),
+        household_has_data=await onboarding_service.household_has_real_data(
+            db, current_user.household_id
+        ),
+        demo_data=await onboarding_service.demo_data_status(db, current_user.household_id),
+    )
+
+
+@router.get("/demo-data", response_model=DemoDataStatus)
+async def get_demo_data(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DemoDataStatus:
+    """Whether this household is still holding sample data, and how much of it.
+    Drives the dashboard's "Exploring with sample data" banner."""
+    return await onboarding_service.demo_data_status(db, current_user.household_id)
+
+
+@router.post("/demo-data", response_model=SeedDemoDataResponse)
+async def seed_demo_data(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SeedDemoDataResponse:
+    """Fill an empty household with explorable sample content.
+
+    Called by the first-run wizard on completion. Declines — with 200 and
+    ``seeded: false`` — when the household already has sample data or any
+    content the user created; seeding over someone's work is the one outcome
+    this must never produce. Idempotent, so a retry or a double-tapped Finish
+    button cannot double the data.
+    """
+    return await onboarding_service.seed_demo_data(
+        db, current_user.household_id, current_user.id
+    )
+
+
+@router.delete("/demo-data", response_model=ClearDemoDataResponse)
+async def clear_demo_data(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClearDemoDataResponse:
+    """Remove every record the sample-data seeder created, and only those.
+
+    Deletes by manifest id, so anything the user made while exploring survives —
+    including a to-do they filed inside the sample project, which is unparented
+    rather than deleted. Idempotent: clearing twice returns 200 with zero counts.
+    """
+    return await onboarding_service.clear_demo_data(db, current_user.household_id)

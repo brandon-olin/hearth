@@ -22,6 +22,10 @@ import life_dashboard.audit.models  # noqa: F401,E402
 # Same for the proposals table (proposal-001). Real deployments get it from
 # migration 0051.
 import life_dashboard.proposals.models  # noqa: F401,E402
+
+# Same for the demo_data_records manifest (onboarding-002). Real deployments get
+# it from migration 0052.
+import life_dashboard.onboarding.models  # noqa: F401,E402
 from life_dashboard.ai.coach_service import run_scheduled_digests
 from life_dashboard.ai.router import router as ai_router
 from life_dashboard.auth.router import router as auth_router

@@ -88,7 +88,7 @@
         "Log in with an existing account that has data — verify the wizard is skipped entirely",
         "Verify 'Skip setup' exits the wizard cleanly and lands on a sensible default dashboard"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "onboarding-002",
@@ -105,7 +105,7 @@
         "Verify real data added by the user before clearing is NOT removed",
         "Verify the clear action is idempotent — clicking again does nothing and returns 200"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "onboarding-003",

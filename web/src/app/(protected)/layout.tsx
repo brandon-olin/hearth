@@ -19,6 +19,17 @@ export default function ProtectedLayout({
   const { user, isLoading, localeAutoDetected, dismissLocaleNotice } = useAuth();
   const router = useRouter();
 
+  // onboarding-001: the wizard flag is per member, and only an explicit `false`
+  // sends someone to it. A missing key means an account that predates the
+  // wizard — established users must never be dropped back into onboarding. It
+  // is set to false at signup and when an admin invites a new member, so a
+  // partner joining a household that is already full of data still gets asked
+  // what they care about.
+  const needsWizard =
+    (user?.preferences as Record<string, unknown> | null | undefined)?.[
+      "onboarding_completed"
+    ] === false;
+
   useEffect(() => {
     if (isLoading) return;
     if (!user) {
@@ -26,14 +37,20 @@ export default function ProtectedLayout({
     } else if (user.force_password_change) {
       // Admin-created accounts must set a real password before accessing the app.
       router.replace("/set-password");
+    } else if (needsWizard) {
+      router.replace("/welcome");
     }
-  }, [isLoading, user, router]);
+  }, [isLoading, user, needsWizard, router]);
 
   if (isLoading) {
     return <LoadingScreen />;
   }
 
   if (!user) return null;
+
+  // Hold the loading screen while the router navigates to /welcome rather than
+  // letting the shell mount and flash a dashboard the user is about to leave.
+  if (needsWizard) return <LoadingScreen />;
 
   return (
     <FocusModeProvider>
