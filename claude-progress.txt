@@ -4978,3 +4978,86 @@ LEFT / NEXT
 - The template detail is a route + Sheets (not nested [id]/[groupId] routes) to
   stay simple under the Tauri static export; useSegmentId(2) + generateStaticParams
   keep it desktop-safe. Not yet exercised in an actual Tauri build.
+
+=== 2026-07-21 — Coding session ===
+
+WORKED ON
+- workouts-004 (Workout progress tracking — per-exercise trends, estimated 1RM,
+  volume charts). Built on branch feat/workouts-004 in its own worktree.
+
+STATUS: complete — feature_list workouts-004 flipped to passes: true.
+
+COMMITS
+- f55fa48 feat(workouts-004): workout progress tracking — per-exercise trends,
+  1RM, volume
+
+DONE
+- No schema change, no migration. workouts-001 (0048) already made sets
+  first-class rows; this is one new read service plus the frontend on top.
+- api/domains/workouts/progress_service.py — two reads:
+    GET /workouts/progress/{exercise_id}?limit=20 → the most recent N sessions
+      containing that exercise, oldest to newest, with their working sets.
+    GET /workouts/progress → exercises logged in >= 2 sessions, most recently
+      logged first, each with a sparkline over its last 5 sessions.
+- Both are PERSONAL. The exercise catalog is shared, so this is precisely where
+  another member's numbers could bleed into your charts — every query filters
+  created_by_user_id server-side next to household_id. Another member's sets are
+  never sent to the client to be discarded there. Proved by
+  test_progress_never_includes_another_members_sets: Bob logs 315/325 lb sets
+  against the same shared catalog exercise, and none of it appears in Alice's
+  series, sparkline, or session_count (and symmetrically for Bob).
+- Two exclusions define a data point, and both matter for correctness: warmup
+  sets never enter the payload at all (they are excluded from every downstream
+  calculation), and neither do blank set rows the logging UI creates before
+  they are filled in. Consequence worth remembering: a warmup-only session is
+  not a session for that exercise, so it cannot lift one over the 2-session
+  threshold — and duration/distance movements (planks, running) therefore do
+  not appear in Progress, which is reps/weight shaped by design.
+- Frontend /workouts/progress: list with sparklines → full-screen detail with
+  Max weight / Est. 1RM / Volume behind a segmented control. Bodyweight
+  exercises (weight NULL throughout) get Max reps / Volume instead; an empty
+  weight chart is never rendered.
+- Charts are hand-rolled SVG polylines following progress-ring.tsx and
+  note-graph.tsx — no charting dependency was added (recharts would be real
+  bundle cost with pwa-001 pending). currentColor + themed classes throughout,
+  so palette switching keeps working; fixed-pixel geometry in an overflow-x-auto
+  wrapper (the budget chart's approach) because a scaled viewBox shrinks axis
+  text to nothing on a phone.
+- web/lib/workouts/progress-metrics.ts holds every derived number, computed
+  client-side and never stored: Epley 1RM = weight x (1 + reps/30), shown only
+  for sets of <= 10 reps (higher reps estimate poorly — the session becomes a
+  gap in the line rather than a fabricated point); volume = sum(weight x reps)
+  over working sets; failed-set marker where logged reps < target_reps, with a
+  NULL target explicitly NOT a failure.
+- MCP verb: get_exercise_progress(exercise, limit) — resolves an exercise by
+  NAME (new exercises_service.find_exercise_by_name, mirroring
+  find_template_by_name) and returns the same personal series. The tool
+  description spells out Epley, volume, failed sets and the bodyweight case so
+  an agent derives them the same way the UI does.
+- Realtime invalidation needed no change: the map's "/workouts" prefix already
+  covers /workouts/progress.
+
+VERIFICATION (executed, not assumed)
+- make test: 240 passed (+11 new). ruff clean on tests. cd web && npx tsc
+  --noEmit clean; eslint clean on the new files.
+- Ran the worktree API on :1341 against a copy of the dev DB, seeded bench
+  (3 sessions, warmups, one failed set, one 20-rep set) and pull-ups
+  (2 sessions, bodyweight), and hand-checked the endpoint: warmups absent from
+  every session, Epley on Jun 8 = 145 x (1 + 5/30) = 169.17, volume = 725 + 435
+  = 1160, Jun 15 1RM = 186 with the 20-rep set correctly excluded, pull-ups all
+  null weights, one-session exercise absent from the list.
+- Loaded the Progress tab in Chrome against that instance: sparklines render,
+  all three charts switch via the segmented control and match the hand-computed
+  numbers on hover, the ✗ marker appears under Jun 8 (plus "✗ 1 session under
+  target" in the subheading), the bodyweight exercise offers only Max reps /
+  Volume, and the one-session exercise is absent. No console errors.
+
+LEFT / NEXT
+- workouts-003 (session logging UX) is the last workouts feature outstanding and
+  the natural next one — it is what actually produces target_reps at scale, which
+  is what makes the failed-set markers here light up in real use.
+- The detail view lives in the same route as the list (state-driven, not a [id]
+  route) deliberately: dynamic routes need the useSegmentId /
+  generateStaticParams dance for the Tauri static export, and a single exercise's
+  chart has no reason to be linkable on its own. Revisit only if deep-linking to
+  one exercise's progress becomes a real need.

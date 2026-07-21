@@ -1120,7 +1120,7 @@
         "Log warmup sets alongside working sets — verify warmup sets are excluded from all chart calculations",
         "Verify exercises with only 1 logged session do NOT appear in the progress list"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "workouts-005",
