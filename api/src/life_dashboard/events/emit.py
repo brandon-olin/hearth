@@ -45,9 +45,36 @@ logger = logging.getLogger(__name__)
 #: Session.info key under which per-transaction pending descriptors accumulate.
 _PENDING_KEY = "_realtime_pending_invalidations"
 
-#: household_id-bearing tables that should NOT emit UI invalidations — internal
-#: bookkeeping a client never renders or caches.
-_DENYLIST_TABLES = frozenset({"audit_log"})
+#: household_id-bearing tables that should NOT emit an *automatic* invalidation.
+#:
+#: ``audit_log`` is here because no client renders or caches it. ``proposals``
+#: (proposal-002) is here for the opposite reason: its audience is not the whole
+#: household but the household's admins plus the member who proposed it, and the
+#: universal producer cannot know who those admins are — it reads only attributes
+#: already loaded on the row. A household-wide invalidation would tell every
+#: member that *something* is in the approval queue, which is precisely the
+#: leak realtime-001's scope filter exists to prevent. The proposals service
+#: therefore emits its own, correctly-scoped event through
+#: :func:`record_invalidation`.
+_DENYLIST_TABLES = frozenset({"audit_log", "proposals"})
+
+
+def record_invalidation(session, event: InvalidationEvent) -> None:
+    """Queue an explicitly-scoped invalidation for publication at commit time.
+
+    The escape hatch for the one thing the universal producer structurally
+    cannot do: build a visibility descriptor that depends on a *query* (which
+    members are admins) rather than on the row's own columns. Everything else
+    about the event is unchanged — same queue, same ``after_commit`` publish,
+    same rollback drop, same ``can_see`` filter on the way out — so a scoped
+    invalidation inherits the identical guarantees an automatic one has.
+
+    Call it after ``flush()`` (the entity id must be real) and before the commit
+    that makes the change durable. A caller must NOT reach for this to bypass
+    the denylist for an ordinary table; the automatic producer already covers
+    those, and a second descriptor for the same row would just race the first.
+    """
+    session.info.setdefault(_PENDING_KEY, []).append(event)
 
 
 def _describe(obj, action: str) -> InvalidationEvent | None:

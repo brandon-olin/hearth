@@ -25,7 +25,9 @@ from life_dashboard.auth.models import HouseholdMembership, PersonalAccessToken
 from life_dashboard.auth.pat_scopes import SCOPE_TO_PERMISSION_DOMAIN
 from life_dashboard.core.permissions import load_household_permissions, resolve_permission_tier
 from life_dashboard.core.settings import settings
+from life_dashboard.proposals import events as proposal_events
 from life_dashboard.proposals.executors import run_executor
+from life_dashboard.proposals.labels import attach_labels
 from life_dashboard.proposals.models import Proposal
 from life_dashboard.proposals.schemas import ProposalListResponse, ProposalResponse, ProposalStatus
 
@@ -61,6 +63,69 @@ NO_EXECUTOR_REASON = (
     "Can't approve this — the action it asks for no longer exists in this "
     "version of Hearth, so it cannot be carried out as requested."
 )
+
+#: proposal-002. Never a bare 404: an agent that gets one goes silent, which is
+#: exactly the failure this whole track exists to prevent. Name the problem, give
+#: the two plausible causes, and say which tool to call next.
+UNKNOWN_PROPOSAL_MESSAGE = (
+    "No proposal with that id belongs to this token. It may have been submitted "
+    "by a different member or device, or it may have expired and been cleaned "
+    "up. Call list_my_proposals to see the proposals you can check."
+)
+
+#: The valid ``status`` values, with what each one means, for every message that
+#: has to enumerate them. Written once so the tool description, the filter error,
+#: and the docs cannot drift apart.
+STATUS_VOCABULARY = (
+    "pending (awaiting a decision), approved (executed), rejected (declined, "
+    "with a reason), expired (nobody decided before expires_at)"
+)
+
+
+def unknown_status_message(value: str) -> str:
+    """Refusal copy for a status filter outside the vocabulary."""
+    return (
+        f"Unknown status {value!r}. Valid values: {STATUS_VOCABULARY}. "
+        "Omit status to get all four."
+    )
+
+
+def status_message(item: ProposalResponse) -> str:
+    """What happened to this proposal, written for the agent to relay.
+
+    The contract is behavioural, not cosmetic. Each branch answers three
+    questions an agent otherwise guesses at: has the action happened, what should
+    it tell its user, and should it try again. "Do not resubmit" is stated
+    explicitly on the two statuses where a retry is the tempting mistake —
+    pending (because an identical ask returns this same proposal, so retrying
+    looks like nothing happening) and rejected (because a "no" is an answer).
+    """
+    who = item.decided_by_label or "a household admin"
+    if item.status == ProposalStatus.pending.value:
+        return (
+            "Still waiting on a human decision — the household's admins have it, "
+            "and nothing has been done yet. Tell the user their request is "
+            "pending. Do not resubmit it: an identical request returns this same "
+            f"proposal rather than creating a second one. It expires on "
+            f"{item.expires_at.date().isoformat()} if nobody decides by then."
+        )
+    if item.status == ProposalStatus.approved.value:
+        return (
+            f"Approved by {who} — the action has been carried out. Nothing "
+            "further is needed from you; tell the user it is done."
+        )
+    if item.status == ProposalStatus.rejected.value:
+        reason = item.reject_reason or "No reason given."
+        return (
+            f"Declined by {who}. The reason given was: “{reason}” — relay that to "
+            "the user in your own words rather than quoting it verbatim, and do "
+            "not resubmit the same request."
+        )
+    reason = item.reject_reason or "It expired before anyone decided it."
+    return (
+        f"No longer actionable: {reason} Nothing was done. Tell the user, and "
+        "ask them whether they still want it before requesting it again."
+    )
 
 
 class ProposalError(Exception):
@@ -184,6 +249,12 @@ async def record_proposal(
             raise
         return winner, False
 
+    # Only a genuinely new proposal announces itself. A deduped ask is the same
+    # pending request the admins were already told about, and notifying them
+    # again per retry would train them to ignore the queue.
+    await proposal_events.record_proposal_event(
+        db, proposal, event=proposal_events.PROPOSAL_CREATED
+    )
     await db.commit()
     await db.refresh(proposal)
     return proposal, True
@@ -279,9 +350,54 @@ async def list_proposals(
         )
     ).scalars().all()
 
-    return ProposalListResponse(
-        items=[ProposalResponse.model_validate(r) for r in rows],
-        total=total,
+    items = [ProposalResponse.model_validate(r) for r in rows]
+    await attach_labels(db, items)
+    return ProposalListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+# ── The approval queue (proposal-002) ─────────────────────────────────────────
+
+#: Roles that see the whole household's queue and may decide it. Routing is "all
+#: admins" and first-to-decide wins (decided 2026-07-20); per-domain approver
+#: routing is v2 and lands in permissions_config, not in the schema.
+APPROVER_ROLES = frozenset({"owner", "admin"})
+
+
+def is_approver_role(role: str | None) -> bool:
+    """True if this membership role sees the household's approval queue."""
+    return (role or "") in APPROVER_ROLES
+
+
+async def list_queue(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    role: str,
+    *,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> ProposalListResponse:
+    """The proposals *this member* may see, which is not the same list for everyone.
+
+    An owner/admin sees the household's whole queue — that is what makes
+    first-to-decide-wins work. Anybody else sees only what they themselves asked
+    for, because a restricted member is entitled to know what happened to their
+    own request and to nothing else. Both cases stay household-scoped.
+
+    This is the REST mirror of the event audience in proposals/events.py; the two
+    must agree, or the UI would either render rows nobody was told about or
+    receive events for rows it cannot open.
+    """
+    if is_approver_role(role):
+        return await list_proposals(
+            db, household_id, status=status, limit=limit, offset=offset
+        )
+    return await list_proposals(
+        db,
+        household_id,
+        status=status,
+        proposed_by_user_id=user_id,
         limit=limit,
         offset=offset,
     )
@@ -450,6 +566,9 @@ async def _refuse(
     proposal.reject_reason = reason
     proposal.decided_by_user_id = approver_user_id
     proposal.decided_at = datetime.now(UTC)
+    await proposal_events.record_proposal_event(
+        db, proposal, event=proposal_events.PROPOSAL_DECIDED
+    )
     await db.commit()
 
 
@@ -553,6 +672,9 @@ async def approve_proposal(
             "result_entity_id": result_entity_id,
         },
     )
+    await proposal_events.record_proposal_event(
+        db, proposal, event=proposal_events.PROPOSAL_DECIDED
+    )
     await db.commit()
     await db.refresh(proposal)
     return proposal
@@ -596,6 +718,9 @@ async def reject_proposal(
             "reject_reason": proposal.reject_reason,
         },
     )
+    await proposal_events.record_proposal_event(
+        db, proposal, event=proposal_events.PROPOSAL_DECIDED
+    )
     await db.commit()
     await db.refresh(proposal)
     return proposal
@@ -610,23 +735,48 @@ async def sweep_expired_proposals(db: AsyncSession, *, now: datetime | None = No
     matches nothing because the first already moved those rows out of
     ``pending``, and a decided proposal is never in scope to begin with. No
     approval, rejection, or refusal can be resurrected or double-processed by
-    running this twice.
+    running this twice. ``RETURNING`` makes the *events* idempotent for free —
+    the second run returns no ids, so it announces nothing.
+
+    Timing out is a decision the queue has to hear about, the same as a rejection
+    is: without an event, an open queue would keep offering an approve button for
+    a proposal that can no longer be approved.
     """
-    result = await db.execute(
-        update(Proposal)
-        .where(
-            Proposal.status == ProposalStatus.pending.value,
-            Proposal.expires_at <= (now or datetime.now(UTC)),
+    expired_ids = list((
+        await db.execute(
+            update(Proposal)
+            .where(
+                Proposal.status == ProposalStatus.pending.value,
+                Proposal.expires_at <= (now or datetime.now(UTC)),
+            )
+            .values(
+                status=ProposalStatus.expired.value,
+                reject_reason=(
+                    "Expired — nobody in the household decided this before it timed out."
+                ),
+            )
+            .returning(Proposal.id)
         )
-        .values(
-            status=ProposalStatus.expired.value,
-            reject_reason=(
-                "Expired — nobody in the household decided this before it timed out."
-            ),
-        )
-    )
+    ).scalars().all())
+
+    if expired_ids:
+        # populate_existing: the bulk UPDATE above bypasses the identity map, so
+        # a row already loaded in this session would otherwise report its stale
+        # pre-sweep status in the event payload.
+        rows = (
+            await db.execute(
+                select(Proposal)
+                .where(Proposal.id.in_(expired_ids))
+                .execution_options(populate_existing=True)
+            )
+        ).scalars().all()
+        for row in rows:
+            await proposal_events.record_proposal_event(
+                db, row, event=proposal_events.PROPOSAL_DECIDED
+            )
+
     await db.commit()
-    return result.rowcount or 0
+    return len(expired_ids)
 
 
 async def run_proposal_expiry_sweep() -> int:

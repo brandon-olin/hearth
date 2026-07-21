@@ -16,6 +16,8 @@ The resolved :class:`~life_dashboard.mcp.auth.PatIdentity` is reused unchanged.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,12 +25,17 @@ from life_dashboard.auth.models import Household, HouseholdMembership, PersonalA
 from life_dashboard.auth.pat_rate_limit import check_rate_limit
 from life_dashboard.auth.pat_scopes import (
     SCOPE_TO_PERMISSION_DOMAIN,
-    check_scope,
     is_pat,
+    min_tier,
+    scope_tier,
+    tier_rank,
 )
 from life_dashboard.auth.pat_service import authenticate_token
 from life_dashboard.auth.service import get_user_by_id
-from life_dashboard.core.permissions import check_permission, load_household_permissions
+from life_dashboard.core.permissions import (
+    load_household_permissions,
+    resolve_permission_tier,
+)
 from life_dashboard.core.settings import settings
 from life_dashboard.mcp.auth import PatIdentity
 
@@ -47,6 +54,30 @@ class VoiceAuthError(Exception):
     def __init__(self, message: str, *, reason: str = DENIED):
         super().__init__(message)
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class VoiceDecision:
+    """The outcome of authorizing one intent, tier included.
+
+    The voice equivalent of :class:`~life_dashboard.mcp.auth.AuthDecision`, and
+    it exists for the same reason: with the ``propose`` tier in play a write has
+    three outcomes, not two. A speaker whose household requires approval should
+    hear "I'll ask" — not "you don't have permission", which is both wrong and
+    the kind of thing a kid learns to stop asking after.
+    """
+
+    pat: PersonalAccessToken
+    identity: PatIdentity
+    #: Effective tier for the requested action: min(token scope, member ceiling).
+    tier: str
+    #: The action the intent asked for ("read" or "write").
+    requested: str
+
+    @property
+    def proposed(self) -> bool:
+        """True when this write must be captured for a human instead of done."""
+        return self.requested != "read" and self.tier == "propose"
 
 
 def _permission_action(action: str) -> str:
@@ -106,34 +137,49 @@ async def resolve_identity(
     return pat, identity
 
 
-async def _within_member_ceiling(
+async def _member_ceiling_tier(
     db: AsyncSession, identity: PatIdentity, scope_domain: str, action: str
-) -> bool:
-    """Layer 2 — is *action* on ``scope_domain`` within the owning member's own
-    ceiling? Only domains with a configurable household permission are checked."""
+) -> str:
+    """Layer 2 as a tier rather than a boolean — the ceiling's own read/propose/
+    write answer. A domain with no configurable household permission has no
+    ceiling to resolve here (its routers' role gates are the ceiling), so it caps
+    at ``write``. Mirrors ``mcp.auth._member_ceiling_tier`` exactly."""
     permission_domain = SCOPE_TO_PERMISSION_DOMAIN.get(scope_domain)
     if permission_domain is None:
-        return True
+        return "write"
     permissions = await load_household_permissions(db, identity.household_id)
-    return check_permission(
+    return resolve_permission_tier(
         permissions, permission_domain, _permission_action(action), identity.role
     )
 
 
 async def authorize(
     db: AsyncSession, raw_token: str | None, scope_domain: str, action: str
-) -> tuple[PersonalAccessToken, PatIdentity]:
+) -> VoiceDecision:
     """Resolve the token and authorize *action* ("read"/"write") on
-    ``scope_domain``. Raises :class:`VoiceAuthError` on any failure."""
+    ``scope_domain``, returning the tier it resolved to.
+
+    Effective permission is min(token, ceiling) under read < propose < write —
+    the same arithmetic the MCP path does, so a household that configured
+    approval for to-dos gets it on the speaker too, without configuring anything
+    twice. A write that lands on ``propose`` is neither done nor refused: the
+    caller records a proposal and says so out loud. Anything below that raises
+    :class:`VoiceAuthError`.
+    """
     pat, identity = await resolve_identity(db, raw_token)
 
-    if not check_scope(pat.scopes or {}, scope_domain, action):
-        raise VoiceAuthError(
-            f"Token lacks {action} access to {scope_domain}.", reason=DENIED
-        )
-    if not await _within_member_ceiling(db, identity, scope_domain, action):
+    token = scope_tier(pat.scopes or {}, scope_domain)
+    ceiling = await _member_ceiling_tier(db, identity, scope_domain, action)
+    effective = min_tier(token, ceiling)
+
+    floor = "read" if action == "read" else "propose"
+    if tier_rank(effective) < tier_rank(floor):
+        if tier_rank(token) <= tier_rank(ceiling):
+            raise VoiceAuthError(
+                f"Token lacks {action} access to {scope_domain}.", reason=DENIED
+            )
         raise VoiceAuthError(
             f"Member lacks {_permission_action(action)} on {scope_domain}.",
             reason=DENIED,
         )
-    return pat, identity
+    return VoiceDecision(pat=pat, identity=identity, tier=effective, requested=action)

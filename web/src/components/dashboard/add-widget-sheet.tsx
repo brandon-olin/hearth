@@ -21,6 +21,7 @@ import {
   CalendarDays,
   CalendarRange,
   Wallet,
+  ShieldQuestion,
 } from "lucide-react";
 import {
   WIDGET_META,
@@ -42,6 +43,7 @@ const WIDGET_ICONS: Record<WidgetType, React.ElementType> = {
   calendar_today: CalendarDays,
   calendar_week: CalendarRange,
   budget: Wallet,
+  proposals: ShieldQuestion,
 };
 
 // ── Step 1: pick widget type ───────────────────────────────────────────────────

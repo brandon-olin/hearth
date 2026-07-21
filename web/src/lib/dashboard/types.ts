@@ -74,6 +74,11 @@ export interface BudgetWidgetConfig {
   monthly_target: number | null;
 }
 
+export interface ProposalsWidgetConfig {
+  // No config — the queue is what it is. Which rows you see is decided by the
+  // API from your role, never by widget settings.
+}
+
 // ── Widget instance ────────────────────────────────────────────────────────────
 
 export type WidgetType =
@@ -84,7 +89,8 @@ export type WidgetType =
   | "ai_coach"
   | "calendar_today"
   | "calendar_week"
-  | "budget";
+  | "budget"
+  | "proposals";
 
 export type WidgetConfig =
   | TodosWidgetConfig
@@ -94,7 +100,8 @@ export type WidgetConfig =
   | AiCoachWidgetConfig
   | CalendarTodayWidgetConfig
   | CalendarWeekWidgetConfig
-  | BudgetWidgetConfig;
+  | BudgetWidgetConfig
+  | ProposalsWidgetConfig;
 
 export interface WidgetInstance {
   /** Stable random ID — used as dnd-kit sort key and React key */
@@ -255,5 +262,11 @@ export const WIDGET_META: Record<WidgetType, WidgetMeta> = {
     description: "This month's spending with an optional target progress bar",
     needsConfig: false,
     defaultConfig: { monthly_target: null } satisfies BudgetWidgetConfig,
+  },
+  proposals: {
+    label: "Approvals",
+    description: "Requests from agents and devices waiting on a household decision",
+    needsConfig: false,
+    defaultConfig: {} satisfies ProposalsWidgetConfig,
   },
 };

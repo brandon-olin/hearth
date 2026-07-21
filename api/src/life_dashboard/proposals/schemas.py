@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProposalStatus(str, Enum):
@@ -22,8 +22,20 @@ class ProposalStatus(str, Enum):
     expired = "expired"
 
 
+#: The four valid ``status`` filter values, in lifecycle order. Enumerated in
+#: every error that rejects a status — a filter that silently matches nothing is
+#: worse than a refusal, for a UI and an agent alike.
+PROPOSAL_STATUS_VALUES: tuple[str, ...] = tuple(s.value for s in ProposalStatus)
+
+
 class ProposalResponse(BaseModel):
-    """One proposal. The agent-facing and queue-facing shape are the same."""
+    """One proposal. The agent-facing and queue-facing shape are the same.
+
+    The three ``*_label`` fields are not columns — they are resolved from the
+    attribution ids by ``proposals/labels.py`` on the way out, because an id is
+    not a decidable question ("who asked for this?") and because a proposer may
+    be a device with no person behind it at all.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,9 +56,29 @@ class ProposalResponse(BaseModel):
     created_at: datetime
     expires_at: datetime
 
+    #: The member who asked, or — for a household-agent proposal, which has no
+    #: person behind it — the name of the device that did.
+    proposed_by_label: str | None = None
+    #: The device (token) name, when a token was involved at all. Present
+    #: alongside a member label so the queue can read "Alice · Kitchen iPad".
+    proposed_via_label: str | None = None
+    #: The human who approved or rejected it. None while pending.
+    decided_by_label: str | None = None
+
 
 class ProposalListResponse(BaseModel):
     items: list[ProposalResponse]
     total: int
     limit: int
     offset: int
+
+
+class ProposalRejectRequest(BaseModel):
+    """Declining a proposal, with the reason the proposing agent will read.
+
+    Optional, because forcing a reason produces "no" more often than it produces
+    a reason — but the default text is honest about its absence rather than
+    pretending one was given.
+    """
+
+    reason: str | None = Field(default=None, max_length=500)

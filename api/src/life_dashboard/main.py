@@ -58,6 +58,7 @@ from life_dashboard.households.router import router as households_router
 from life_dashboard.mcp import mcp_routes, mcp_server
 from life_dashboard.oauth.metadata import authorization_server_metadata
 from life_dashboard.oauth.router import router as oauth_router
+from life_dashboard.proposals.router import router as proposals_router
 from life_dashboard.setup.router import router as setup_router
 from life_dashboard.uploads.router import router as uploads_router
 from life_dashboard.voice import router as voice_router
@@ -582,6 +583,11 @@ app.include_router(realtime_router)
 # the same deny-by-default reason — a PAT must not be able to create a new
 # egress channel for household data.
 app.include_router(webhooks_router)
+# proposal-002: the approval queue at /proposals. Web-session only for the same
+# deny-by-default reason, and here it is load-bearing: approving is a human act
+# taken on an authenticated surface, so a PAT — and therefore an agent or a voice
+# device — must not be able to reach these routes at all.
+app.include_router(proposals_router)
 # voice-002: Alexa skill webhook at /voice/alexa. Authenticates via the account-
 # linking PAT (minted by the OAuth grant on the cloud tier, or pasted directly on
 # self-hosted) and drives the same domain services as the MCP write tools.

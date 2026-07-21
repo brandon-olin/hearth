@@ -27,6 +27,7 @@ from life_dashboard.domains.habits import service as habits_service
 from life_dashboard.domains.todos import service as todos_service
 from life_dashboard.domains.todos.schemas import TodoCreate
 from life_dashboard.mcp.auth import PatIdentity
+from life_dashboard.proposals import service as proposals_service
 from life_dashboard.voice import auth as voice_auth
 from life_dashboard.voice import schemas
 from life_dashboard.voice.auth import INVALID_TOKEN, UNAUTHENTICATED, VoiceAuthError
@@ -150,6 +151,101 @@ async def _check_in_habit(db: AsyncSession, identity: PatIdentity, slots: dict[s
     return f"You've already checked off {habit.name} today."
 
 
+# ── The propose tier, out loud (proposal-002) ─────────────────────────────────
+#
+# When authorize resolves to `propose`, the intent records the same Proposal the
+# MCP tool would — same table, same executor key, same idempotency — and the
+# bridge renders it as speech. What it must NOT do is read a status string or
+# apologise for a failure: nothing failed, a person simply has to say yes. The
+# wording says what was asked, that it is waiting, and that it will happen on a
+# yes, so a kid hears an "ask" rather than a "no".
+#
+# Approving is not reachable from here and never will be: /proposals is a
+# web-session surface a PAT cannot touch, and there is no approval intent. Device
+# identity proves where a request came from, never who spoke — "Joey walks into
+# the parents' room" is the threat model.
+
+async def _record_voice_proposal(
+    db: AsyncSession,
+    identity: PatIdentity,
+    *,
+    domain: str,
+    tool: str,
+    args: dict,
+    summary: str,
+) -> None:
+    """Capture a would-be voice write as a pending proposal.
+
+    ``proposed_by_user_id`` follows the audit rule: NULL for a household-agent
+    (shared speaker) token, whose ``token_id`` is then the only honest identity
+    there is. ``tool`` is the MCP tool name on purpose — approval replays through
+    the one registered executor, so a request made by voice and the same request
+    made by an agent land the identical write.
+    """
+    await proposals_service.record_proposal(
+        db,
+        household_id=identity.household_id,
+        proposed_by_user_id=None if identity.role == _AGENT_ROLE else identity.user_id,
+        token_id=identity.pat_id,
+        source=AuditSource.voice,
+        domain=domain,
+        tool=tool,
+        args=args,
+        summary=summary,
+    )
+
+
+async def _propose_grocery_item(
+    db: AsyncSession, identity: PatIdentity, slots: dict[str, str]
+) -> str:
+    item = slots.get("item")
+    if not item:
+        return "I didn't catch what to add to your shopping list."
+    await _record_voice_proposal(
+        db, identity, domain="grocery", tool="add_grocery_item",
+        args={"item": item, "quantity": None, "unit": None, "list_id": None},
+        summary=f"Add “{item}” to the shopping list",
+    )
+    return (
+        f"I'll have to ask about that one. I've put {item} up for approval — "
+        "it'll go on your shopping list as soon as someone says yes."
+    )
+
+
+async def _propose_todo(
+    db: AsyncSession, identity: PatIdentity, slots: dict[str, str]
+) -> str:
+    task = slots.get("task")
+    if not task:
+        return "I didn't catch the to-do."
+    await _record_voice_proposal(
+        db, identity, domain="todos", tool="add_todo",
+        args={"title": task, "due_date": None, "priority": None},
+        summary=f"Add to-do “{task}”",
+    )
+    return (
+        f"I'll have to ask about that one. I've put {task} up for approval — "
+        "I'll add it as soon as someone says yes."
+    )
+
+
+async def _propose_habit_check_in(
+    db: AsyncSession, identity: PatIdentity, slots: dict[str, str]
+) -> str:
+    name = slots.get("habit")
+    if not name:
+        return "Which habit did you want to check off?"
+    await _record_voice_proposal(
+        db, identity, domain="habits", tool="check_in_habit",
+        args={"habit_name": name, "habit_id": None, "on_date": None},
+        summary=f"Check in “{name}”",
+    )
+    return (
+        f"I'll have to ask before I can check off {name}. It's waiting on "
+        "someone in the household now."
+    )
+
+
 async def _query_todos(db: AsyncSession, identity: PatIdentity, slots: dict[str, str]) -> str:
     today = date.today()
     result = await todos_service.list_todos(
@@ -164,12 +260,14 @@ async def _query_todos(db: AsyncSession, identity: PatIdentity, slots: dict[str,
     return f"You have {n} to-dos due today."
 
 
-#: intent name → (token scope domain, required action, handler).
+#: intent name → (token scope domain, required action, handler, propose handler).
+#: The fourth entry is what the intent does when the household requires approval
+#: for it; None means the intent is a read and can never land on that tier.
 _INTENTS = {
-    "AddGroceryItem": ("grocery", "write", _add_grocery_item),
-    "CreateTodo": ("todos", "write", _create_todo),
-    "CheckInHabit": ("habits", "write", _check_in_habit),
-    "QueryTodos": ("todos", "read", _query_todos),
+    "AddGroceryItem": ("grocery", "write", _add_grocery_item, _propose_grocery_item),
+    "CreateTodo": ("todos", "write", _create_todo, _propose_todo),
+    "CheckInHabit": ("habits", "write", _check_in_habit, _propose_habit_check_in),
+    "QueryTodos": ("todos", "read", _query_todos, None),
 }
 
 
@@ -214,9 +312,9 @@ async def dispatch(db: AsyncSession, envelope: schemas.AlexaEnvelope) -> dict:
         # AMAZON.FallbackIntent and anything unmapped.
         return schemas.speak(_FALLBACK)
 
-    scope_domain, action, handler = entry
+    scope_domain, action, handler, propose_handler = entry
     try:
-        _pat, identity = await voice_auth.authorize(
+        decision = await voice_auth.authorize(
             db, envelope.access_token, scope_domain, action
         )
     except VoiceAuthError as exc:
@@ -227,5 +325,10 @@ async def dispatch(db: AsyncSession, envelope: schemas.AlexaEnvelope) -> dict:
         for slot_name, slot in (req.intent.slots or {}).items()
         if slot.value and slot.value.strip()
     }
-    text = await handler(db, identity, slots)
+    # The propose tier is a third outcome, not a failure — route it to the
+    # intent's "I'll ask" path rather than doing the write or refusing it.
+    if decision.proposed and propose_handler is not None:
+        text = await propose_handler(db, decision.identity, slots)
+    else:
+        text = await handler(db, decision.identity, slots)
     return schemas.speak(text)

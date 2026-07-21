@@ -228,7 +228,9 @@ export interface paths {
         };
         /**
          * Get Profile
-         * @description Return the current accepted user profile (empty string if never set).
+         * @description Return the current user profile (empty string if never set).
+         *
+         *     Debug surface. The profile is a background service — no UI reads this.
          */
         get: operations["get_profile_ai_profile_get"];
         put?: never;
@@ -238,12 +240,12 @@ export interface paths {
         head?: never;
         /**
          * Patch Profile
-         * @description Directly edit the profile content.
+         * @description Directly overwrite the profile content.
          *
-         *     Bypasses the proposed-update workflow — the user is always trusted to
-         *     write their own profile. The AI never writes here directly; it only ever
-         *     proposes via /ai/profile/bootstrap and (in Phase 4) the incremental
-         *     refresher.
+         *     Debug/repair surface, not a user-facing editor — Settings no longer
+         *     renders the profile at all. The bootstrap pass and the incremental
+         *     proposer write memory_text themselves; this is how a human corrects
+         *     them when they get something wrong.
          */
         patch: operations["patch_profile_ai_profile_patch"];
         trace?: never;
@@ -259,11 +261,16 @@ export interface paths {
         put?: never;
         /**
          * Bootstrap Profile
-         * @description Run the bootstrap pass: read this user's notes, documents, and recent
-         *     behavioural data, ask the AI to draft an initial profile, and create a
-         *     pending UserProfileUpdate for the user to review.
+         * @description Run the bootstrap pass: read this user's notes, documents, active
+         *     goals/projects/habits and the last 90 days of completed todos, then draft
+         *     a profile and write it straight to member_ai_memory.memory_text.
          *
-         *     Idempotent — safe to re-run. Accepting any one update supersedes the rest.
+         *     Normally fired automatically in the background when an API key is saved;
+         *     this endpoint exists to re-run it by hand. Idempotent — a re-run drafts
+         *     fresh content that replaces the previous profile. The returned
+         *     UserProfileUpdate is an audit record of what was applied (status is
+         *     already 'accepted'), not something awaiting review.
+         *
          *     Returns bootstrap_skipped=True with a reason when there's no usable signal.
          */
         post: operations["bootstrap_profile_ai_profile_bootstrap_post"];
@@ -1011,6 +1018,101 @@ export interface paths {
          * @description Pause, resume, relabel, or change which events a subscription receives.
          */
         patch: operations["update_subscription_webhooks__subscription_id__patch"];
+        trace?: never;
+    };
+    "/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Proposals
+         * @description The approval queue as this member sees it.
+         *
+         *     An owner/admin gets the household's whole queue — that is what makes
+         *     first-to-decide-wins meaningful. Anyone else gets only the proposals they
+         *     submitted themselves.
+         */
+        get: operations["list_proposals_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Proposal
+         * @description One proposal, including its decision if it has one.
+         *
+         *     A second admin opening an already-decided proposal reads the decision and who
+         *     made it here — the UI has everything it needs to show that instead of an
+         *     approve button that would fail.
+         */
+        get: operations["get_proposal_proposals__proposal_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/proposals/{proposal_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Proposal
+         * @description Approve a pending proposal: execute its write, attributed to both parties.
+         *
+         *     409 rather than 404 when someone already decided it — the proposal exists and
+         *     the caller may see it; what failed is that they were second. The message says
+         *     so, because "first decision wins" is only fair if the loser is told.
+         */
+        post: operations["approve_proposal_proposals__proposal_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/proposals/{proposal_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject Proposal
+         * @description Decline a pending proposal, with a reason the proposing agent can read.
+         *
+         *     The reason is the product feature, not a formality: it is what lets an agent
+         *     tell its user *why* rather than going silent.
+         */
+        post: operations["reject_proposal_proposals__proposal_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/voice/alexa": {
@@ -3591,10 +3693,11 @@ export interface components {
          * BootstrapResponse
          * @description Returned by POST /ai/profile/bootstrap.
          *
-         *     `update` is the newly-created pending proposal the user must review.
+         *     `update` is the audit record of the profile that was just applied — it is
+         *     written with status='accepted', there is nothing to review.
          *     `bootstrap_skipped` is true when the pass produced no usable signal
          *     (e.g. a brand-new user with no notes/journal/documents) — in that case
-         *     no update is created and the user can populate the profile manually.
+         *     memory_text is left alone, though last_bootstrapped_at is still stamped.
          */
         BootstrapResponse: {
             update: components["schemas"]["ProfileUpdateResponse"] | null;
@@ -5485,6 +5588,8 @@ export interface components {
              * @default member
              */
             manage_others: string;
+            /** Propose */
+            propose?: string | null;
         };
         /** EmailData */
         EmailData: {
@@ -6832,12 +6937,12 @@ export interface components {
         };
         /**
          * ProfileResponse
-         * @description Current accepted user profile.
+         * @description Current user profile.
          *
          *     content_md is the same data stored on member_ai_memory.memory_text — a
          *     markdown document, sectioned by H2 headers, that both the coach and the
          *     chatbot read on every interaction. Empty string until the bootstrap pass
-         *     has run and the user has accepted the first proposed update.
+         *     has run (which happens automatically once an API key is configured).
          */
         ProfileResponse: {
             /** Content Md */
@@ -7104,6 +7209,92 @@ export interface components {
             visibility?: string | null;
             /** Shared With User Ids */
             shared_with_user_ids?: string[] | null;
+        };
+        /** ProposalListResponse */
+        ProposalListResponse: {
+            /** Items */
+            items: components["schemas"]["ProposalResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * ProposalRejectRequest
+         * @description Declining a proposal, with the reason the proposing agent will read.
+         *
+         *     Optional, because forcing a reason produces "no" more often than it produces
+         *     a reason — but the default text is honest about its absence rather than
+         *     pretending one was given.
+         */
+        ProposalRejectRequest: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * ProposalResponse
+         * @description One proposal. The agent-facing and queue-facing shape are the same.
+         *
+         *     The three ``*_label`` fields are not columns — they are resolved from the
+         *     attribution ids by ``proposals/labels.py`` on the way out, because an id is
+         *     not a decidable question ("who asked for this?") and because a proposer may
+         *     be a device with no person behind it at all.
+         */
+        ProposalResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Proposed By User Id */
+            proposed_by_user_id: string | null;
+            /** Token Id */
+            token_id: string | null;
+            /** Source */
+            source: string;
+            /** Domain */
+            domain: string;
+            /** Tool */
+            tool: string;
+            /** Args */
+            args: {
+                [key: string]: unknown;
+            };
+            /** Summary */
+            summary: string;
+            /** Status */
+            status: string;
+            /** Decided By User Id */
+            decided_by_user_id: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Reject Reason */
+            reject_reason: string | null;
+            /** Result Entity Id */
+            result_entity_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Proposed By Label */
+            proposed_by_label?: string | null;
+            /** Proposed Via Label */
+            proposed_via_label?: string | null;
+            /** Decided By Label */
+            decided_by_label?: string | null;
         };
         /**
          * ReattributeResponse
@@ -8172,7 +8363,6 @@ export interface components {
             /** Code */
             code: string;
         };
-        /** WorkoutSessionCreate */
         /** WebhookEventCatalogResponse */
         WebhookEventCatalogResponse: {
             /** Items */
@@ -8312,6 +8502,7 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** WorkoutSessionCreate */
         WorkoutSessionCreate: {
             /** Template Id */
             template_id?: string | null;
@@ -10175,6 +10366,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookSubscriptionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_proposals_proposals_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_proposal_proposals__proposal_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_proposal_proposals__proposal_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_proposal_proposals__proposal_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProposalRejectRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalResponse"];
                 };
             };
             /** @description Validation Error */

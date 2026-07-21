@@ -51,6 +51,8 @@ from life_dashboard.mcp.audit_hook import record_mcp_write
 from life_dashboard.mcp.auth import MCPAuthError, authorize, can_read, resolve_pat
 from life_dashboard.proposals import service as proposals_service
 from life_dashboard.proposals.executors import register_executor
+from life_dashboard.proposals.labels import label_one
+from life_dashboard.proposals.schemas import PROPOSAL_STATUS_VALUES, ProposalResponse
 
 #: streamable_http_path="/mcp" so the single route the sub-app registers is
 #: "/mcp"; main.py grafts that route straight onto the FastAPI app (no Mount, so
@@ -68,7 +70,13 @@ mcp_server = FastMCP(
         "own personal items, never another member's private data. Workout "
         "templates and the exercise catalog are shared household-wide; logged "
         "workout sessions are personal to each member. Budget, documents, and "
-        "notes are intentionally not exposed."
+        "notes are intentionally not exposed. "
+        "Some households require human approval for some actions: a write may "
+        "answer `status: \"proposed\"` instead of doing the thing. That is a "
+        "pending request, not an error and not a refusal — say so, and follow it "
+        "with get_proposal_status or list_my_proposals rather than retrying. "
+        "Approving is a human action taken in the Hearth app; no tool here can "
+        "do it."
     ),
     streamable_http_path="/mcp",
     stateless_http=True,
@@ -839,6 +847,104 @@ async def get_exercise_progress(
             db, found.id, ident.household_id, ident.user_id, limit=min(limit, 200)
         )
     return result.model_dump(mode="json")
+
+
+# ── Proposal status tools (proposal-002) ──────────────────────────────────────
+#
+# The other half of the propose tier: an agent that gets `status: "proposed"`
+# needs somewhere to look afterwards, or it goes silent and its user never learns
+# why nothing happened. Both tools are READ-ONLY and confined to the calling
+# token's own proposals — approving is a human act on an authenticated surface
+# (the /proposals routes are unreachable with a PAT by construction), because an
+# agent approving its own proposals defeats the entire mechanism.
+#
+# They authorize on the PAT alone rather than on a domain scope. A token must be
+# able to check what it itself asked for regardless of which domains it holds:
+# the scope check already happened when the proposal was recorded, and re-gating
+# the follow-up would strand a request the household is actively deciding.
+
+
+def _own_proposal_filters(ident) -> dict:
+    """The filters that confine a query to THIS token's own proposals.
+
+    ``token_id`` always, because "belongs to this token" is what the agent-facing
+    copy promises. ``proposed_by_user_id`` as well for a real member, which is
+    defence in depth rather than the primary gate — a household-agent proposal
+    has none (that is the whole point of the column being nullable), so it cannot
+    be the only filter.
+    """
+    return {
+        "token_id": ident.pat_id,
+        "proposed_by_user_id": resolve_actor_user_id(ident),
+    }
+
+
+@mcp_server.tool()
+async def list_my_proposals(
+    ctx: Context,
+    status: str | None = None,
+    limit: int = 20,
+) -> dict:
+    """List the requests you have submitted on this member's behalf that are still
+    awaiting a human decision, plus recently decided ones. Returns only your own
+    proposals — never the household's full approval queue, and never another
+    member's.
+
+    Use this when the user asks what you are waiting on, or after a write
+    returned `status: "proposed"`.
+
+    Filter with `status`: `pending` (awaiting a decision), `approved` (executed),
+    `rejected` (declined, with a reason), `expired` (nobody decided before
+    `expires_at`). Omit `status` for all four.
+
+    Each item carries a `message` written for you to relay, and a `summary`
+    describing what was asked for. You cannot approve a proposal — approval is a
+    human action taken in the Hearth app."""
+    async with AsyncSessionLocal() as db:
+        _pat, ident = await resolve_pat(db, ctx)
+        if status is not None and status not in PROPOSAL_STATUS_VALUES:
+            raise MCPAuthError(proposals_service.unknown_status_message(status))
+        result = await proposals_service.list_proposals(
+            db,
+            ident.household_id,
+            status=status,
+            limit=min(limit, 100),
+            **_own_proposal_filters(ident),
+        )
+    payload = result.model_dump(mode="json")
+    for item, raw in zip(payload["items"], result.items, strict=True):
+        item["message"] = proposals_service.status_message(raw)
+    return payload
+
+
+@mcp_server.tool()
+async def get_proposal_status(ctx: Context, proposal_id: str) -> dict:
+    """Check what happened to one proposal you submitted, by `proposal_id`.
+
+    Returns its status, who decided it and when, and — for a rejection — the
+    reason the approver gave, which you should relay to the user in their own
+    words rather than quoting verbatim. The `message` field says exactly that in
+    context; prefer it over interpreting the status string yourself.
+
+    Statuses are `pending` (nobody has decided yet — do NOT resubmit the
+    underlying action, as an identical request returns this same proposal rather
+    than creating a second one), `approved` (the action has been carried out),
+    `rejected` (a human declined it) and `expired` (nobody decided in time, or
+    the credential that asked is gone).
+
+    Unknown id: see `list_my_proposals` for the ids you own."""
+    async with AsyncSessionLocal() as db:
+        _pat, ident = await resolve_pat(db, ctx)
+        proposal = await proposals_service.get_proposal(
+            db,
+            ident.household_id,
+            _as_uuid(proposal_id, "proposal_id"),
+            **_own_proposal_filters(ident),
+        )
+        if proposal is None:
+            raise MCPAuthError(proposals_service.UNKNOWN_PROPOSAL_MESSAGE)
+        item = await label_one(db, ProposalResponse.model_validate(proposal))
+    return {**item.model_dump(mode="json"), "message": proposals_service.status_message(item)}
 
 
 def mcp_routes():

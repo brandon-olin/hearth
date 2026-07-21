@@ -15,8 +15,15 @@ Payloads stay skinny by design (the same choice the SSE stream makes). A receive
 that needs more fetches the entity back through the REST API with its own
 credentials, which keeps scope enforcement in one place.
 
-Catalog v1 is exactly six events. ``proposal.*`` is deliberately absent until
-proposal-001 lands; ``member.*`` is future work.
+Catalog v1 shipped six events. ``proposal.*`` was its one declared omission —
+"the first addition once proposal-001 lands" — and proposal-002 adds it: the same
+bus events that drive the approval queue's live updates are deliverable to a
+receiver, which is how a household gets an approval request onto a phone without
+Hearth owning a push stack. ``member.*`` is still future work.
+
+A proposal event reaches a subscription only if its owner could see the proposal
+itself, decided by ``events/scope.py can_see`` against the audience descriptor in
+proposals/events.py — the same one filter, not a second one.
 """
 from __future__ import annotations
 
@@ -34,6 +41,19 @@ EVENT_SUMMARY_FIELDS: dict[str, tuple[str, ...]] = {
     "grocery.item_checked": ("name", "quantity", "unit", "category", "list_id", "list_name"),
     "habit.checked_in": ("habit_id", "habit_name", "scheduled_date", "completed_at"),
     "calendar.event_created": ("title", "location", "starts_at", "ends_at", "all_day"),
+    # proposal-002. These carry no domain payload — ``summary`` is the queue's
+    # own one-line display string ('Add to-do "Milk"'), which is the whole point
+    # of an approval notification, and ``args`` (the exact replayable service
+    # call) is deliberately NOT listed and therefore can never leave. A receiver
+    # that needs the underlying request fetches /proposals/{id} with its own
+    # credentials, where the same scope check applies.
+    "proposal.created": (
+        "summary", "domain", "tool", "status", "source", "proposed_by", "expires_at",
+    ),
+    "proposal.decided": (
+        "summary", "domain", "tool", "status", "proposed_by", "decided_by",
+        "decided_at", "reject_reason",
+    ),
 }
 
 #: Human-readable blurbs for the subscription UI and the docs recipe. Kept
@@ -45,6 +65,8 @@ EVENT_DESCRIPTIONS: dict[str, str] = {
     "grocery.item_checked": "A grocery item was checked off",
     "habit.checked_in": "A habit was checked in for a day",
     "calendar.event_created": "A calendar event was created",
+    "proposal.created": "An agent asked for approval to do something",
+    "proposal.decided": "A pending approval request was approved or rejected",
 }
 
 #: Every deliverable event name, sorted — the catalog surface for validation,

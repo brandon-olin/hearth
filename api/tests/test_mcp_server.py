@@ -314,6 +314,12 @@ async def test_no_tools_for_budget_documents_or_notes():
         "save_session_as_template",
         # workouts (workouts-004)
         "get_exercise_progress",
+        # proposals (proposal-002) — read-only status tools. There is
+        # deliberately no approve/reject tool: approving is a human act on an
+        # authenticated surface, and an agent approving its own proposals would
+        # defeat the propose tier entirely.
+        "list_my_proposals",
+        "get_proposal_status",
     }
     # Sensitive domains are unreachable — no read *or* write tool touches them.
     for forbidden in ("budget", "document", "note"):

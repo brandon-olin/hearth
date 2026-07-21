@@ -47,6 +47,11 @@ export const ENTITY_INVALIDATION_MAP: Record<string, string[]> = {
   budget_transactions: ["/budget"],
   budget_rollover_amounts: ["/budget"],
   household_memberships: ["/households"],
+  // proposal-002. Unlike every other entry, this event is NOT broadcast to the
+  // whole household: the server scopes it to the household's admins plus the
+  // member who proposed, so an ordinary member never learns a proposal exists.
+  // Arriving here at all means this member is entitled to the queue.
+  proposals: ["/proposals"],
 };
 
 /** The path prefixes to invalidate for an entity type, or [] if unmapped. */

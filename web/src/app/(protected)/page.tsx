@@ -40,6 +40,7 @@ import { AiCoachWidget } from "@/components/dashboard/ai-coach-widget";
 import { CalendarTodayWidget } from "@/components/dashboard/calendar-today-widget";
 import { CalendarWeekWidget } from "@/components/dashboard/calendar-week-widget";
 import { BudgetWidget } from "@/components/dashboard/budget-widget";
+import { ProposalsWidget } from "@/components/dashboard/proposals-widget";
 import { AddWidgetSheet } from "@/components/dashboard/add-widget-sheet";
 import { Button } from "@/components/ui/button";
 import { Settings2, Plus, Check } from "lucide-react";
@@ -162,6 +163,8 @@ function renderWidget(
       return <CalendarWeekWidget />;
     case "budget":
       return <BudgetWidget config={widget.config as BudgetWidgetConfig} />;
+    case "proposals":
+      return <ProposalsWidget />;
     default:
       return null;
   }

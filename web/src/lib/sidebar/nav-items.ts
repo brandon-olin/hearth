@@ -12,6 +12,7 @@ import {
   FolderKanban,
   Settings,
   Wallet,
+  ShieldQuestion,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -52,6 +53,10 @@ export const BUILTIN_NAV_ITEMS: NavItem[] = [
   { href: "/workouts", label: "Workouts", icon: Dumbbell },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/budget", label: "Budget", icon: Wallet },
+  // proposal-002. Present for everyone: an approver sees the household queue,
+  // anyone else sees what they themselves asked for. Hiding it by role would
+  // mean a restricted member has no way to find out what happened to a request.
+  { href: "/proposals", label: "Approvals", icon: ShieldQuestion },
 ];
 
 /**
