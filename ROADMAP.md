@@ -18,7 +18,7 @@ Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
 - **Recipes** — full UI: card grid, detail page, sheet (create/edit/delete), ingredients, steps, notes, rich-text body (BlockNote), tags, cover images stored locally, URL import via Schema.org JSON-LD; server-side search (debounced), multi-tag filter (combobox, OR logic), pagination (24/page)
 - **Notes / Zettelkasten** — atomic notes, tags (many-to-many), `[[wikilink]]` backlinks, graph view (force-directed), tag browser, full-text search including BlockNote JSON content; bulk delete; full CRUD UI
 - **Contacts** — full CRUD contact list
-- **Workouts** — full gym-use-case UI: immediately persists on "Start workout", per-exercise per-set data model (`sets: [{weight_lbs, reps}]`), debounced auto-save for all fields, save status badge per exercise, bulk delete
+- **Workouts** — full training domain (workouts-001…005, migrations 0048–0049). Exercise catalog (~60 seeded globals plus household-created), workout templates with superset groups and drag-to-reorder, session logging with per-user ghost values and a rest timer, progress tracking (max weight, Epley 1RM, volume, failed-set markers), and calendar integration. Sets are first-class rows; the legacy `workouts`/`exercise_entries` tables were retired in 0049. Sessions are personal (owned by `created_by_user_id`, never shown to other members); the exercise catalog and templates are household-shared
 - **Calendar** — month view with day-click detail sidebar, event chips, prev/next navigation; event creation/editing via sheet (title, date, time, all-day, location, description); event deletion with confirm step
 - **AI assistant** — SSE streaming chat, conversation history with sidebar, markdown rendering, tool use (read + write: workouts, todos, habits, goals, notes, calendar events, recipes, documents, contacts, grocery lists), BYOK (Anthropic key), conversation memory
 - **AI panel** — ⌘K slide-out panel from anywhere in the app, draggable left-edge resize (persisted), conversation popover in panel header, full-page fallback at `/ai`
@@ -29,12 +29,15 @@ Self-hosted stack is fully running (Docker on NAS + Tailscale + Caddy TLS).
 - **Role enforcement** — `role` attached on `get_current_user` and returned in `UserResponse`; `ADMIN_ROLES` set gates sensitive UI (Household tab, member management); role badges shown on member list
 - **Dev impersonation** — admin can click avatar in sidebar footer to open a member switcher; clicking any member POSTs to `POST /households/dev/impersonate/{id}` and swaps session; amber banner + amber avatar indicate impersonated state; "Back to your account" restores original session; disabled in non-development environments
 - **Password change** — Settings → Account: modal with current password verification, new password + confirm fields (visibility toggles), 8-char minimum, inline validation for mismatch
+- **Transactional email** (email-001) — Mailgun-backed forgot-password / reset-password flow, verified end-to-end against live credentials 2026-07-20
+- **Outbound webhooks** (webhook-001, migration 0050) — semantic event layer riding the existing commit-time plumbing, member-owned subscriptions filtered through the single `events/scope.py` `can_see`, HMAC-signed at-least-once delivery with backoff and auto-disable, central payload allowlist in `webhooks/summaries.py`. Makes Hearth an event source, mirroring the Home Assistant inbound path
+- **Schema/model reconciliation** (schema-001, ADR-015, migration 0047) — native Postgres enums converted to VARCHAR + CHECK so `create_all` and migration-replay produce identical schemas; closes the drift class behind the 0046 deploy failure
 
 ---
 
 ## In progress
 
-- **Workouts data migration** — 2026 workout logs exist as documents; AI `create_workout` tool is ready to migrate them with per-set data preservation. Deprioritized — user will start fresh and import later.
+- **Workouts data import** — 2026 workout logs still live as documents (and in Notion). Now that the session model exists (workouts-001), importing them means creating `workout_sessions` + `session_exercises` + `workout_sets` and resolving each free-text exercise name against the catalog. The AI workout tools were rebuilt in 0048/0049, so the original `create_workout` plan needs revisiting against the new tool surface. Still deprioritized — start fresh, import later.
 
 ---
 
@@ -52,13 +55,17 @@ Streak tracking, frequency config, and page links are complete. Remaining:
 - [ ] Completion calendar heatmap — GitHub-style grid per habit (the sheet has a week tracker; this is the full per-habit history view)
 
 ### Workouts polish
-- [ ] Exercise summary shown on the workout list card (e.g. "Bench · Squat · Deadlift")
-- [ ] Volume/progress charts — weight over time per exercise, weekly volume
-- [ ] Exercise name autocomplete from past entries (avoids typo-induced duplicates)
-- [ ] Workout templates — save a session as a template to reuse
+Most of this section shipped in workouts-001…005 (see Completed):
+- [x] Volume/progress charts — shipped as workouts-004 (max weight, Epley 1RM, volume, failed sets)
+- [x] Workout templates — shipped as workouts-002, plus the save-as-template prompt in workouts-003
+- [x] Exercise name autocomplete — superseded by the exercise catalog; names are now FK references, so typo-duplicates are structurally impossible
+- [ ] Exercise summary on the session list card (e.g. "Bench · Squat · Deadlift") — the catalog makes this cheap now
+- [ ] AI workout programming — propose next week's progression from session history. Not yet a `feature_list.json` entry; workouts-001's schema (structured sets, templates, `target_reps`) is the prerequisite and is in place
 
 ### Documents & Notes
 - [ ] **Document structure decision** — settle whether documents nest inside other documents (current model) or whether there should be a separate folder/collection concept. Affects nav UX significantly; decide before investing more in the page tree.
+
+  Partially worked through 2026-07-20 (not yet decided, but the ground is mapped). Findings: `Collection` currently fuses three independent concerns — membership (`note.collection_id`), blueprint (`Template` + `CollectionTemplate`), and navigation (`show_in_nav`, which `projects` duplicates). Nesting already exists, but at the presentation layer: `SidebarConfig.folders` is a per-user, href-keyed grouping synced to user preferences, not a data-model hierarchy. The frontend already computes a polymorphic `NavItem` from four sources (builtins, collections, pinned projects, pinned documents) in `web/src/lib/sidebar/use-nav-items.ts`. Conclusion so far: collections should stay containers; saved/query views are speculative until something needs cross-cutting queries; the real limitation is `collections.domain` being a closed `('notes','documents')` enum. Open question is whether groupings are a tree (needs `collections.parent_id`) or a graph (tags/views).
 - [ ] Archive/delete individual pages
 - [ ] Drag-to-reorder / reparent pages in the tree (implemented but click-vs-drag conflict needs resolution after structure decision)
 

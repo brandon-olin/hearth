@@ -27,7 +27,7 @@
       "priority": 1,
       "phase": "v1",
       "title": "Transactional email — Mailgun integration + forgot password flow",
-      "description": "Transactional email via Mailgun (already integrated in auth/email.py). Requires MAILGUN_API_KEY, MAILGUN_DOMAIN, and MAILGUN_FROM_EMAIL env vars in Railway. DEPLOYMENT_TIER=cloud must also be set. Backend: POST /auth/forgot-password generates a password_reset_tokens row (SHA-256 hashed, 1hr TTL), sends a Mailgun email with a reset link, always returns 204. POST /auth/reset-password validates the token and sets the new password. POST /auth/me/set-initial-password for force_password_change users (no current password needed). Frontend: 'Forgot password?' link appears on login page only when email_enabled=true (from /app/config). /forgot-password and /reset-password pages built. Code complete as of 2026-05-28; pending end-to-end smoke test with live Mailgun credentials.",
+      "description": "Transactional email via Mailgun (already integrated in auth/email.py). Requires MAILGUN_API_KEY, MAILGUN_DOMAIN, and MAILGUN_FROM_EMAIL env vars in Railway. DEPLOYMENT_TIER=cloud must also be set. Backend: POST /auth/forgot-password generates a password_reset_tokens row (SHA-256 hashed, 1hr TTL), sends a Mailgun email with a reset link, always returns 204. POST /auth/reset-password validates the token and sets the new password. POST /auth/me/set-initial-password for force_password_change users (no current password needed). Frontend: 'Forgot password?' link appears on login page only when email_enabled=true (from /app/config). /forgot-password and /reset-password pages built. Code complete as of 2026-05-28; pending end-to-end smoke test with live Mailgun credentials.\n\nUPDATE (2026-07-20): env vars were already set in Railway (MAILGUN_API_KEY / MAILGUN_DOMAIN / MAILGUN_FROM_EMAIL, DEPLOYMENT_TIER=cloud). The pending end-to-end smoke test was run against live Mailgun credentials and the forgot-password → reset-password flow completed successfully. No code changes were required — this entry was blocked on verification, not development.",
       "steps": [
         "Set MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM_EMAIL, and DEPLOYMENT_TIER=cloud in Railway — redeploy",
         "On hearth.zone, click 'Forgot password?' — verify the link appears and the /forgot-password page loads",
@@ -37,7 +37,7 @@
         "Submit POST /auth/forgot-password with a non-existent email — verify 204 (no user enumeration)",
         "Use the reset link a second time — verify 400 (token is single-use)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "scheduler-001",
