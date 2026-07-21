@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { $api } from "@/lib/api/query";
-import { apiBaseUrl } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,28 +16,41 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Plus, X, Loader2, Dumbbell, Trash2, Check, AlertCircle } from "lucide-react";
-import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
 import type { components } from "@/lib/api/schema";
 
-type WorkoutSummary   = components["schemas"]["WorkoutResponse"];
-type WorkoutDetail    = components["schemas"]["WorkoutWithEntriesResponse"];
-type EntryResponse    = components["schemas"]["ExerciseEntryResponse"];
-type ExerciseType     = "strength" | "cardio" | "hiit" | "flexibility" | "other";
+type SessionSummary  = components["schemas"]["WorkoutSessionResponse"];
+type SessionDetail   = components["schemas"]["WorkoutSessionDetailResponse"];
+type SessionExercise = components["schemas"]["SessionExerciseResponse"];
+type SetResponse     = components["schemas"]["WorkoutSetResponse"];
 
-const TYPE_LABELS: Record<ExerciseType, string> = {
-  strength: "Strength",
-  cardio: "Cardio",
-  hiit: "HIIT",
-  flexibility: "Flexibility",
-  other: "Other",
+// The exercise catalog's tracking_type drives which set fields we collect.
+type TrackingType = "reps" | "duration" | "distance";
+
+const TRACKING_LABELS: Record<TrackingType, string> = {
+  reps: "Strength",
+  distance: "Cardio",
+  duration: "Timed",
 };
 
 const SAVE_DELAY = 700; // ms
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── date helpers ────────────────────────────────────────────────────────────────
+// Sessions store a full `started_at` timestamp; the workout log is date-oriented.
+// New sessions are anchored at NOON UTC of the chosen day (matching migrations
+// 0048/0049) so the calendar day is stable across US timezones — which also means
+// the UTC date slice equals the intended calendar day.
 
 function toLocalDateString(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function startedAtToDate(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function dateToStartedAt(dateStr: string): string {
+  return `${dateStr}T12:00:00Z`;
 }
 
 function formatDate(s: string): string {
@@ -51,105 +63,15 @@ function formatDate(s: string): string {
   return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-// A single set: weight (lbs) + reps
-interface SetData {
-  weight_lbs: string;
-  reps: string;
-}
+// ── value conversions (storage unit ↔ display unit) ─────────────────────────────
 
-function metricsLabel(entry: EntryResponse): string {
-  const m = (entry.metrics ?? {}) as Record<string, unknown>;
-  const parts: string[] = [];
+const metersToKm  = (m: number | null) => (m == null ? "" : String(m / 1000));
+const secsToMin    = (s: number | null) => (s == null ? "" : String(s / 60));
+const numOrNull    = (v: string) => (v.trim() === "" ? null : Number(v));
 
-  // New format: sets is an array of {weight_lbs, reps}
-  if (Array.isArray(m.sets)) {
-    const labels = (m.sets as Array<{ weight_lbs?: number; reps?: number }>)
-      .map((s) => {
-        if (s.weight_lbs && s.reps) return `${s.weight_lbs}×${s.reps}`;
-        if (s.reps) return `${s.reps} reps`;
-        return "";
-      })
-      .filter(Boolean);
-    if (labels.length) parts.push(labels.join(", "));
-  } else {
-    // Legacy flat format — still renderable
-    if (m.sets && m.reps) parts.push(`${m.sets}×${m.reps}`);
-    else if (m.reps) parts.push(`${m.reps} reps`);
-    if (m.weight_lbs) parts.push(`${m.weight_lbs} lbs`);
-    else if (m.weight_kg) parts.push(`${m.weight_kg} lbs`); // old data stored as lbs despite key name
-  }
+// ── save badge ──────────────────────────────────────────────────────────────────
 
-  if (m.duration_minutes) parts.push(`${m.duration_minutes} min`);
-  if (m.distance_km) parts.push(`${m.distance_km} km`);
-  return parts.join(" · ");
-}
-
-// ── entry state ───────────────────────────────────────────────────────────────
-
-interface EntryState {
-  localId: string;
-  dbId: string;
-  name: string;
-  type: ExerciseType;
-  setData: SetData[];       // per-set weight+reps (strength)
-  duration_minutes: string; // cardio / hiit / flexibility
-  distance_km: string;      // cardio
-  notes: string;
-  saveStatus: "idle" | "saving" | "saved" | "error";
-}
-
-function entryResponseToState(e: EntryResponse): EntryState {
-  const m = (e.metrics ?? {}) as Record<string, unknown>;
-  let setData: SetData[] = [];
-
-  if (Array.isArray(m.sets)) {
-    // New format
-    setData = (m.sets as Array<{ weight_lbs?: number; reps?: number }>).map((s) => ({
-      weight_lbs: s.weight_lbs != null ? String(s.weight_lbs) : "",
-      reps:       s.reps       != null ? String(s.reps)       : "",
-    }));
-  } else if (m.sets != null || m.reps != null || m.weight_kg != null || m.weight_lbs != null) {
-    // Legacy flat format — convert to single-element array
-    // Note: old weight_kg field actually contained lbs values
-    const w = m.weight_lbs ?? m.weight_kg;
-    setData = [{
-      weight_lbs: w    != null ? String(w)    : "",
-      reps:       m.reps != null ? String(m.reps) : "",
-    }];
-  }
-
-  return {
-    localId:          e.id,
-    dbId:             e.id,
-    name:             e.name,
-    type:             e.type as ExerciseType,
-    setData,
-    duration_minutes: m.duration_minutes != null ? String(m.duration_minutes) : "",
-    distance_km:      m.distance_km      != null ? String(m.distance_km)      : "",
-    notes:            e.notes ?? "",
-    saveStatus:       "saved",
-  };
-}
-
-function entryStateToMetrics(e: EntryState): Record<string, unknown> {
-  const m: Record<string, unknown> = {};
-  if (e.type === "strength" || e.setData.length > 0) {
-    const sets = e.setData
-      .filter((s) => s.weight_lbs || s.reps)
-      .map((s) => ({
-        ...(s.weight_lbs ? { weight_lbs: Number(s.weight_lbs) } : {}),
-        ...(s.reps       ? { reps:       Number(s.reps)       } : {}),
-      }));
-    if (sets.length) m.sets = sets;
-  }
-  if (e.duration_minutes) m.duration_minutes = Number(e.duration_minutes);
-  if (e.distance_km)      m.distance_km      = Number(e.distance_km);
-  return m;
-}
-
-// ── save badge ────────────────────────────────────────────────────────────────
-
-function SaveBadge({ status }: { status: "idle" | "saving" | "saved" | "error" }) {
+function SaveBadge({ status }: { status: SaveStatus }) {
   if (status === "idle") return null;
   if (status === "saving") return (
     <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -157,7 +79,7 @@ function SaveBadge({ status }: { status: "idle" | "saving" | "saved" | "error" }
     </span>
   );
   if (status === "saved") return (
-    <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+    <span className="flex items-center gap-1 text-[10px] text-primary">
       <Check className="h-2.5 w-2.5" /> Saved
     </span>
   );
@@ -168,226 +90,385 @@ function SaveBadge({ status }: { status: "idle" | "saving" | "saved" | "error" }
   );
 }
 
-// ── EntryRow ──────────────────────────────────────────────────────────────────
+// ── set state ────────────────────────────────────────────────────────────────────
+// One editable set. Fields are kept as strings; only those relevant to the parent
+// exercise's tracking_type are rendered and saved.
 
-function EntryRow({
-  entry,
+interface SetState {
+  id: string;
+  weight: string;       // reps tracking (lbs)
+  reps: string;         // reps tracking
+  distance_km: string;  // distance tracking
+  duration_min: string; // distance / duration tracking
+  is_warmup: boolean;
+  saveStatus: SaveStatus;
+}
+
+function setResponseToState(s: SetResponse): SetState {
+  return {
+    id: s.id,
+    weight: s.weight != null ? String(s.weight) : "",
+    reps: s.reps != null ? String(s.reps) : "",
+    distance_km: metersToKm(s.distance_meters),
+    duration_min: secsToMin(s.duration_seconds),
+    is_warmup: s.is_warmup,
+    saveStatus: "saved",
+  };
+}
+
+function setStateToBody(s: SetState, tracking: TrackingType) {
+  if (tracking === "reps") {
+    const weight = numOrNull(s.weight);
+    return {
+      reps: numOrNull(s.reps),
+      weight,
+      weight_unit: weight != null ? ("lbs" as const) : null,
+      is_warmup: s.is_warmup,
+    };
+  }
+  if (tracking === "distance") {
+    const km = numOrNull(s.distance_km);
+    const min = numOrNull(s.duration_min);
+    return {
+      distance_meters: km != null ? km * 1000 : null,
+      distance_unit: km != null ? ("km" as const) : null,
+      duration_seconds: min != null ? Math.round(min * 60) : null,
+    };
+  }
+  // duration
+  const min = numOrNull(s.duration_min);
+  return { duration_seconds: min != null ? Math.round(min * 60) : null };
+}
+
+// ── SetRow ───────────────────────────────────────────────────────────────────────
+
+function SetRow({
+  index,
+  set,
+  tracking,
   onChange,
   onDelete,
-  exerciseNameListId,
 }: {
-  entry: EntryState;
-  onChange: (updates: Partial<EntryState>) => void;
+  index: number;
+  set: SetState;
+  tracking: TrackingType;
+  onChange: (patch: Partial<SetState>) => void;
   onDelete: () => void;
-  exerciseNameListId?: string;
 }) {
-  const isStrength = entry.type === "strength";
-  const isCardio   = entry.type === "cardio" || entry.type === "hiit";
-
-  function updateSet(idx: number, patch: Partial<SetData>) {
-    onChange({ setData: entry.setData.map((s, i) => i === idx ? { ...s, ...patch } : s) });
-  }
-  function removeSet(idx: number) {
-    onChange({ setData: entry.setData.filter((_, i) => i !== idx) });
-  }
-  function addSet() {
-    // Default new set to same weight as previous set for convenience
-    const prev = entry.setData[entry.setData.length - 1];
-    onChange({ setData: [...entry.setData, { weight_lbs: prev?.weight_lbs ?? "", reps: "" }] });
-  }
-
   return (
-    <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
-      {/* Name + type + delete */}
-      <div className="flex gap-2 items-center">
-        <Input
-          value={entry.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="Exercise name"
-          className="h-8 text-sm flex-1"
-          list={exerciseNameListId}
-          autoComplete="off"
-        />
-        <select
-          value={entry.type}
-          onChange={(e) => onChange({ type: e.target.value as ExerciseType })}
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-        >
-          {Object.entries(TYPE_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <SaveBadge status={entry.saveStatus} />
-          <button
-            type="button"
-            onClick={onDelete}
-            className="text-muted-foreground hover:text-destructive transition-colors p-0.5"
-            aria-label="Remove exercise"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
+    <div className="flex gap-2 items-center">
+      <span className="text-[10px] text-muted-foreground w-5 text-center shrink-0">{index + 1}</span>
 
-      {/* Metrics */}
-      {isStrength && (
-        <div className="space-y-1">
-          {/* Column headers */}
-          {entry.setData.length > 0 && (
-            <div className="flex gap-2 items-center pl-1">
-              <span className="text-[10px] text-muted-foreground w-5 text-center">#</span>
-              <span className="text-[10px] text-muted-foreground w-20 text-center">lbs</span>
-              <span className="text-[10px] text-muted-foreground w-16 text-center">reps</span>
-            </div>
-          )}
-          {entry.setData.map((set, idx) => (
-            <div key={idx} className="flex gap-2 items-center">
-              <span className="text-[10px] text-muted-foreground w-5 text-center shrink-0">{idx + 1}</span>
-              <Input
-                type="number" min="0" step="2.5"
-                placeholder="0"
-                value={set.weight_lbs}
-                onChange={(e) => updateSet(idx, { weight_lbs: e.target.value })}
-                className="h-7 text-xs w-20 text-center"
-              />
-              <span className="text-xs text-muted-foreground shrink-0">×</span>
-              <Input
-                type="number" min="1"
-                placeholder="0"
-                value={set.reps}
-                onChange={(e) => updateSet(idx, { reps: e.target.value })}
-                className="h-7 text-xs w-16 text-center"
-              />
-              <button
-                type="button"
-                onClick={() => removeSet(idx)}
-                className="text-muted-foreground hover:text-destructive transition-colors p-0.5 ml-auto shrink-0"
-                aria-label="Remove set"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addSet}
-            className="text-xs text-primary hover:underline flex items-center gap-0.5 pt-0.5 pl-1"
-          >
-            <Plus className="h-3 w-3" /> Add set
-          </button>
-        </div>
-      )}
-
-      {isCardio && (
-        <div className="flex gap-2 flex-wrap items-center">
-          <div className="flex items-center gap-1">
-            <Input
-              type="number" min="1"
-              placeholder="0"
-              value={entry.duration_minutes}
-              onChange={(e) => onChange({ duration_minutes: e.target.value })}
-              className="h-7 text-xs w-20 text-center"
-            />
-            <span className="text-xs text-muted-foreground">min</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Input
-              type="number" min="0" step="0.1"
-              placeholder="0.0"
-              value={entry.distance_km}
-              onChange={(e) => onChange({ distance_km: e.target.value })}
-              className="h-7 text-xs w-20 text-center"
-            />
-            <span className="text-xs text-muted-foreground">km</span>
-          </div>
-        </div>
-      )}
-
-      {!isStrength && !isCardio && (
-        <div className="flex items-center gap-1">
+      {tracking === "reps" && (
+        <>
           <Input
-            type="number" min="1"
-            placeholder="0"
-            value={entry.duration_minutes}
-            onChange={(e) => onChange({ duration_minutes: e.target.value })}
+            type="number" min="0" step="2.5" placeholder="0"
+            value={set.weight}
+            onChange={(e) => onChange({ weight: e.target.value })}
             className="h-7 text-xs w-20 text-center"
           />
-          <span className="text-xs text-muted-foreground">min</span>
-        </div>
+          <span className="text-xs text-muted-foreground shrink-0">×</span>
+          <Input
+            type="number" min="1" placeholder="0"
+            value={set.reps}
+            onChange={(e) => onChange({ reps: e.target.value })}
+            className="h-7 text-xs w-16 text-center"
+          />
+        </>
       )}
 
-      {/* Notes */}
-      <Input
-        value={entry.notes}
-        onChange={(e) => onChange({ notes: e.target.value })}
-        placeholder="Notes (optional)"
-        className="h-7 text-xs"
-      />
+      {tracking === "distance" && (
+        <>
+          <Input
+            type="number" min="0" step="0.1" placeholder="km"
+            value={set.distance_km}
+            onChange={(e) => onChange({ distance_km: e.target.value })}
+            className="h-7 text-xs w-20 text-center"
+          />
+          <span className="text-xs text-muted-foreground shrink-0">km ·</span>
+          <Input
+            type="number" min="0" placeholder="min"
+            value={set.duration_min}
+            onChange={(e) => onChange({ duration_min: e.target.value })}
+            className="h-7 text-xs w-16 text-center"
+          />
+        </>
+      )}
+
+      {tracking === "duration" && (
+        <>
+          <Input
+            type="number" min="0" placeholder="min"
+            value={set.duration_min}
+            onChange={(e) => onChange({ duration_min: e.target.value })}
+            className="h-7 text-xs w-20 text-center"
+          />
+          <span className="text-xs text-muted-foreground shrink-0">min</span>
+        </>
+      )}
+
+      <SaveBadge status={set.saveStatus} />
+      <button
+        type="button"
+        onClick={onDelete}
+        className="text-muted-foreground hover:text-destructive transition-colors p-0.5 ml-auto shrink-0"
+        aria-label="Remove set"
+      >
+        <X className="h-3 w-3" />
+      </button>
     </div>
   );
 }
 
-// ── WorkoutEditor ─────────────────────────────────────────────────────────────
-// Manages a single workout session — always in edit mode, everything auto-saves.
+// ── ExerciseCard ─────────────────────────────────────────────────────────────────
+// One session_exercise: its catalog name + sets. The exercise itself is a shared
+// catalog entity, so its name is not edited here — remove and re-add to change it.
 
-function WorkoutEditor({
-  workoutId,
+function ExerciseCard({
+  sessionId,
+  se,
+  onRemoved,
+}: {
+  sessionId: string;
+  se: SessionExercise;
+  onRemoved: () => void;
+}) {
+  const tracking = (se.exercise?.tracking_type ?? "reps") as TrackingType;
+  const [sets, setSets] = useState<SetState[]>(() => se.sets.map(setResponseToState));
+
+  const addSet    = $api.useMutation("post",   "/workouts/sessions/{session_id}/exercises/{se_id}/sets");
+  const patchSet  = $api.useMutation("patch",  "/workouts/sessions/{session_id}/exercises/{se_id}/sets/{set_id}");
+  const deleteSet = $api.useMutation("delete", "/workouts/sessions/{session_id}/exercises/{se_id}/sets/{set_id}");
+  const removeExercise = $api.useMutation("delete", "/workouts/sessions/{session_id}/exercises/{se_id}");
+
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  function scheduleSave(next: SetState) {
+    const existing = timers.current.get(next.id);
+    if (existing) clearTimeout(existing);
+    const t = setTimeout(async () => {
+      timers.current.delete(next.id);
+      setSets((prev) => prev.map((s) => (s.id === next.id ? { ...s, saveStatus: "saving" } : s)));
+      try {
+        await patchSet.mutateAsync({
+          params: { path: { session_id: sessionId, se_id: se.id, set_id: next.id } },
+          body: setStateToBody(next, tracking),
+        });
+        setSets((prev) => prev.map((s) => (s.id === next.id ? { ...s, saveStatus: "saved" } : s)));
+      } catch {
+        setSets((prev) => prev.map((s) => (s.id === next.id ? { ...s, saveStatus: "error" } : s)));
+      }
+    }, SAVE_DELAY);
+    timers.current.set(next.id, t);
+  }
+
+  function handleSetChange(id: string, patch: Partial<SetState>) {
+    setSets((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
+      const changed = next.find((s) => s.id === id);
+      if (changed) scheduleSave(changed);
+      return next;
+    });
+  }
+
+  async function handleAddSet() {
+    // Carry the previous set's weight forward for convenience (strength).
+    const prev = sets[sets.length - 1];
+    const body = tracking === "reps" && prev?.weight
+      ? { weight: Number(prev.weight), weight_unit: "lbs" as const, is_warmup: false }
+      : { is_warmup: false };
+    try {
+      const created = await addSet.mutateAsync({
+        params: { path: { session_id: sessionId, se_id: se.id } },
+        body,
+      });
+      setSets((prev2) => [...prev2, setResponseToState(created)]);
+    } catch { /* TODO: toast */ }
+  }
+
+  async function handleDeleteSet(id: string) {
+    const t = timers.current.get(id);
+    if (t) { clearTimeout(t); timers.current.delete(id); }
+    setSets((prev) => prev.filter((s) => s.id !== id));
+    try {
+      await deleteSet.mutateAsync({
+        params: { path: { session_id: sessionId, se_id: se.id, set_id: id } },
+      });
+    } catch { console.error("Failed to delete set"); }
+  }
+
+  async function handleRemoveExercise() {
+    try {
+      await removeExercise.mutateAsync({
+        params: { path: { session_id: sessionId, se_id: se.id } },
+      });
+      onRemoved();
+    } catch { /* TODO: toast */ }
+  }
+
+  return (
+    <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
+      <div className="flex gap-2 items-center">
+        <span className="text-sm font-medium flex-1 truncate">{se.exercise?.name ?? "Exercise"}</span>
+        <span className="text-[10px] text-muted-foreground shrink-0">
+          {TRACKING_LABELS[tracking]}
+        </span>
+        <button
+          type="button"
+          onClick={handleRemoveExercise}
+          className="text-muted-foreground hover:text-destructive transition-colors p-0.5 shrink-0"
+          aria-label="Remove exercise"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        {tracking === "reps" && sets.length > 0 && (
+          <div className="flex gap-2 items-center pl-1">
+            <span className="text-[10px] text-muted-foreground w-5 text-center">#</span>
+            <span className="text-[10px] text-muted-foreground w-20 text-center">lbs</span>
+            <span className="text-[10px] text-muted-foreground w-16 text-center">reps</span>
+          </div>
+        )}
+        {sets.map((s, idx) => (
+          <SetRow
+            key={s.id}
+            index={idx}
+            set={s}
+            tracking={tracking}
+            onChange={(patch) => handleSetChange(s.id, patch)}
+            onDelete={() => handleDeleteSet(s.id)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={handleAddSet}
+          disabled={addSet.isPending}
+          className="text-xs text-primary hover:underline flex items-center gap-0.5 pt-0.5 pl-1 disabled:opacity-50"
+        >
+          <Plus className="h-3 w-3" /> Add set
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── AddExerciseComposer ──────────────────────────────────────────────────────────
+// Resolve a typed name to a catalog exercise (get-or-create), then attach it to
+// the session with one empty set.
+
+function AddExerciseComposer({
+  sessionId,
+  catalogListId,
+  onAdded,
+}: {
+  sessionId: string;
+  catalogListId: string;
+  onAdded: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [tracking, setTracking] = useState<TrackingType>("reps");
+  const [busy, setBusy] = useState(false);
+
+  const createExercise = $api.useMutation("post", "/workouts/exercises");
+  const addSessionExercise = $api.useMutation("post", "/workouts/sessions/{session_id}/exercises");
+
+  async function handleAdd() {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      // POST /exercises is get-or-create by normalized name; tracking_type is
+      // only applied when a new custom exercise is minted.
+      const exercise = await createExercise.mutateAsync({
+        body: { name: name.trim(), tracking_type: tracking },
+      });
+      await addSessionExercise.mutateAsync({
+        params: { path: { session_id: sessionId } },
+        body: { exercise_id: exercise.id, sets: [{ is_warmup: false }] },
+      });
+      setName("");
+      setTracking("reps");
+      onAdded();
+    } catch { /* TODO: toast */ }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex gap-2 items-center">
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } }}
+        placeholder="Add exercise…"
+        className="h-8 text-sm flex-1"
+        list={catalogListId}
+        autoComplete="off"
+      />
+      <select
+        value={tracking}
+        onChange={(e) => setTracking(e.target.value as TrackingType)}
+        className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+      >
+        {Object.entries(TRACKING_LABELS).map(([k, v]) => (
+          <option key={k} value={k}>{v}</option>
+        ))}
+      </select>
+      <Button size="sm" onClick={handleAdd} disabled={busy || !name.trim()} className="h-8 shrink-0">
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+      </Button>
+    </div>
+  );
+}
+
+// ── SessionEditor ────────────────────────────────────────────────────────────────
+
+function SessionEditor({
+  sessionId,
   onClose,
   onDeleted,
 }: {
-  workoutId: string;
+  sessionId: string;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const qc = useQueryClient();
 
-  // Load once; staleTime: Infinity prevents re-fetching while open.
-  const { data: initial, isLoading } = $api.useQuery(
+  const { data: session, isLoading, refetch } = $api.useQuery(
     "get",
-    "/workouts/{workout_id}",
-    { params: { path: { workout_id: workoutId } } },
+    "/workouts/sessions/{session_id}",
+    { params: { path: { session_id: sessionId } } },
     { staleTime: Infinity },
   );
 
-  // Fetch distinct exercise names for autocomplete — stale for 5 min is fine.
-  const { data: exerciseNames } = $api.useQuery(
+  // Catalog for the add-exercise autocomplete.
+  const { data: catalog } = $api.useQuery(
     "get",
-    "/workouts/exercise-names",
-    {},
+    "/workouts/exercises",
+    { params: { query: { limit: 500 } } },
     { staleTime: 5 * 60 * 1000 },
   );
-  const nameListId = `exercise-names-${workoutId}`;
+  const catalogListId = `exercise-catalog-${sessionId}`;
 
-  // Local edit state
-  const [date,  setDate]  = useState("");
-  const [name,  setName]  = useState("");
+  const [date, setDate]   = useState("");
+  const [name, setName]   = useState("");
   const [notes, setNotes] = useState("");
-  const [visibility, setVisibility] = useState<Visibility>("personal");
-  const [sharedWith, setSharedWith] = useState<string[]>([]);
-  const [entries, setEntries] = useState<EntryState[]>([]);
-  const [headerStatus, setHeaderStatus] = useState<EntryState["saveStatus"]>("idle");
-  const [addingEntry, setAddingEntry] = useState(false);
+  const [headerStatus, setHeaderStatus] = useState<SaveStatus>("idle");
 
-  // Mutations
-  const { mutateAsync: patchWorkout }  = $api.useMutation("patch", "/workouts/{workout_id}");
-  const { mutateAsync: deleteWorkout } = $api.useMutation("delete", "/workouts/{workout_id}");
-  const { mutateAsync: createEntry }   = $api.useMutation("post",   "/workouts/{workout_id}/entries");
-  const { mutateAsync: patchEntry }    = $api.useMutation("patch",  "/workouts/{workout_id}/entries/{entry_id}");
-  const { mutateAsync: deleteEntry }   = $api.useMutation("delete", "/workouts/{workout_id}/entries/{entry_id}");
+  const patchSession  = $api.useMutation("patch",  "/workouts/sessions/{session_id}");
+  const deleteSession = $api.useMutation("delete", "/workouts/sessions/{session_id}");
 
-  // Populate local state when workout loads (only once per workoutId).
   useEffect(() => {
-    if (!initial) return;
-    setDate(initial.workout_date);
-    setName(initial.name ?? "");
-    setNotes(initial.notes ?? "");
-    setVisibility((initial.visibility as Visibility) ?? "personal");
-    setSharedWith(initial.shared_with_user_ids ?? []);
-    setEntries((initial as WorkoutDetail).entries?.map(entryResponseToState) ?? []);
-  }, [initial?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── header auto-save ───────────────────────────────────────────────────────
+    if (!session) return;
+    // Populate the edit fields once per loaded session — the established
+    // form-from-entity pattern in this codebase (cf. habit-sheet.tsx).
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setDate(startedAtToDate(session.started_at));
+    setName(session.name ?? "");
+    setNotes(session.notes ?? "");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const headerTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -397,16 +478,16 @@ function WorkoutEditor({
     headerTimer.current = setTimeout(async () => {
       setHeaderStatus("saving");
       try {
-        await patchWorkout({
-          params: { path: { workout_id: workoutId } },
+        await patchSession.mutateAsync({
+          params: { path: { session_id: sessionId } },
           body: {
-            workout_date: vals.date,
-            name:  vals.name.trim()  || null,
+            started_at: dateToStartedAt(vals.date),
+            name: vals.name.trim() || null,
             notes: vals.notes.trim() || null,
           },
         });
         setHeaderStatus("saved");
-        qc.invalidateQueries({ queryKey: ["get", "/workouts"] });
+        qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
         setTimeout(() => setHeaderStatus("idle"), 2000);
       } catch {
         setHeaderStatus("error");
@@ -414,128 +495,29 @@ function WorkoutEditor({
     }, SAVE_DELAY);
   }
 
-  function handleDateChange(value: string)  { setDate(value);  scheduleHeaderSave({ date: value, name, notes }); }
-  function handleNameChange(value: string)  { setName(value);  scheduleHeaderSave({ date, name: value, notes }); }
-  function handleNotesChange(value: string) { setNotes(value); scheduleHeaderSave({ date, name, notes: value }); }
+  function handleDateChange(v: string)  { setDate(v);  scheduleHeaderSave({ date: v, name, notes }); }
+  function handleNameChange(v: string)  { setName(v);  scheduleHeaderSave({ date, name: v, notes }); }
+  function handleNotesChange(v: string) { setNotes(v); scheduleHeaderSave({ date, name, notes: v }); }
 
-  async function handleVisibilityChange(v: Visibility, sw: string[]) {
-    setVisibility(v);
-    setSharedWith(sw);
+  useEffect(() => {
+    return () => { if (headerTimer.current) clearTimeout(headerTimer.current); };
+  }, []);
+
+  async function handleDeleteSession() {
     try {
-      await patchWorkout({
-        params: { path: { workout_id: workoutId } },
-        body: { visibility: v, shared_with_user_ids: sw } as Parameters<typeof patchWorkout>[0]["body"],
-      });
-    } catch { /* ignore */ }
-  }
-
-  // ── entry auto-save ────────────────────────────────────────────────────────
-
-  const entryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  function scheduleEntrySave(entry: EntryState) {
-    const existing = entryTimers.current.get(entry.localId);
-    if (existing) clearTimeout(existing);
-
-    const timer = setTimeout(async () => {
-      entryTimers.current.delete(entry.localId);
-      setEntries((prev) =>
-        prev.map((e) => e.localId === entry.localId ? { ...e, saveStatus: "saving" } : e),
-      );
-      try {
-        await patchEntry({
-          params: { path: { workout_id: workoutId, entry_id: entry.dbId } },
-          body: {
-            name:    entry.name    || undefined,
-            type:    entry.type    || undefined,
-            metrics: entryStateToMetrics(entry),
-            notes:   entry.notes.trim() || null,
-          },
-        });
-        setEntries((prev) =>
-          prev.map((e) => e.localId === entry.localId ? { ...e, saveStatus: "saved" } : e),
-        );
-      } catch {
-        setEntries((prev) =>
-          prev.map((e) => e.localId === entry.localId ? { ...e, saveStatus: "error" } : e),
-        );
-      }
-    }, SAVE_DELAY);
-
-    entryTimers.current.set(entry.localId, timer);
-  }
-
-  function handleEntryChange(localId: string, updates: Partial<EntryState>) {
-    setEntries((prev) => {
-      const next = prev.map((e) => e.localId === localId ? { ...e, ...updates } : e);
-      const entry = next.find((e) => e.localId === localId);
-      if (entry && entry.name.trim()) scheduleEntrySave(entry);
-      return next;
-    });
-  }
-
-  // ── add / delete entry ─────────────────────────────────────────────────────
-
-  async function handleAddEntry() {
-    setAddingEntry(true);
-    try {
-      const created = await createEntry({
-        params: { path: { workout_id: workoutId } },
-        body: {
-          name: "Exercise",
-          type: "strength",
-          sort_order: entries.length,
-          // Start with one empty set so the UI immediately shows the set row
-          metrics: { sets: [{ weight_lbs: null, reps: null }] },
-          notes: null,
-        },
-      });
-      setEntries((prev) => [...prev, {
-        ...entryResponseToState(created),
-        // Ensure one empty set row shows up even if API strips nulls
-        setData: created.metrics && Array.isArray((created.metrics as Record<string,unknown>).sets)
-          ? entryResponseToState(created).setData
-          : [{ weight_lbs: "", reps: "" }],
-      }]);
-    } catch { /* TODO: toast */ }
-    finally { setAddingEntry(false); }
-  }
-
-  async function handleDeleteEntry(localId: string, dbId: string) {
-    // Optimistic remove — cancel any pending save first.
-    const t = entryTimers.current.get(localId);
-    if (t) { clearTimeout(t); entryTimers.current.delete(localId); }
-    setEntries((prev) => prev.filter((e) => e.localId !== localId));
-    try {
-      await deleteEntry({ params: { path: { workout_id: workoutId, entry_id: dbId } } });
-    } catch {
-      // Re-add on failure? For now just log.
-      console.error("Failed to delete exercise entry");
-    }
-  }
-
-  // ── delete workout ─────────────────────────────────────────────────────────
-
-  async function handleDeleteWorkout() {
-    try {
-      await deleteWorkout({ params: { path: { workout_id: workoutId } } });
-      qc.invalidateQueries({ queryKey: ["get", "/workouts"] });
+      await deleteSession.mutateAsync({ params: { path: { session_id: sessionId } } });
+      qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
       onDeleted();
     } catch { /* TODO: toast */ }
   }
 
-  // ── cleanup timers on unmount ──────────────────────────────────────────────
+  // Re-fetch the detail after an exercise is added/removed so the tree stays true.
+  function refreshExercises() {
+    refetch();
+    qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
+  }
 
-  useEffect(() => {
-    return () => {
-      if (headerTimer.current) clearTimeout(headerTimer.current);
-      entryTimers.current.forEach((t) => clearTimeout(t));
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── render ─────────────────────────────────────────────────────────────────
-
-  if (isLoading) {
+  if (isLoading || !session) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -543,24 +525,20 @@ function WorkoutEditor({
     );
   }
 
+  const exercises = (session as SessionDetail).exercises ?? [];
+
   return (
     <>
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-        {/* Date + Name */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="w-date" className="text-xs">Date</Label>
-            <Input
-              id="w-date"
-              type="date"
-              value={date}
-              onChange={(e) => handleDateChange(e.target.value)}
-            />
+            <Label htmlFor="s-date" className="text-xs">Date</Label>
+            <Input id="s-date" type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="w-name" className="text-xs">Name (optional)</Label>
+            <Label htmlFor="s-name" className="text-xs">Name (optional)</Label>
             <Input
-              id="w-name"
+              id="s-name"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="Leg day"
@@ -568,71 +546,49 @@ function WorkoutEditor({
           </div>
         </div>
 
-        {/* Exercises */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Exercises</Label>
-            <button
-              type="button"
-              onClick={handleAddEntry}
-              disabled={addingEntry}
-              className="text-xs text-primary hover:underline flex items-center gap-0.5 disabled:opacity-50"
-            >
-              {addingEntry
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <Plus className="h-3 w-3" />}
-              Add exercise
-            </button>
-          </div>
+          <Label className="text-xs">Exercises</Label>
 
-          {entries.length === 0 && (
-            <p className="text-xs text-muted-foreground py-4 text-center">
-              No exercises yet — tap "Add exercise" to start.
-            </p>
-          )}
-
-          {/* Hidden datalist — powers exercise name autocomplete on all EntryRows */}
-          <datalist id={nameListId}>
-            {(exerciseNames ?? []).map((n) => (
-              <option key={n} value={n} />
+          <datalist id={catalogListId}>
+            {(catalog?.items ?? []).map((e) => (
+              <option key={e.id} value={e.name} />
             ))}
           </datalist>
 
-          {entries.map((entry) => (
-            <EntryRow
-              key={entry.localId}
-              entry={entry}
-              onChange={(updates) => handleEntryChange(entry.localId, updates)}
-              onDelete={() => handleDeleteEntry(entry.localId, entry.dbId)}
-              exerciseNameListId={nameListId}
+          {exercises.length === 0 && (
+            <p className="text-xs text-muted-foreground py-2 text-center">
+              No exercises yet — add one below to start.
+            </p>
+          )}
+
+          {exercises.map((se) => (
+            <ExerciseCard
+              key={se.id}
+              sessionId={sessionId}
+              se={se}
+              onRemoved={refreshExercises}
             />
           ))}
+
+          <AddExerciseComposer
+            sessionId={sessionId}
+            catalogListId={catalogListId}
+            onAdded={refreshExercises}
+          />
         </div>
 
-        {/* Session notes */}
         <div className="space-y-1.5">
-          <Label htmlFor="w-notes" className="text-xs">Session notes</Label>
+          <Label htmlFor="s-notes" className="text-xs">Session notes</Label>
           <Textarea
-            id="w-notes"
+            id="s-notes"
             value={notes}
             rows={2}
             onChange={(e) => handleNotesChange(e.target.value)}
             placeholder="How it felt, PRs, anything notable…"
           />
         </div>
-
-        {/* Visibility */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Visibility</Label>
-          <VisibilityPicker
-            value={visibility}
-            sharedWith={sharedWith}
-            onChange={handleVisibilityChange}
-          />
-        </div>
       </div>
 
-      {/* Footer */}
       <div className="shrink-0 px-6 py-4 border-t flex items-center gap-2">
         <SaveBadge status={headerStatus} />
         <span className="flex-1" />
@@ -640,7 +596,8 @@ function WorkoutEditor({
           variant="ghost"
           size="sm"
           className="text-destructive hover:text-destructive hover:bg-destructive/10"
-          onClick={handleDeleteWorkout}
+          onClick={handleDeleteSession}
+          disabled={deleteSession.isPending}
         >
           <Trash2 className="h-3.5 w-3.5 mr-1.5" />
           Delete workout
@@ -653,16 +610,16 @@ function WorkoutEditor({
   );
 }
 
-// ── WorkoutSheet ──────────────────────────────────────────────────────────────
+// ── WorkoutSheet ──────────────────────────────────────────────────────────────────
 
 function WorkoutSheet({
   open,
-  workoutId,
+  sessionId,
   onClose,
   onDeleted,
 }: {
   open: boolean;
-  workoutId: string | null;
+  sessionId: string | null;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -673,19 +630,15 @@ function WorkoutSheet({
           <SheetTitle>Workout</SheetTitle>
           <SheetDescription className="sr-only">Edit workout session</SheetDescription>
         </SheetHeader>
-        {workoutId && (
-          <WorkoutEditor
-            workoutId={workoutId}
-            onClose={onClose}
-            onDeleted={onDeleted}
-          />
+        {sessionId && (
+          <SessionEditor sessionId={sessionId} onClose={onClose} onDeleted={onDeleted} />
         )}
       </SheetContent>
     </Sheet>
   );
 }
 
-// ── WorkoutsPage ──────────────────────────────────────────────────────────────
+// ── WorkoutsPage ──────────────────────────────────────────────────────────────────
 
 export default function WorkoutsPage() {
   const qc = useQueryClient();
@@ -695,43 +648,45 @@ export default function WorkoutsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing,     setClearing]     = useState(false);
 
-  const { data, isLoading, isError } = $api.useQuery("get", "/workouts", {
+  const { data, isLoading, isError } = $api.useQuery("get", "/workouts/sessions", {
     params: { query: { limit: 50 } },
   });
 
-  const { mutateAsync: createWorkout } = $api.useMutation("post", "/workouts");
+  const createSession = $api.useMutation("post", "/workouts/sessions");
+  const deleteSession = $api.useMutation("delete", "/workouts/sessions/{session_id}");
+
+  const sessions = data?.items ?? [];
 
   async function handleDeleteAll() {
+    // The session API has no bulk-delete; remove each loaded session in turn.
     setClearing(true);
     try {
-      const token = (await import("@/lib/auth/token")).getAccessToken();
-      await fetch(`${apiBaseUrl}/workouts`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      qc.invalidateQueries({ queryKey: ["get", "/workouts"] });
+      await Promise.all(
+        sessions.map((s) =>
+          deleteSession.mutateAsync({ params: { path: { session_id: s.id } } }),
+        ),
+      );
+      qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
     } finally {
       setClearing(false);
       setConfirmClear(false);
     }
   }
 
-  const workouts    = data?.items ?? [];
-  const grouped     = workouts.reduce<Record<string, WorkoutSummary[]>>((acc, w) => {
-    (acc[w.workout_date] ??= []).push(w);
+  const grouped = sessions.reduce<Record<string, SessionSummary[]>>((acc, s) => {
+    (acc[startedAtToDate(s.started_at)] ??= []).push(s);
     return acc;
   }, {});
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
-  // Create the workout in the DB immediately so nothing is lost if the app closes.
   async function handleStartWorkout() {
     setCreating(true);
     try {
-      const workout = await createWorkout({
-        body: { workout_date: toLocalDateString(new Date()), entries: [] },
+      const session = await createSession.mutateAsync({
+        body: { started_at: dateToStartedAt(toLocalDateString(new Date())) },
       });
-      qc.invalidateQueries({ queryKey: ["get", "/workouts"] });
-      setSelectedId(workout.id);
+      qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
+      setSelectedId(session.id);
       setSheetOpen(true);
     } catch { /* TODO: toast */ }
     finally { setCreating(false); }
@@ -744,12 +699,13 @@ export default function WorkoutsPage() {
 
   function handleClose() {
     setSheetOpen(false);
-    qc.invalidateQueries({ queryKey: ["get", "/workouts"] });
+    qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
     setTimeout(() => setSelectedId(null), 300);
   }
 
   function handleDeleted() {
     setSheetOpen(false);
+    qc.invalidateQueries({ queryKey: ["get", "/workouts/sessions"] });
     setTimeout(() => setSelectedId(null), 300);
   }
 
@@ -761,7 +717,7 @@ export default function WorkoutsPage() {
           <h1 className="text-xl font-semibold">Workouts</h1>
         </div>
         <div className="flex items-center gap-2">
-          {workouts.length > 0 && (
+          {sessions.length > 0 && (
             confirmClear ? (
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Delete all?</span>
@@ -810,7 +766,7 @@ export default function WorkoutsPage() {
         <p className="py-8 text-sm text-destructive">Failed to load workouts.</p>
       )}
 
-      {!isLoading && !isError && workouts.length === 0 && (
+      {!isLoading && !isError && sessions.length === 0 && (
         <div className="py-12 text-center">
           <Dumbbell className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No workouts logged yet.</p>
@@ -828,11 +784,11 @@ export default function WorkoutsPage() {
                 {formatDate(date)}
               </p>
               <div className="space-y-2">
-                {grouped[date].map((w) => (
+                {grouped[date].map((s) => (
                   <button
-                    key={w.id}
+                    key={s.id}
                     type="button"
-                    onClick={() => openExisting(w.id)}
+                    onClick={() => openExisting(s.id)}
                     className={cn(
                       "w-full text-left border rounded-lg px-4 py-3 bg-card",
                       "hover:bg-muted/30 transition-colors flex items-center gap-3",
@@ -841,13 +797,11 @@ export default function WorkoutsPage() {
                     <Dumbbell className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-medium block truncate">
-                        {w.name ?? "Workout"}
+                        {s.name ?? "Workout"}
                       </span>
-                      {w.exercise_names && w.exercise_names.length > 0 && (
-                        <span className="text-xs text-muted-foreground truncate block">
-                          {w.exercise_names.join(" · ")}
-                        </span>
-                      )}
+                      <span className="text-xs text-muted-foreground truncate block">
+                        {s.exercise_count === 1 ? "1 exercise" : `${s.exercise_count} exercises`}
+                      </span>
                     </div>
                   </button>
                 ))}
@@ -859,7 +813,7 @@ export default function WorkoutsPage() {
 
       <WorkoutSheet
         open={sheetOpen}
-        workoutId={selectedId}
+        sessionId={selectedId}
         onClose={handleClose}
         onDeleted={handleDeleted}
       />

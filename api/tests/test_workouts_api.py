@@ -1,9 +1,10 @@
-"""End-to-end coverage for the workouts-001 HTTP + MCP surface.
+"""End-to-end coverage for the workouts HTTP + MCP surface.
 
-Complements test_workouts.py (service layer) by exercising every new REST route
-through the ASGI app and every new MCP tool through its function, so the router
-wiring, route precedence over the legacy /workouts endpoints, and the agent
-surface are all actually invoked — not just imported.
+Complements test_workouts.py (service layer) by exercising every REST route
+through the ASGI app and every MCP tool through its function, so the router
+wiring and the agent surface are all actually invoked — not just imported. The
+legacy Workout/ExerciseEntry endpoints were retired in workouts-001b; the
+exercise/template/session router is now the only /workouts surface.
 """
 import uuid
 
@@ -89,7 +90,7 @@ async def api(monkeypatch):
 async def test_rest_exercise_and_template_and_session_flow(api):
     client = api["client"]
 
-    # list_exercises (new route wins over legacy /workouts/{id}).
+    # list_exercises
     r = await client.get("/workouts/exercises", params={"search": "bench"})
     assert r.status_code == 200
     assert r.json()["total"] >= 1
@@ -175,9 +176,10 @@ async def test_rest_exercise_and_template_and_session_flow(api):
     assert (await client.delete(f"/workouts/sessions/{sid}")).status_code == 204
     assert (await client.get(f"/workouts/sessions/{sid}")).status_code == 404
 
-    # legacy route still works (list old workouts) — precedence preserved.
+    # The legacy /workouts list + /workouts/{id} catch-all were retired
+    # (workouts-001b): the bare collection path no longer resolves to anything.
     r = await client.get("/workouts")
-    assert r.status_code == 200 and "items" in r.json()
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

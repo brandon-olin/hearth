@@ -153,7 +153,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "description": (
             "Update an existing workout session's metadata (name, date, or notes). "
             "Use when the user wants to rename a workout, correct the date, or add notes. "
-            "To add or modify exercises use add_grocery_items — or create_workout for a fresh session. "
+            "To change the logged exercises, create a fresh session with create_workout. "
             "Only send fields that need to change. Requires workout_id from list_workouts."
         ),
         "input_schema": {
@@ -2270,14 +2270,14 @@ async def execute_tool(
         if tool_name == "create_workout":
             return await _create_workout(db, tool_input, household_id, user_id)
         if tool_name == "update_workout":
-            return await _update_workout(db, tool_input, household_id)
+            return await _update_workout(db, tool_input, household_id, user_id)
         if tool_name == "delete_workout":
-            return await _delete_workout(db, tool_input, household_id)
+            return await _delete_workout(db, tool_input, household_id, user_id)
         if tool_name == "get_workout":
-            return await _get_workout(db, tool_input, household_id)
+            return await _get_workout(db, tool_input, household_id, user_id)
         # ── Read tools ────────────────────────────────────────────────────────
         if tool_name == "list_workouts":
-            return await _list_workouts(db, tool_input, household_id)
+            return await _list_workouts(db, tool_input, household_id, user_id)
         if tool_name == "list_todos":
             return await _list_todos(db, tool_input, household_id)
         if tool_name == "list_habits":
@@ -2426,44 +2426,124 @@ async def execute_tool(
 
 # ── Individual tool handlers ──────────────────────────────────────────────────
 
+# Legacy AI exercise `type` → new exercise catalog tracking_type. Mirrors the
+# mapping migration 0048/0049 use so an exercise minted by the coach tracks the
+# same way it would have under the old model.
+_AI_TYPE_TO_TRACKING = {
+    "strength": "reps",
+    "cardio": "distance",
+    "hiit": "duration",
+    "flexibility": "duration",
+    "other": "reps",
+}
+
+
+def _ai_metrics_to_sets(entry_type: str, metrics: dict | None) -> list:
+    """Translate the coach's aggregate `metrics` payload into first-class
+    WorkoutSetCreate rows for the session model.
+
+    The tool contract's metrics shapes (see the create_workout definition):
+      strength → {"sets": [{"weight_lbs": 135, "reps": 8}, ...]}
+      cardio   → {"duration_minutes": 30, "distance_km": 5.0}
+      hiit     → {"duration_minutes": 20}
+      flexibility / other → {} (no sets)
+    """
+    from life_dashboard.domains.workouts.schemas import WorkoutSetCreate
+
+    m = metrics if isinstance(metrics, dict) else {}
+    sets: list[WorkoutSetCreate] = []
+
+    if entry_type == "strength":
+        raw_sets = m.get("sets")
+        if isinstance(raw_sets, list):
+            for s in raw_sets:
+                if not isinstance(s, dict):
+                    continue
+                weight = s.get("weight_lbs", s.get("weight_kg"))
+                sets.append(WorkoutSetCreate(
+                    reps=s.get("reps"),
+                    weight=weight,
+                    weight_unit="lbs" if weight is not None else None,
+                ))
+        elif m.get("reps") is not None or m.get("weight_lbs") is not None:
+            # Flat fallback for a single-set strength entry.
+            weight = m.get("weight_lbs", m.get("weight_kg"))
+            sets.append(WorkoutSetCreate(
+                reps=m.get("reps"),
+                weight=weight,
+                weight_unit="lbs" if weight is not None else None,
+            ))
+    elif entry_type == "cardio":
+        mins = m.get("duration_minutes")
+        km = m.get("distance_km")
+        sets.append(WorkoutSetCreate(
+            duration_seconds=int(mins * 60) if mins is not None else None,
+            distance_meters=km * 1000 if km is not None else None,
+            distance_unit="km" if km is not None else None,
+        ))
+    else:  # hiit / flexibility / other — a single duration set if a duration is given.
+        mins = m.get("duration_minutes")
+        if mins is not None:
+            sets.append(WorkoutSetCreate(duration_seconds=int(mins * 60)))
+
+    return sets
+
+
+def _noon_utc(d: date) -> datetime:
+    """Anchor a date-only workout at NOON UTC — matches migrations 0048/0049 so
+    the session lands on the intended calendar day in the Americas rather than
+    rolling back to the previous day at midnight UTC."""
+    return datetime(d.year, d.month, d.day, 12, 0, tzinfo=timezone.utc)
+
+
 async def _create_workout(
     db: AsyncSession,
     inp: dict,
     household_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> dict:
-    from life_dashboard.domains.workouts import service as svc
-    from life_dashboard.domains.workouts.schemas import ExerciseEntryCreate, WorkoutCreate
+    from life_dashboard.domains.workouts import exercises_service, sessions_service
+    from life_dashboard.domains.workouts.schemas import (
+        ExerciseCreate,
+        SessionExerciseCreate,
+        WorkoutSessionCreate,
+    )
 
     # Validate with Pydantic — raises PydanticValidationError on bad input,
     # which execute_tool catches and returns as a structured error.
     validated = _CreateWorkoutInput.model_validate(inp)
 
-    entries = [
-        ExerciseEntryCreate(
-            name=e.name,
-            type=e.type,
-            sort_order=i,
-            metrics=e.metrics,
-            notes=e.notes,
+    # Resolve each free-text exercise name to a catalog entry (global match or a
+    # minted household-custom exercise), then translate its metrics into sets.
+    session_exercises: list[SessionExerciseCreate] = []
+    for i, e in enumerate(validated.entries):
+        exercise, _created = await exercises_service.create_exercise(
+            db, household_id, user_id,
+            ExerciseCreate(
+                name=e.name,
+                tracking_type=_AI_TYPE_TO_TRACKING.get(e.type, "reps"),
+            ),
         )
-        for i, e in enumerate(validated.entries)
-    ]
+        session_exercises.append(SessionExerciseCreate(
+            exercise_id=exercise.id,
+            position=i,
+            notes=e.notes,
+            sets=_ai_metrics_to_sets(e.type, e.metrics),
+        ))
 
-    data = WorkoutCreate(
-        workout_date=validated.workout_date,
+    data = WorkoutSessionCreate(
         name=validated.name,
+        started_at=_noon_utc(validated.workout_date),
         notes=validated.notes,
-        entries=entries,
+        exercises=session_exercises,
     )
-
-    result = await svc.create_workout(db, household_id, user_id, data)
+    result = await sessions_service.create_session(db, household_id, user_id, data)
     return {
         "ok": True,
         "id": str(result.id),
-        "workout_date": str(result.workout_date),
+        "date": str(result.started_at.date()),
         "name": result.name,
-        "entries_created": len(result.entries),
+        "exercises_created": result.exercise_count,
     }
 
 
@@ -2471,12 +2551,15 @@ async def _delete_workout(
     db: AsyncSession,
     inp: dict,
     household_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> dict:
-    from life_dashboard.domains.workouts import service as svc
+    from life_dashboard.domains.workouts import sessions_service
 
     validated = _DeleteWorkoutInput.model_validate(inp)
 
-    deleted = await svc.delete_workout(db, validated.workout_id, household_id)
+    deleted = await sessions_service.delete_session(
+        db, validated.workout_id, household_id, user_id
+    )
     if not deleted:
         return {
             "error": "Workout not found or already deleted.",
@@ -2489,8 +2572,9 @@ async def _list_workouts(
     db: AsyncSession,
     inp: dict,
     household_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> dict:
-    from life_dashboard.domains.workouts import service as svc
+    from life_dashboard.domains.workouts import sessions_service
     from datetime import timedelta
 
     today = date.today()
@@ -2498,16 +2582,17 @@ async def _list_workouts(
     to_date = _parse_date(inp.get("to_date")) or today
     limit = min(int(inp.get("limit", 10)), 25)
 
-    result = await svc.list_workouts(
-        db, household_id, from_date=from_date, to_date=to_date, limit=limit
+    result = await sessions_service.list_sessions(
+        db, household_id, user_id, from_date=from_date, to_date=to_date, limit=limit
     )
     return {
         "total": result.total,
         "workouts": [
             {
                 "id": str(w.id),
-                "date": str(w.workout_date),
+                "date": str(w.started_at.date()),
                 "name": w.name,
+                "exercise_count": w.exercise_count,
                 "notes": _truncate(w.notes, 300),
             }
             for w in result.items
@@ -3791,19 +3876,41 @@ async def _archive_document(
 
 # ── Workout detail handler ────────────────────────────────────────────────────
 
+def _set_summary(s) -> dict:
+    """Compact, agent-readable view of one first-class set — only the fields
+    that carry a value, so the coach isn't handed a wall of nulls."""
+    out: dict = {"set": s.set_number}
+    if s.reps is not None:
+        out["reps"] = s.reps
+    if s.weight is not None:
+        out["weight"] = float(s.weight)
+        out["weight_unit"] = s.weight_unit or "lbs"
+    if s.duration_seconds is not None:
+        out["duration_seconds"] = s.duration_seconds
+    if s.distance_meters is not None:
+        out["distance_meters"] = float(s.distance_meters)
+        out["distance_unit"] = s.distance_unit or "km"
+    if s.is_warmup:
+        out["is_warmup"] = True
+    if s.rpe is not None:
+        out["rpe"] = s.rpe
+    return out
+
+
 async def _get_workout(
     db: AsyncSession,
     inp: dict,
     household_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> dict:
-    from life_dashboard.domains.workouts import service as svc
+    from life_dashboard.domains.workouts import sessions_service
 
     try:
         workout_id = uuid.UUID(str(inp.get("workout_id", "")))
     except (ValueError, AttributeError):
         return {"error": "workout_id is not a valid UUID.", "hint": "Use list_workouts to find the correct ID."}
 
-    result = await svc.get_workout_with_entries(db, workout_id, household_id)
+    result = await sessions_service.get_session(db, workout_id, household_id, user_id)
     if result is None:
         return {
             "error": "Workout not found.",
@@ -3811,18 +3918,18 @@ async def _get_workout(
         }
     return {
         "id": str(result.id),
-        "date": str(result.workout_date),
+        "date": str(result.started_at.date()),
         "name": result.name,
         "notes": result.notes,
-        "entries": [
+        "exercises": [
             {
-                "id": str(e.id),
-                "name": e.name,
-                "type": e.type,
-                "metrics": e.metrics,
-                "notes": e.notes,
+                "id": str(se.id),
+                "name": se.exercise.name if se.exercise else None,
+                "tracking_type": se.exercise.tracking_type if se.exercise else None,
+                "notes": se.notes,
+                "sets": [_set_summary(s) for s in se.sets],
             }
-            for e in result.entries
+            for se in result.exercises
         ],
     }
 
@@ -4310,9 +4417,10 @@ async def _update_workout(
     db: AsyncSession,
     inp: dict,
     household_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> dict:
-    from life_dashboard.domains.workouts import service as svc
-    from life_dashboard.domains.workouts.schemas import WorkoutUpdate
+    from life_dashboard.domains.workouts import sessions_service
+    from life_dashboard.domains.workouts.schemas import WorkoutSessionUpdate
 
     try:
         workout_id = uuid.UUID(inp["workout_id"])
@@ -4324,7 +4432,9 @@ async def _update_workout(
         update_kwargs["name"] = inp["name"]
     if "workout_date" in inp:
         try:
-            update_kwargs["workout_date"] = date.fromisoformat(inp["workout_date"])
+            # The session model stores a full timestamp; anchor a corrected date
+            # at noon UTC so it stays on the intended calendar day.
+            update_kwargs["started_at"] = _noon_utc(date.fromisoformat(inp["workout_date"]))
         except ValueError:
             return {"error": "workout_date must be YYYY-MM-DD."}
     if "notes" in inp:
@@ -4333,14 +4443,16 @@ async def _update_workout(
     if not update_kwargs:
         return {"error": "No fields provided to update.", "hint": "Send at least one of: name, workout_date, notes."}
 
-    data = WorkoutUpdate(**update_kwargs)
-    result = await svc.update_workout(db, workout_id, household_id, data)
+    data = WorkoutSessionUpdate(**update_kwargs)
+    result = await sessions_service.update_session(
+        db, workout_id, household_id, user_id, data
+    )
     if result is None:
         return {"error": f"Workout {workout_id} not found."}
     return {
         "id": str(result.id),
         "name": result.name,
-        "workout_date": str(result.workout_date),
+        "date": str(result.started_at.date()),
         "notes": result.notes,
     }
 

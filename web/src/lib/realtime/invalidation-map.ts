@@ -20,7 +20,15 @@ export const ENTITY_INVALIDATION_MAP: Record<string, string[]> = {
   projects: ["/projects"],
   recipes: ["/recipes"],
   grocery_lists: ["/grocery-lists"],
-  workouts: ["/workouts"],
+  // Workouts is a multi-table domain (sessions, session_exercises, sets, plus the
+  // shared exercise catalog and templates); all map to the "/workouts" prefix,
+  // which covers the sessions/exercises/templates cached queries.
+  workout_sessions: ["/workouts"],
+  session_exercises: ["/workouts"],
+  workout_sets: ["/workouts"],
+  exercises: ["/workouts"],
+  workout_templates: ["/workouts"],
+  template_exercises: ["/workouts"],
   contacts: ["/contacts"],
   calendar_events: ["/events"],
   notes: ["/notes"],

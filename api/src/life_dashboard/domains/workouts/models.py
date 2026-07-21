@@ -1,11 +1,9 @@
 import uuid
-from datetime import date, datetime
-from typing import Any
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
-    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -15,11 +13,10 @@ from sqlalchemy import (
     Uuid,
 )
 from sqlalchemy import Enum as SaEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from life_dashboard.core.database import Base
-from life_dashboard.core.visibility import VisibilityMixin
 
 # ── Constrained string types (VARCHAR + CHECK on both engines, ADR-015) ─────────
 # native_enum=False keeps these portable: Postgres and SQLite both get a VARCHAR
@@ -41,68 +38,12 @@ _distance_unit = SaEnum(
 )
 
 
-class Workout(VisibilityMixin, Base):
-    __tablename__ = "workouts"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
-    household_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("households.id", ondelete="CASCADE")
-    )
-    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
-    )
-
-    name: Mapped[str | None] = mapped_column(Text)
-    workout_date: Mapped[date] = mapped_column(Date)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # lazy="noload" — no implicit SELECT; entries are loaded explicitly in service.py
-    entries: Mapped[list["ExerciseEntry"]] = relationship(
-        "ExerciseEntry", lazy="noload", passive_deletes=True
-    )
-
-
-class ExerciseEntry(Base):
-    __tablename__ = "exercise_entries"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
-    workout_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("workouts.id", ondelete="CASCADE")
-    )
-
-    name: Mapped[str] = mapped_column(Text)
-    # Stored as VARCHAR + CHECK on both engines. Migration 0047 converted the
-    # native `exercise_type` enum away and dropped the type (ADR-015).
-    type: Mapped[str] = mapped_column(
-        SaEnum(
-            "strength", "cardio", "hiit", "flexibility", "other",
-            native_enum=False,
-            name="exercise_type",
-            create_constraint=True,
-        )
-    )
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    # Shape varies by type:
-    #   strength   → {sets, reps, weight_kg}
-    #   cardio     → {duration_seconds, distance_meters, avg_heart_rate}
-    #   hiit       → {rounds, work_seconds, rest_seconds}
-    #   flexibility / other → freeform keys
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
 # ── workouts-001: first-class sets, exercise library, superset groups ───────────
 #
-# These six tables SUPERSEDE the legacy Workout/ExerciseEntry pair above, which is
-# left in place so the existing /workouts endpoints and their frontend keep
-# working during the workouts-002..005 UI migration. Migration 0048 backfills the
-# legacy rows forward into workout_sessions/session_exercises/workout_sets.
+# These six tables are the ONLY workouts model. The legacy Workout/ExerciseEntry
+# pair they replaced was retired in workouts-001b (migration 0049 dropped the
+# `workouts` and `exercise_entries` tables after migrating any rows 0048's
+# backfill had not already moved forward).
 #
 # Scoping (feature UPDATE 2026-07-20): workouts are PERSONAL, templates and
 # exercises are SHARED — but "personal" is a read-time filter on
