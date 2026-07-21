@@ -37,8 +37,10 @@ from life_dashboard.domains.workouts.schemas import (
     ExerciseResponse,
     ExerciseUpdate,
     ProgressExerciseListResponse,
+    SaveAsTemplateRequest,
     SessionExerciseCreate,
     SessionExerciseResponse,
+    SessionPrefillResponse,
     TemplateExerciseCreate,
     TemplateExerciseResponse,
     TemplateExerciseUpdate,
@@ -46,6 +48,7 @@ from life_dashboard.domains.workouts.schemas import (
     WorkoutSessionDetailResponse,
     WorkoutSessionListResponse,
     WorkoutSessionResponse,
+    WorkoutSessionSummary,
     WorkoutSessionUpdate,
     WorkoutSetCreate,
     WorkoutSetResponse,
@@ -399,6 +402,78 @@ async def delete_session(
     )
     if not ok:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
+
+
+@router.get(
+    "/sessions/{session_id}/prefill", response_model=SessionPrefillResponse
+)
+async def get_session_prefill(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SessionPrefillResponse:
+    """Ghost-value suggestions for each exercise in the session — YOUR most
+    recent numbers for the same template slot, else the template's defaults.
+    Never another household member's numbers."""
+    prefill = await sessions_service.get_session_prefill(
+        db, session_id, current_user.household_id, current_user.id
+    )
+    if prefill is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return prefill
+
+
+@router.get("/sessions/{session_id}/summary", response_model=WorkoutSessionSummary)
+async def get_session_summary(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WorkoutSessionSummary:
+    summary = await sessions_service.get_session_summary(
+        db, session_id, current_user.household_id, current_user.id
+    )
+    if summary is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return summary
+
+
+@router.post("/sessions/{session_id}/finish", response_model=WorkoutSessionSummary)
+async def finish_session(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WorkoutSessionSummary:
+    """Stamp the session finished and return its summary. Idempotent — an
+    already-finished session keeps its original ``ended_at``."""
+    summary = await sessions_service.finish_session(
+        db, session_id, current_user.household_id, current_user.id
+    )
+    if summary is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return summary
+
+
+@router.post(
+    "/sessions/{session_id}/save-as-template",
+    response_model=WorkoutTemplateDetailResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def save_session_as_template(
+    session_id: uuid.UUID,
+    data: SaveAsTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WorkoutTemplateDetailResponse:
+    """Create a household-shared template from what was logged in this session."""
+    try:
+        template = await sessions_service.save_session_as_template(
+            db, session_id, current_user.household_id, current_user.id, data.name
+        )
+    except SupersetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if template is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return template
 
 
 @router.post(

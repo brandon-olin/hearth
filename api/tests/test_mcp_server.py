@@ -308,6 +308,10 @@ async def test_no_tools_for_budget_documents_or_notes():
         "list_workout_templates",
         "create_workout_template",
         "log_workout_session",
+        # workouts (workouts-003) — live logging's agent surface
+        "get_workout_prefill",
+        "finish_workout_session",
+        "save_session_as_template",
         # workouts (workouts-004)
         "get_exercise_progress",
     }

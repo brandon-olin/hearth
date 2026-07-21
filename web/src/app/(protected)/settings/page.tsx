@@ -19,6 +19,7 @@ import {
   Plus,
   Pencil,
   BookOpen,
+  Dumbbell,
   FileText,
   RefreshCw,
   FolderKanban,
@@ -33,6 +34,7 @@ import {
 import { VisibilitySettingsSection } from "@/components/settings/visibility-settings-section";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { HomeAssistantSection } from "@/components/settings/home-assistant-section";
+import { WorkoutsSection } from "@/components/settings/workouts-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/auth/token";
@@ -62,7 +64,7 @@ import {
 
 // ── Left nav ──────────────────────────────────────────────────────────────────
 
-type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections" | "tokens" | "integrations";
+type Section = "appearance" | "navigation" | "account" | "household" | "visibility" | "ai" | "templates" | "collections" | "tokens" | "integrations" | "workouts";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "household",   label: "Household",   icon: Home          },
@@ -72,6 +74,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "integrations", label: "Integrations", icon: Plug        },
   { id: "navigation",  label: "Navigation",  icon: GripVertical  },
   { id: "appearance",  label: "Appearance",  icon: Palette       },
+  { id: "workouts",    label: "Workouts",    icon: Dumbbell      },
   { id: "templates",    label: "Templates",   icon: BookOpen      },
   { id: "collections", label: "Collections", icon: FolderKanban  },
   { id: "ai",          label: "AI",          icon: Bot           },
@@ -4496,6 +4499,7 @@ export default function SettingsPage() {
         {active === "account"     && <AccountSection />}
         {active === "tokens"      && <AccessTokensSection />}
         {active === "integrations" && <HomeAssistantSection />}
+        {active === "workouts"    && <WorkoutsSection />}
         {active === "household"   && isAdmin && <HouseholdSection />}
         {active === "visibility"  && isAdmin && <VisibilitySettingsSection />}
         {active === "templates"   && <TemplatesSection />}

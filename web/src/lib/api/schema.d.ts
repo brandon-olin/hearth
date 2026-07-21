@@ -2250,6 +2250,86 @@ export interface paths {
         patch: operations["update_session_workouts_sessions__session_id__patch"];
         trace?: never;
     };
+    "/workouts/sessions/{session_id}/prefill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session Prefill
+         * @description Ghost-value suggestions for each exercise in the session — YOUR most
+         *     recent numbers for the same template slot, else the template's defaults.
+         *     Never another household member's numbers.
+         */
+        get: operations["get_session_prefill_workouts_sessions__session_id__prefill_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/sessions/{session_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Summary */
+        get: operations["get_session_summary_workouts_sessions__session_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/sessions/{session_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish Session
+         * @description Stamp the session finished and return its summary. Idempotent — an
+         *     already-finished session keeps its original ``ended_at``.
+         */
+        post: operations["finish_session_workouts_sessions__session_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workouts/sessions/{session_id}/save-as-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Session As Template
+         * @description Create a household-shared template from what was logged in this session.
+         */
+        post: operations["save_session_as_template_workouts_sessions__session_id__save_as_template_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workouts/sessions/{session_id}/exercises": {
         parameters: {
             query?: never;
@@ -6657,6 +6737,23 @@ export interface components {
             id: string;
         };
         /**
+         * PrefillSet
+         * @description One suggested set. These are GHOST values: the client renders them muted
+         *     and never persists them until the member actually logs the set.
+         */
+        PrefillSet: {
+            /** Set Number */
+            set_number: number;
+            /** Reps */
+            reps: number | null;
+            /** Weight */
+            weight: number | null;
+            /** Weight Unit */
+            weight_unit: string | null;
+            /** Is Warmup */
+            is_warmup: boolean;
+        };
+        /**
          * ProfilePatchRequest
          * @description User-driven direct edit of the profile.
          *
@@ -7243,6 +7340,11 @@ export interface components {
             /** Total Carried Forward */
             total_carried_forward: number;
         };
+        /** SaveAsTemplateRequest */
+        SaveAsTemplateRequest: {
+            /** Name */
+            name?: string | null;
+        };
         /**
          * SeedProfilesResponse
          * @description Result of POST /budget/profiles/seed-defaults.
@@ -7270,6 +7372,37 @@ export interface components {
             notes?: string | null;
             /** Sets */
             sets?: components["schemas"]["WorkoutSetCreate"][];
+        };
+        /**
+         * SessionExercisePrefill
+         * @description Ghost-value suggestions for one exercise in the session.
+         *
+         *     ``source`` says where they came from:
+         *       * ``history``  — the CURRENT member's most recent session for this slot
+         *       * ``template`` — the template slot's ``default_weight`` / ``default_reps``
+         *       * ``none``     — nothing to suggest; the client shows empty fields
+         *
+         *     Never another member's data: history is keyed on the slot AND filtered to
+         *     ``created_by_user_id = the requesting member`` (see prefill scoping in
+         *     sessions_service).
+         */
+        SessionExercisePrefill: {
+            /**
+             * Session Exercise Id
+             * Format: uuid
+             */
+            session_exercise_id: string;
+            /** Template Exercise Id */
+            template_exercise_id: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "history" | "template" | "none";
+            /** Rest Seconds */
+            rest_seconds: number | null;
+            /** Sets */
+            sets: components["schemas"]["PrefillSet"][];
         };
         /** SessionExerciseResponse */
         SessionExerciseResponse: {
@@ -7302,6 +7435,16 @@ export interface components {
              * @default []
              */
             sets: components["schemas"]["WorkoutSetResponse"][];
+        };
+        /** SessionPrefillResponse */
+        SessionPrefillResponse: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Items */
+            items: components["schemas"]["SessionExercisePrefill"][];
         };
         /**
          * SetInitialPasswordRequest
@@ -8078,6 +8221,47 @@ export interface components {
              * @default 0
              */
             exercise_count: number;
+        };
+        /**
+         * WorkoutSessionSummary
+         * @description What the finish screen reports. Every number is derived here so the UI and
+         *     the agent surface can never disagree about the arithmetic.
+         *
+         *     A set counts as logged only when ``completed_at`` is set — typing a value
+         *     without checking the set off does not count. Warmup sets are excluded from
+         *     ``working_volume`` and from ``working_sets_completed``.
+         */
+        WorkoutSessionSummary: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Name */
+            name: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Working Volume */
+            working_volume: number;
+            /** Volume Unit */
+            volume_unit: string | null;
+            /** Working Sets Completed */
+            working_sets_completed: number;
+            /** Warmup Sets Completed */
+            warmup_sets_completed: number;
+            /** Exercises Completed */
+            exercises_completed: number;
+            /** Exercise Count */
+            exercise_count: number;
+            /** From Template */
+            from_template: boolean;
         };
         /** WorkoutSessionUpdate */
         WorkoutSessionUpdate: {
@@ -13584,6 +13768,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkoutSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_prefill_workouts_sessions__session_id__prefill_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionPrefillResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_summary_workouts_sessions__session_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutSessionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_session_workouts_sessions__session_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutSessionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_session_as_template_workouts_sessions__session_id__save_as_template_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveAsTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkoutTemplateDetailResponse"];
                 };
             };
             /** @description Validation Error */

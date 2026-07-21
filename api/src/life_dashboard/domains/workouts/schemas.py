@@ -276,6 +276,83 @@ class WorkoutSessionListResponse(BaseModel):
     offset: int
 
 
+# ══ workouts-003: live logging (ghost values, finish summary, save-as-template) ═
+# All three are read-or-derive over the existing tables — workouts-003 adds no
+# columns and no migration.
+
+
+class PrefillSet(BaseModel):
+    """One suggested set. These are GHOST values: the client renders them muted
+    and never persists them until the member actually logs the set."""
+
+    set_number: int
+    reps: int | None
+    weight: float | None
+    weight_unit: str | None
+    is_warmup: bool
+
+
+class SessionExercisePrefill(BaseModel):
+    """Ghost-value suggestions for one exercise in the session.
+
+    ``source`` says where they came from:
+      * ``history``  — the CURRENT member's most recent session for this slot
+      * ``template`` — the template slot's ``default_weight`` / ``default_reps``
+      * ``none``     — nothing to suggest; the client shows empty fields
+
+    Never another member's data: history is keyed on the slot AND filtered to
+    ``created_by_user_id = the requesting member`` (see prefill scoping in
+    sessions_service).
+    """
+
+    session_exercise_id: uuid.UUID
+    template_exercise_id: uuid.UUID | None
+    source: Literal["history", "template", "none"]
+    #: Rest countdown for this slot, from the template's default_rest_seconds.
+    #: NULL means the client falls back to its own default (90s).
+    rest_seconds: int | None
+    sets: list[PrefillSet]
+
+
+class SessionPrefillResponse(BaseModel):
+    session_id: uuid.UUID
+    items: list[SessionExercisePrefill]
+
+
+class WorkoutSessionSummary(BaseModel):
+    """What the finish screen reports. Every number is derived here so the UI and
+    the agent surface can never disagree about the arithmetic.
+
+    A set counts as logged only when ``completed_at`` is set — typing a value
+    without checking the set off does not count. Warmup sets are excluded from
+    ``working_volume`` and from ``working_sets_completed``.
+    """
+
+    session_id: uuid.UUID
+    name: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    #: Wall-clock seconds from started_at to ended_at (0 if the clock is skewed).
+    duration_seconds: int
+    #: Σ(weight × reps) over completed, non-warmup sets. Bodyweight sets (weight
+    #: NULL) contribute 0 but still count toward working_sets_completed.
+    working_volume: float
+    #: The unit ``working_volume`` is expressed in, or NULL when no weighted set
+    #: was logged. Mixed-unit sessions report the unit of the first weighted set.
+    volume_unit: str | None
+    working_sets_completed: int
+    warmup_sets_completed: int
+    #: Exercises with at least one completed working set.
+    exercises_completed: int
+    exercise_count: int
+    #: False for a blank session — the save-as-template prompt only fires then.
+    from_template: bool
+
+
+class SaveAsTemplateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=_NAME_MAX)
+
+
 # ══ workouts-004: per-exercise progress ════════════════════════════════════════
 # Read-only projections over the same first-class sets. Every derived number the
 # charts show (estimated 1RM, volume, max weight) is computed by the client from

@@ -82,6 +82,18 @@ mcp_server = FastMCP(
 )
 
 
+def _as_uuid(value: str, field: str) -> uuid.UUID:
+    """Parse an id argument, failing with an agent-readable message rather than
+    letting a ValueError surface as an opaque 500."""
+    try:
+        return uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        raise MCPAuthError(
+            f"{field} must be a UUID, e.g. "
+            f"'3fa85f64-5717-4562-b3fc-2c963f66afa6'; got {value!r}."
+        ) from None
+
+
 @mcp_server.tool()
 async def list_todos(
     ctx: Context,
@@ -494,6 +506,96 @@ async def log_workout_session(
             },
         )
     return session.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def get_workout_prefill(
+    ctx: Context,
+    session_id: str,
+) -> dict:
+    """Suggest starting weights and reps for an in-progress session — the same
+    "ghost values" the app pre-fills each set with.
+
+    `session_id` is the id returned by log_workout_session. For every exercise
+    in that session it returns `sets` (set_number, reps, weight, weight_unit,
+    is_warmup) plus `source`:
+      * "history"  — what THIS member last logged for the same template slot
+      * "template" — the template's default_weight / default_reps
+      * "none"     — nothing to suggest yet; start from empty
+
+    These are suggestions only; nothing is recorded until sets are logged.
+    Suggestions are always personal: another household member's numbers are
+    never used, even when the template is shared."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts")
+        prefill = await sessions_service.get_session_prefill(
+            db, _as_uuid(session_id, "session_id"), ident.household_id, ident.user_id
+        )
+        if prefill is None:
+            raise MCPAuthError(
+                "No such workout session for this member. Sessions are personal "
+                "— use list_workout_sessions ids belonging to this token."
+            )
+    return prefill.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def finish_workout_session(
+    ctx: Context,
+    session_id: str,
+) -> dict:
+    """Mark a workout session finished and return its summary.
+
+    Reports `duration_seconds`, `working_volume` (Σ weight × reps over completed
+    sets, warmups excluded) with its `volume_unit`, `working_sets_completed`,
+    `warmup_sets_completed`, `exercises_completed`, and `from_template`.
+
+    Only sets that were checked off (completed) count. Safe to call twice: a
+    session that is already finished keeps its original end time."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts", "write")
+        summary = await sessions_service.finish_session(
+            db, _as_uuid(session_id, "session_id"), ident.household_id, ident.user_id
+        )
+        if summary is None:
+            raise MCPAuthError("No such workout session for this member.")
+        await record_mcp_write(
+            db, ident, action="update", entity_type="workout_session",
+            entity_id=summary.session_id,
+            payload={"ended_at": summary.ended_at.isoformat() if summary.ended_at else None},
+        )
+    return summary.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def save_session_as_template(
+    ctx: Context,
+    session_id: str,
+    name: str | None = None,
+) -> dict:
+    """Turn a logged session into a reusable, household-shared workout template.
+
+    Each exercise becomes a template slot whose defaults are derived from what
+    was logged: default_sets = the number of working sets, default_reps = the
+    most common rep count, default_weight = the heaviest working set. Warmup
+    sets are excluded. `name` defaults to the session's name.
+
+    The session itself is not modified, so calling this twice creates two
+    templates rather than altering history."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "workouts", "write")
+        template = await sessions_service.save_session_as_template(
+            db, _as_uuid(session_id, "session_id"), ident.household_id,
+            ident.user_id, name,
+        )
+        if template is None:
+            raise MCPAuthError("No such workout session for this member.")
+        await record_mcp_write(
+            db, ident, action="create", entity_type="workout_template",
+            entity_id=template.id,
+            payload={"name": template.name, "from_session": session_id},
+        )
+    return template.model_dump(mode="json")
 
 
 @mcp_server.tool()

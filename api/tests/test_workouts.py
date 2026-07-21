@@ -8,7 +8,7 @@ catalog via ``ensure_global_exercises`` (the migration's data step does not run
 on the create_all path).
 """
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 import pytest_asyncio
@@ -27,6 +27,7 @@ from life_dashboard.domains.workouts.schemas import (
     TemplateExerciseUpdate,
     WorkoutSessionCreate,
     WorkoutSetCreate,
+    WorkoutSetUpdate,
     WorkoutTemplateCreate,
 )
 from life_dashboard.domains.workouts.seed_data import GLOBAL_EXERCISES
@@ -675,4 +676,293 @@ async def test_progress_unknown_exercise_returns_none(db_session, household):
     hid, uid = household["hid"], household["alice"]
     assert await progress_service.get_exercise_progress(
         db_session, uuid.uuid4(), hid, uid
+    ) is None
+
+
+# ══ workouts-003: ghost values, finish summary, save-as-template ═══════════════
+#
+# The load-bearing rule under test here is that ghost values are PER-USER.
+# Templates are household-shared, so a lookup keyed only on the template slot
+# would pre-fill one member with another's weights. Every prefill assertion
+# below exists to keep that predicate in place.
+
+_COMPLETED = datetime(2026, 7, 1, 13, 0, 0)
+
+
+async def _two_slot_template(db_session, hid, uid, ex, name="Push Day"):
+    """A template whose two slots are the SAME exercise at different protocols —
+    a heavy slot and a back-off slot. Their histories must not blur together."""
+    return await templates_service.create_template(
+        db_session, hid, uid,
+        WorkoutTemplateCreate(
+            name=name,
+            exercises=[
+                TemplateExerciseCreate(
+                    exercise_id=ex[0], default_sets=2, default_reps=5,
+                    default_weight=95, default_rest_seconds=180,
+                ),
+                TemplateExerciseCreate(
+                    exercise_id=ex[0], default_sets=1, default_reps=12,
+                    default_weight=65,
+                ),
+            ],
+        ),
+    )
+
+
+async def _run_template(db_session, hid, uid, template_id, day, slot_weights):
+    """Start a session from the template and check off each slot's sets at the
+    given weights (one list of weights per slot)."""
+    session = await sessions_service.create_session(
+        db_session, hid, uid,
+        WorkoutSessionCreate(
+            template_id=template_id,
+            started_at=datetime(2026, 7, day, 12, 0, 0),
+        ),
+    )
+    detail = await sessions_service.get_session(db_session, session.id, hid, uid)
+    for se, weights in zip(detail.exercises, slot_weights):
+        for ws, weight in zip(se.sets, weights):
+            await sessions_service.update_set(
+                db_session, session.id, se.id, ws.id, hid, uid,
+                WorkoutSetUpdate(
+                    weight=weight, reps=5, weight_unit="lbs",
+                    completed_at=datetime(2026, 7, day, 13, 0, 0),
+                ),
+            )
+    return session
+
+
+@pytest.mark.asyncio
+async def test_ghost_values_never_come_from_another_member(db_session, household):
+    """The cross-user leak the feature UPDATE corrects: Bob starting Alice's
+    shared template must see the TEMPLATE's defaults, never Alice's numbers."""
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    template = await _two_slot_template(db_session, hid, alice, ex)
+    await _run_template(db_session, hid, alice, template.id, 1, [[225, 235], [135]])
+
+    bob_session = await sessions_service.create_session(
+        db_session, hid, bob,
+        WorkoutSessionCreate(
+            template_id=template.id, started_at=datetime(2026, 7, 2, 12, 0, 0)
+        ),
+    )
+    prefill = await sessions_service.get_session_prefill(
+        db_session, bob_session.id, hid, bob
+    )
+    assert [item.source for item in prefill.items] == ["template", "template"]
+    weights = [s.weight for item in prefill.items for s in item.sets]
+    assert weights == [95.0, 95.0, 65.0]
+    assert not {225.0, 235.0, 135.0} & set(weights)
+
+
+@pytest.mark.asyncio
+async def test_ghost_values_key_on_the_slot_not_the_exercise(db_session, household):
+    """Both slots are the same exercise; the heavy slot must prefill 235 and the
+    back-off slot 135 — keying on exercise_id would collapse them."""
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    template = await _two_slot_template(db_session, hid, alice, ex)
+    await _run_template(db_session, hid, alice, template.id, 1, [[225, 235], [135]])
+
+    next_session = await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            template_id=template.id, started_at=datetime(2026, 7, 8, 12, 0, 0)
+        ),
+    )
+    prefill = await sessions_service.get_session_prefill(
+        db_session, next_session.id, hid, alice
+    )
+    assert [item.source for item in prefill.items] == ["history", "history"]
+    assert [s.weight for s in prefill.items[0].sets] == [225.0, 235.0]
+    assert [s.weight for s in prefill.items[1].sets] == [135.0]
+    # default_rest_seconds rides along so the rest timer knows its countdown.
+    assert prefill.items[0].rest_seconds == 180
+    assert prefill.items[1].rest_seconds is None
+
+
+@pytest.mark.asyncio
+async def test_prefill_ignores_sessions_with_nothing_logged(db_session, household):
+    """A session that was started and abandoned (sets materialized but never
+    checked off) is not 'the last time you did this' — skip it."""
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    template = await _two_slot_template(db_session, hid, alice, ex)
+    await _run_template(db_session, hid, alice, template.id, 1, [[225, 235], [135]])
+    # Started on the 5th, nothing checked off.
+    await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            template_id=template.id, started_at=datetime(2026, 7, 5, 12, 0, 0)
+        ),
+    )
+    today = await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            template_id=template.id, started_at=datetime(2026, 7, 8, 12, 0, 0)
+        ),
+    )
+    prefill = await sessions_service.get_session_prefill(
+        db_session, today.id, hid, alice
+    )
+    assert [s.weight for s in prefill.items[0].sets] == [225.0, 235.0]
+
+
+@pytest.mark.asyncio
+async def test_prefill_for_blank_session_uses_own_exercise_history(db_session, household):
+    """Blank sessions have no slot to key on, so they fall back to the same
+    member's most recent sets for that exercise — still never another member's."""
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    await _log(db_session, hid, alice, ex[0], 1,
+               [WorkoutSetCreate(reps=5, weight=185, completed_at=_COMPLETED)])
+    await _log(db_session, hid, bob, ex[0], 2,
+               [WorkoutSetCreate(reps=5, weight=95, completed_at=_COMPLETED)])
+
+    alice_today = await _log(db_session, hid, alice, ex[0], 9, [WorkoutSetCreate()])
+    prefill = await sessions_service.get_session_prefill(
+        db_session, alice_today.id, hid, alice
+    )
+    assert prefill.items[0].source == "history"
+    assert [s.weight for s in prefill.items[0].sets] == [185.0]
+
+
+@pytest.mark.asyncio
+async def test_prefill_is_empty_with_no_history_and_no_defaults(db_session, household):
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await _log(db_session, hid, alice, ex[0], 1, [WorkoutSetCreate()])
+    prefill = await sessions_service.get_session_prefill(
+        db_session, session.id, hid, alice
+    )
+    assert prefill.items[0].source == "none"
+    assert prefill.items[0].sets == []
+
+
+@pytest.mark.asyncio
+async def test_prefill_of_another_members_session_is_not_found(db_session, household):
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await _log(db_session, hid, alice, ex[0], 1, [WorkoutSetCreate(reps=5, weight=100)])
+    assert await sessions_service.get_session_prefill(db_session, session.id, hid, bob) is None
+
+
+# ── Finish summary ───────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_finish_summary_counts_only_completed_working_sets(db_session, household):
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            name="Bench day",
+            started_at=datetime(2026, 7, 1, 12, 0, 0),
+            exercises=[
+                SessionExerciseCreate(exercise_id=ex[0], sets=[
+                    # warmup: completed, but excluded from volume and set count
+                    WorkoutSetCreate(reps=10, weight=45, is_warmup=True,
+                                     completed_at=_COMPLETED),
+                    WorkoutSetCreate(reps=8, weight=135, completed_at=_COMPLETED),
+                    WorkoutSetCreate(reps=8, weight=135, completed_at=_COMPLETED),
+                    # entered but never checked off ⇒ not logged
+                    WorkoutSetCreate(reps=8, weight=999),
+                ]),
+                # a second exercise with nothing checked off
+                SessionExerciseCreate(exercise_id=ex[1], sets=[WorkoutSetCreate(reps=5)]),
+            ],
+        ),
+    )
+    summary = await sessions_service.finish_session(
+        db_session, session.id, hid, alice,
+        ended_at=datetime(2026, 7, 1, 13, 0, 0, tzinfo=UTC),
+    )
+    assert summary.working_volume == 2160.0          # 135×8 + 135×8, warmup excluded
+    assert summary.volume_unit == "lbs"
+    assert summary.working_sets_completed == 2
+    assert summary.warmup_sets_completed == 1
+    assert summary.exercises_completed == 1
+    assert summary.exercise_count == 2
+    assert summary.duration_seconds == 3600
+    assert summary.from_template is False
+
+
+@pytest.mark.asyncio
+async def test_finish_session_is_idempotent(db_session, household):
+    """A double-tap on "Finish workout" must not stretch the recorded duration."""
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await _log(db_session, hid, alice, ex[0], 1,
+                         [WorkoutSetCreate(reps=5, weight=100, completed_at=_COMPLETED)])
+    first = await sessions_service.finish_session(db_session, session.id, hid, alice)
+    second = await sessions_service.finish_session(db_session, session.id, hid, alice)
+    assert first.ended_at == second.ended_at
+    assert first.duration_seconds == second.duration_seconds
+
+
+@pytest.mark.asyncio
+async def test_summary_marks_template_sessions_so_the_prompt_stays_quiet(
+    db_session, household
+):
+    """The save-as-template prompt only fires for sessions that did NOT start
+    from a template — from_template is what the client gates on."""
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    template = await _two_slot_template(db_session, hid, alice, ex)
+    session = await _run_template(db_session, hid, alice, template.id, 1, [[225, 235], [135]])
+    summary = await sessions_service.get_session_summary(
+        db_session, session.id, hid, alice
+    )
+    assert summary.from_template is True
+    assert summary.ended_at is None  # a summary read never finishes the session
+
+
+# ── Save as template ─────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_save_session_as_template_derives_defaults_from_what_was_logged(
+    db_session, household
+):
+    hid, alice = household["hid"], household["alice"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await sessions_service.create_session(
+        db_session, hid, alice,
+        WorkoutSessionCreate(
+            name="Improvised leg day",
+            exercises=[
+                SessionExerciseCreate(exercise_id=ex[0], sets=[
+                    WorkoutSetCreate(reps=10, weight=45, is_warmup=True,
+                                     completed_at=_COMPLETED),
+                    WorkoutSetCreate(reps=8, weight=135, rest_seconds=90,
+                                     completed_at=_COMPLETED),
+                    WorkoutSetCreate(reps=8, weight=155, rest_seconds=120,
+                                     completed_at=_COMPLETED),
+                    WorkoutSetCreate(reps=5, weight=155, completed_at=_COMPLETED),
+                ]),
+            ],
+        ),
+    )
+    template = await sessions_service.save_session_as_template(
+        db_session, session.id, hid, alice
+    )
+    assert template.name == "Improvised leg day"
+    slot = template.exercises[0]
+    assert slot.default_sets == 3            # warmup excluded from the plan
+    assert slot.default_reps == 8            # the modal rep count, not the failed 5
+    assert float(slot.default_weight) == 155.0
+    assert slot.default_rest_seconds == 120
+    # The session itself is untouched — this is a read plus a create.
+    detail = await sessions_service.get_session(db_session, session.id, hid, alice)
+    assert detail.template_id is None
+
+
+@pytest.mark.asyncio
+async def test_save_session_as_template_is_scoped_to_the_owner(db_session, household):
+    hid, alice, bob = household["hid"], household["alice"], household["bob"]
+    ex = await _two_exercise_ids(db_session, hid)
+    session = await _log(db_session, hid, alice, ex[0], 1, [WorkoutSetCreate(reps=5, weight=100)])
+    assert await sessions_service.save_session_as_template(
+        db_session, session.id, hid, bob, "Stolen"
     ) is None

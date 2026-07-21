@@ -18,9 +18,21 @@ import type { components } from "@/lib/api/schema";
 
 export type TemplateExercise = components["schemas"]["TemplateExerciseResponse"];
 
-export type DisplayItem =
-  | { kind: "single"; id: string; te: TemplateExercise }
-  | { kind: "group"; id: string; groupId: string; members: TemplateExercise[] };
+/**
+ * The minimum a row needs to be foldable into display items. Session exercises
+ * (workouts-003) carry the same three fields, so the live logger reuses
+ * `sortByPosition` / `buildDisplayItems` rather than forking them — the
+ * collapsed-superset visual rules stay defined in exactly one place.
+ */
+export interface OrderedRow {
+  id: string;
+  position: number;
+  superset_group_id: string | null;
+}
+
+export type DisplayItem<T extends OrderedRow = TemplateExercise> =
+  | { kind: "single"; id: string; te: T }
+  | { kind: "group"; id: string; groupId: string; members: T[] };
 
 /** A single slot's desired state after an operation. */
 export interface DesiredSlot {
@@ -36,7 +48,7 @@ export interface SlotPatch {
 }
 
 /** Sort slots by (position, then id) so ties are stable. */
-export function sortByPosition(tes: TemplateExercise[]): TemplateExercise[] {
+export function sortByPosition<T extends OrderedRow>(tes: T[]): T[] {
   return [...tes].sort((a, b) => (a.position - b.position) || a.id.localeCompare(b.id));
 }
 
@@ -44,9 +56,9 @@ export function sortByPosition(tes: TemplateExercise[]): TemplateExercise[] {
  * Fold the flat, position-sorted slots into display items: consecutive rows
  * sharing a non-null superset_group_id become one collapsed group item.
  */
-export function buildDisplayItems(tes: TemplateExercise[]): DisplayItem[] {
+export function buildDisplayItems<T extends OrderedRow>(tes: T[]): DisplayItem<T>[] {
   const flat = sortByPosition(tes);
-  const items: DisplayItem[] = [];
+  const items: DisplayItem<T>[] = [];
   for (const te of flat) {
     const last = items[items.length - 1];
     if (
@@ -66,8 +78,14 @@ export function buildDisplayItems(tes: TemplateExercise[]): DisplayItem[] {
 }
 
 /** The dnd id for a display item (single → slot id, group → "group:<uuid>"). */
-export function displayItemId(item: DisplayItem): string {
+export function displayItemId(item: { id: string }): string {
   return item.id;
+}
+
+/** "Bench + Row" for two members, "Bench + 2 others" beyond that. */
+export function supersetLabel(names: string[]): string {
+  if (names.length <= 2) return names.join(" + ");
+  return `${names[0]} + ${names.length - 1} others`;
 }
 
 /**

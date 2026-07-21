@@ -36,6 +36,7 @@ import {
   linkSelection,
   unlinkGroup,
   reorderItems,
+  supersetLabel as groupLabel,
   targetSummary,
   type DisplayItem,
   type SlotPatch,
@@ -441,9 +442,9 @@ function TemplateRow({
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 function supersetLabel(members: TemplateExercise[]): string {
-  const names = members.map((m) => m.exercise?.name ?? "Exercise");
-  if (names.length <= 2) return names.join(" + ");
-  return `${names[0]} + ${names.length - 1} others`;
+  // The collapsed-superset label rule lives in template-order.ts so the live
+  // session logger (workouts-003) renders group rows identically.
+  return groupLabel(members.map((m) => m.exercise?.name ?? "Exercise"));
 }
 
 function rowActions(
