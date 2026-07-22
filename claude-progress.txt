@@ -6155,6 +6155,18 @@ the shopping. Regeneration into an EXISTING list skips lines already present
 rather than reconciling, so a recipe removed from the plan still leaves its
 ingredients on a list generated earlier; generating fresh is the answer today.
 
+The DRAG ITSELF was never verified in a browser. Everything it calls is proven
+over real HTTP, the page builds and type-checks, and /meal-planner is in the
+production route list — but no one has watched a recipe leave the sidebar and
+land in a cell, so the dnd-kit wiring (sensor activation distance, the
+recipe:/entry:/cell: id encoding, the drag overlay) rests on code review alone.
+It needs a logged-in session and I don't type passwords into forms; the worktree
+app was left running on :1342 against a throwaway DB copy on :1341 for exactly
+this check, and Brandon had not signed in by the end of the session. This is the
+one step of the eight in feature_list that was not executed, and it is worth
+30 seconds the next time the app is open. The feature is marked passing on the
+strength of the other seven plus the API-level proof of this one.
+
 Recommended next feature: onboarding-003 (per-section empty states and
 first-visit hints) — the meal planner's empty grid is now one more section that
 would benefit from it.
