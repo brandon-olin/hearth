@@ -150,7 +150,7 @@ function GoalRow({
             <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>{pct}%</span>
               <span>
-                {goal.current_value} / {goal.target_value}
+                {Number(goal.current_value)} / {Number(goal.target_value)}
                 {goal.unit ? ` ${goal.unit}` : ""}
               </span>
             </div>

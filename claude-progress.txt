@@ -5892,3 +5892,79 @@ What was left / notes for next time:
 Recommended next feature: onboarding-003 (per-section empty states and
 first-visit hints), unchanged from the previous session — this session added no
 code.
+
+=== 2026-07-21 — Coding session ===
+
+Worked on: coach-006 (chat-driven profile updates via the update_profile tool +
+coach widget PinnedSection combobox), plus an unrelated Goals decimal-display
+bug.
+
+Status: complete.
+
+Commits this session:
+* feat(coach-006): trim Numeric decimals in goal progress display
+
+What was done:
+
+coach-006 — VERIFIED, NOT REBUILT. Both halves of the feature already existed
+in main as of commit a2e66c2 ("add journal entry functionality and AI feature
+gating"). journal-001 restricts journal-mode conversations to a single tool, so
+it built `update_profile` (tools.py TOOL_DEFINITIONS + _update_profile handler)
+and the PinnedSection/PinnedCombobox pair in the same commit. The entry sat at
+passes=false because nobody had executed it. This session executed every step
+against the live API on :1338 with a real Anthropic provider rather than
+re-implementing anything:
+
+  - Durable statement ("I want to focus more on consistency and showing up
+    daily moving forward") → update_profile fired, memory_text 3592→3717 chars,
+    one new user_profile_updates row with source='manual', status='accepted',
+    diff_summary populated. The assistant's reply mentioned neither the tool
+    nor the profile.
+  - Transient statement ("I'm tired today — I had a bad day at work") → no tool
+    call, memory_text byte-identical, no audit row. The SKIP bias holds.
+  - Evening digest generated afterwards was grounded in the new focus
+    ("recommitting to consistency", "never miss twice", "the smallest thing
+    that counts as showing up") with no profile name-drop.
+  - Widget threshold verified at the exact boundary by creating and then
+    deleting throwaway goals: 3 goals → chip grid, 9 → "Pick from 9" combobox,
+    7 → chip grid again. Projects (25) and habits (11) render comboboxes. The
+    popover autofocuses its search input, filters the scrollable list as you
+    type, and closes on outside click. Fixture goals were deleted afterwards;
+    the household is back to its original 3.
+
+Goals decimal display (the one real code change). target_value/current_value
+are Numeric columns, so the API serialises them as full-precision decimal
+strings ("6.0000000000"). Three render sites showed them raw:
+  - goals/page.tsx and dashboard/goal-progress-widget.tsx → wrapped in Number(),
+    matching the percentage math already directly above each one.
+  - goals/goal-sheet.tsx → normalised at the source in formFromGoal() via a new
+    trimDecimal() helper, which fixes both the number inputs and the progress
+    preview at once. Number() preserves genuine precision (26.5000000000 → 26.5)
+    and "" stays "" so the existing empty-string checks still hold.
+Confirmed A/B in the browser: :1337 (unfixed main) rendered
+"9100.0000000000 / 10000.0000000000"; the branch rendered "9100 / 10000",
+"6 / 10 chapters", "26.5 / 25 minutes".
+
+Verification: make test → 492 passed. ruff check tests → clean. tsc --noEmit →
+clean. All re-run after rebasing onto main (which had moved to 40c543c,
+subscription-001).
+
+What was left / notes for next time:
+* coach-007 is now unblocked and its sequencing note is partly stale. It says
+  coach-006 "adds a new memory_text write site that _apply_profile_update has to
+  absorb" — the update_profile handler already calls _apply_profile_update
+  (tools.py:5063, source="manual"), so that call site needs no retrofit. What
+  coach-007 still owns: auditing the remaining write sites (accept_update in
+  profile_service.py:246 still assigns memory.memory_text directly and does NOT
+  snapshot a version), plus run_scheduled_profile_refresh with decay, the Sunday
+  03:00 APScheduler job, and GET /ai/profile/versions.
+* The test@hearth.local profile was genuinely modified by the verification and
+  was deliberately left that way — it is the evidence the feature works. A
+  pre-run DB snapshot exists in this session's scratchpad if it ever needs
+  reverting.
+* No other raw current_value/target_value renders remain — grep across web/src
+  (excluding schema.d.ts) returns only the fixed sites and Number()-guarded
+  percentage math.
+
+Recommended next feature: coach-007 (profile versioning single write path +
+weekly scheduled refresh + decay), now that its dependency is verified.

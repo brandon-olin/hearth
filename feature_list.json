@@ -836,7 +836,7 @@
       "category": "AI Coach",
       "priority": 1,
       "title": "Chat-driven profile updates via update_profile tool + coach widget combobox",
-      "description": "Two changes that make the chatbot a first-class profile maintainer and tame the coach widget UI when users have many projects/habits. (1) New `update_profile` chat tool: the AI calls it silently when the user says things like 'focus more on consistency,' 'I've been drinking too much,' 'stop bringing up the old job.' The tool takes a content_md string and a diff_summary, writes directly to member_ai_memory.memory_text, and records an audit row. (2) PinnedSection in the AI coach widget switches to a searchable combobox + chip-list above 8 items per category.",
+      "description": "Two changes that make the chatbot a first-class profile maintainer and tame the coach widget UI when users have many projects/habits. (1) New `update_profile` chat tool: the AI calls it silently when the user says things like 'focus more on consistency,' 'I've been drinking too much,' 'stop bringing up the old job.' The tool takes a content_md string and a diff_summary, writes directly to member_ai_memory.memory_text, and records an audit row. (2) PinnedSection in the AI coach widget switches to a searchable combobox + chip-list above 8 items per category.\n\nVERIFIED (2026-07-21). Both halves had already landed as code in commit a2e66c2 ('add journal entry functionality and AI feature gating') — the update_profile tool was built because journal sessions restrict the toolset to it, and PinnedSection/PinnedCombobox came along in the same commit. Nothing was re-implemented; this session executed every step against a live API + real Anthropic provider and found no defects. Evidence: a durable statement fired update_profile silently (memory_text 3592→3717 chars, user_profile_updates row source='manual' status='accepted', reply contained no tool/profile mention); a transient statement fired nothing and left memory_text byte-identical; an evening digest generated afterwards was grounded in the new focus ('recommitting to consistency', 'never miss twice') without name-dropping the profile; the widget rendered a chip-grid at 3 and 7 goals and 'Pick from N' comboboxes at 9 goals, 25 projects and 11 habits, with the popover autofocusing its search input, filtering the scrollable list, and closing on outside click. The write already routes through profile_service._apply_profile_update, so coach-007's single-write-path work has nothing to retrofit for this call site.",
       "steps": [
         "Open the chat sidebar and say 'I want to focus more on consistency and showing up daily moving forward.' Verify the assistant acknowledges in plain language WITHOUT mentioning the tool or the profile",
         "Query member_ai_memory.memory_text — verify the profile has been updated",
@@ -848,7 +848,7 @@
         "Click the 'Pick from N' button; verify the popover opens with autofocused search input and filtered scrollable list",
         "Click outside the popover; verify it closes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-007",

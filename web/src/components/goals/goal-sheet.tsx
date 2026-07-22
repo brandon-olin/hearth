@@ -53,14 +53,25 @@ function blankForm(): FormState {
   };
 }
 
+// target_value / current_value are Numeric columns, so the API serialises them
+// as full-precision decimal strings ("1.0000000000"). Strip the trailing zeros
+// before they reach the form — otherwise both the number inputs and the
+// progress preview read "1.0000000000 / 3.0000000000". Number() preserves real
+// precision (12.5000000000 → 12.5) and "" stays "" so the empty check holds.
+function trimDecimal(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const n = Number(value);
+  return Number.isNaN(n) ? value : String(n);
+}
+
 function formFromGoal(goal: Goal): FormState {
   return {
     title: goal.title,
     description: goal.description ?? "",
     status: goal.status as FormState["status"],
     priority: (goal.priority ?? "") as FormState["priority"],
-    target_value: goal.target_value ?? "",
-    current_value: goal.current_value ?? "",
+    target_value: trimDecimal(goal.target_value),
+    current_value: trimDecimal(goal.current_value),
     unit: goal.unit ?? "",
     due_date: goal.due_date ?? "",
   };
