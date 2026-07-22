@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # AI on what's interesting without burning tokens.
 _BODY_CHAR_CAP = 1500
 
+# Python weekday() convention — Mon=0 … Sun=6, matching habits.cadence.
+_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
 
 # ── Per-type formatters ───────────────────────────────────────────────────────
 
@@ -47,21 +50,22 @@ async def _format_note(
     household_id: uuid.UUID,
     note_id: uuid.UUID,
 ) -> str:
-    """Notes are always personal (visibility='personal'). Only the author
-    can read them. We don't go through apply_visibility_filter here
-    because notes don't expose household-shared visibility today.
+    """Notes carry VisibilityMixin — most are personal (author-only), but a
+    note can be shared with the household or with named members. Resolve
+    through apply_visibility_filter so we honour exactly what the notes
+    endpoints honour: no more, no less.
     """
     from life_dashboard.domains.notes.models import Note
     from life_dashboard.domains.collections.models import Collection
+    from life_dashboard.core.visibility import apply_visibility_filter
 
-    note = (await db.execute(
-        select(Note).where(
-            Note.id == note_id,
-            Note.household_id == household_id,
-            Note.created_by_user_id == user_id,
-            Note.archived_at.is_(None),
-        )
-    )).scalar_one_or_none()
+    q = select(Note).where(
+        Note.id == note_id,
+        Note.household_id == household_id,
+        Note.archived_at.is_(None),
+    )
+    q = apply_visibility_filter(q, Note, user_id)
+    note = (await db.execute(q)).scalar_one_or_none()
     if note is None:
         return ""
 
@@ -93,7 +97,7 @@ async def _format_recipe(
     household_id: uuid.UUID,
     recipe_id: uuid.UUID,
 ) -> str:
-    from life_dashboard.domains.recipes.models import Recipe
+    from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient, RecipeStep
     from life_dashboard.core.visibility import apply_visibility_filter
 
     q = select(Recipe).where(
@@ -107,57 +111,75 @@ async def _format_recipe(
 
     parts = [f"**Recipe** — {(recipe.name or 'Untitled').strip()}"]
     meta_bits: list[str] = []
-    if getattr(recipe, "servings", None):
+    if recipe.servings:
         meta_bits.append(f"Servings: {recipe.servings}")
-    if getattr(recipe, "prep_minutes", None):
-        meta_bits.append(f"Prep: {recipe.prep_minutes}m")
-    if getattr(recipe, "cook_minutes", None):
-        meta_bits.append(f"Cook: {recipe.cook_minutes}m")
+    if recipe.prep_time_minutes:
+        meta_bits.append(f"Prep: {recipe.prep_time_minutes}m")
+    if recipe.cook_time_minutes:
+        meta_bits.append(f"Cook: {recipe.cook_time_minutes}m")
     if meta_bits:
         parts.append(" · ".join(meta_bits))
 
-    desc = (getattr(recipe, "description", None) or "").strip()
+    desc = (recipe.description or "").strip()
     if desc:
         if len(desc) > 400:
             desc = desc[:400] + " […]"
         parts += ["", desc]
 
-    # Ingredients are stored as JSON on Recipe.
-    ingredients = getattr(recipe, "ingredients", None) or []
-    if isinstance(ingredients, list) and ingredients:
-        ing_lines: list[str] = []
-        for ing in ingredients[:25]:  # cap to keep prompt tidy
-            if isinstance(ing, dict):
-                name = (ing.get("name") or "").strip()
-                qty = (ing.get("quantity") or ing.get("amount") or "").strip() if isinstance(ing.get("quantity") or ing.get("amount"), str) else ""
-                if name:
-                    ing_lines.append(f"- {qty + ' ' if qty else ''}{name}".strip())
-        if ing_lines:
-            parts += ["", "**Ingredients:**", *ing_lines]
+    # Ingredients and steps live in child tables, and the relationships are
+    # lazy="noload" — reading recipe.ingredients would silently yield []. Two
+    # explicit queries, both capped.
+    ing_rows = (await db.execute(
+        select(RecipeIngredient)
+        .where(RecipeIngredient.recipe_id == recipe.id)
+        .order_by(RecipeIngredient.sort_order)
+        .limit(40)
+    )).scalars().all()
+    ing_lines = [
+        line for line in (_ingredient_line(ing) for ing in ing_rows) if line
+    ]
+    if ing_lines:
+        parts += ["", "**Ingredients:**", *ing_lines]
 
-    # Instructions / steps — same JSON-ish field name varies; try both.
-    steps = (
-        getattr(recipe, "instructions", None)
-        or getattr(recipe, "steps", None)
-        or []
-    )
-    if isinstance(steps, list) and steps:
-        step_lines: list[str] = []
-        for i, step in enumerate(steps[:15], start=1):
-            if isinstance(step, str):
-                text = step.strip()
-            elif isinstance(step, dict):
-                text = (step.get("text") or step.get("description") or "").strip()
-            else:
-                text = ""
-            if text:
-                if len(text) > 200:
-                    text = text[:200] + " […]"
-                step_lines.append(f"{i}. {text}")
-        if step_lines:
-            parts += ["", "**Steps:**", *step_lines]
+    step_rows = (await db.execute(
+        select(RecipeStep)
+        .where(RecipeStep.recipe_id == recipe.id)
+        .order_by(RecipeStep.step_number)
+        .limit(20)
+    )).scalars().all()
+    step_lines: list[str] = []
+    for i, step in enumerate(step_rows, start=1):
+        text = (step.instruction or "").strip()
+        if not text:
+            continue
+        if len(text) > 300:
+            text = text[:300] + " […]"
+        step_lines.append(f"{i}. {text}")
+    if step_lines:
+        parts += ["", "**Steps:**", *step_lines]
 
     return "\n".join(parts)
+
+
+def _ingredient_line(ing) -> str:
+    """'- 2 tbsp gochujang (or to taste)' — quantity/unit/notes are all optional."""
+    name = (ing.name or "").strip()
+    if not name:
+        return ""
+    qty = ""
+    if ing.quantity is not None:
+        # Decimal("2.00") reads badly in a prompt; drop the trailing zeros.
+        qty = (
+            f"{ing.quantity.normalize():f}"
+            if hasattr(ing.quantity, "normalize")
+            else str(ing.quantity)
+        )
+    bits = [b for b in (qty, (ing.unit or "").strip(), name) if b]
+    line = "- " + " ".join(bits)
+    note = (ing.notes or "").strip()
+    if note:
+        line += f" ({note})"
+    return line
 
 
 async def _format_document(
@@ -179,17 +201,20 @@ async def _format_document(
         return ""
 
     parts = [f"**Document** — {(doc.title or 'Untitled').strip()}"]
-    desc = (getattr(doc, "description", None) or "").strip()
+    desc = (doc.description or "").strip()
     if desc:
         if len(desc) > 500:
             desc = desc[:500] + " […]"
         parts += ["", desc]
 
-    # Document content_json is a BlockNote tree; surfacing that meaningfully
-    # would require traversing the tree. Phase 1 of this feature ships with
-    # title + description only; if a user wants the AI to discuss the body
-    # they can paste the relevant snippet manually or we can extend this
-    # formatter later.
+    # editor_json is a BlockNote tree — not worth traversing here. source_markdown
+    # holds the same prose for imported/markdown-authored docs, so use it when
+    # present; docs authored purely in BlockNote fall back to title + description.
+    body = (doc.source_markdown or "").strip()
+    if body:
+        if len(body) > _BODY_CHAR_CAP:
+            body = body[:_BODY_CHAR_CAP] + " […]"
+        parts += ["", body]
     return "\n".join(parts)
 
 
@@ -270,11 +295,20 @@ async def _format_habit(
 
     parts = [f"**Habit** — {(habit.name or 'Untitled').strip()}"]
     meta = [f"Status: {habit.status}"]
-    cadence = getattr(habit, "cadence", None) or getattr(habit, "frequency", None)
-    if cadence:
-        meta.append(f"Cadence: {cadence}")
+    if habit.frequency:
+        meta.append(f"Frequency: {habit.frequency}")
+    # cadence is JSONB — read defensively, and render day numbers as names
+    # rather than dumping the raw dict into the prompt.
+    cadence = habit.cadence or {}
+    days = cadence.get("days_of_week") or []
+    if days:
+        names = [_WEEKDAY_NAMES[d] for d in days if isinstance(d, int) and 0 <= d <= 6]
+        if names:
+            meta.append(f"Days: {', '.join(names)}")
+    elif cadence.get("times_per_period"):
+        meta.append(f"Times per period: {cadence['times_per_period']}")
     parts.append(" · ".join(meta))
-    desc = (getattr(habit, "description", None) or "").strip()
+    desc = (habit.description or "").strip()
     if desc:
         if len(desc) > 400:
             desc = desc[:400] + " […]"
