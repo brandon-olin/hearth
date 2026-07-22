@@ -122,7 +122,7 @@
         "Add one item to a domain (e.g., create a todo) — verify the empty state disappears and the item list renders",
         "Verify hints can be re-enabled from Settings → Account"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "habit-002",

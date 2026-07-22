@@ -6284,3 +6284,81 @@ were checked individually instead. The feature is marked passing on that basis.
 Recommended next feature: onboarding-003 (per-section empty states and
 first-visit hints) — still unlanded, and the 375px pass left every empty state
 looking correct but bare.
+
+=== 2026-07-22 — Coding session ===
+
+WORKED ON: onboarding-003 — per-section empty states and dismissible first-visit
+hints. Status: complete. Commit: feat(onboarding-003): per-section empty states
+and dismissible first-visit hints.
+
+WHAT WAS DONE. Two pieces of first-run guidance that stay out of the way.
+
+Empty states: a shared `EmptyState` primitive (components/ui/empty-state.tsx —
+icon, heading, one-line description, primary CTA) now backs all eight domain
+pages. The load-bearing decision was keeping it separate from the existing terse
+"no results" messages rather than replacing them. "Nothing active — nice work."
+is the right thing to say to someone who has forty to-dos and finished them all;
+explaining what a to-do is would be insulting. So every page picks between the
+two on an unfiltered count. Three pages could not answer "is this genuinely
+empty" from what they already had: recipes filters server-side (gated on
+`hasFilters`), and notes and calendar fetch through a sidebar filter and a date
+window respectively, so each got a one-row unfiltered probe query. Projects
+needed its own shape — every household is seeded a system "To-dos" project, so
+the state keys on "no project you made" and renders below that row instead of
+replacing the list, which would have put "No projects yet" above a visible
+project. Budget already had a rich empty state; it moved onto the shared
+component.
+
+Hints: one sentence per key page in a dismissible banner, persisted per member
+in `users.preferences.dismissed_hints` — no migration, same JSON column and same
+reasoning as onboarding-001's wizard flag. Per member because one partner
+dismissing the budget hint must not take it from the other, who has never opened
+the page, and server-side rather than localStorage so it follows the person to
+another device. Re-enable lives in Settings → Account and reports how many are
+dismissed. API: POST dismiss is idempotent by construction (set membership), an
+unknown id returns 422 naming every valid id, and GET
+/households/onboarding/hints is deliberately separate from GET
+/households/onboarding — the latter counts rows across ten domain tables to
+answer household_has_data, and eight pages ask about hints on every visit. MCP
+gets hint state read-only on get_onboarding_status, matching how onboarding-001
+exposed the wizard flag.
+
+Copy went through a revision after seeing it rendered: the first draft had the
+hint and the empty state saying the same thing on a fresh page. The empty state
+now defines the section (it only appears when the page is bare); the hint says
+something you would not guess from looking, since it appears either way.
+
+Two things the tests caught that the browser did not. `db.refresh(user)` in the
+dismiss path only worked because get_current_user happens to load the user on
+the request's own session — the HTTP-level test, whose override does not, failed
+immediately. Removed; expire_on_commit is False, so the committed value is
+already in hand. And a mutation check showed the persistence tests passed with
+flag_modified deleted — assigning a fresh dict is already enough for SQLAlchemy,
+so the comment claiming it was load-bearing was corrected rather than left to
+mislead the next reader. flag_modified stays as a guard against someone later
+turning the assignment into an in-place mutation.
+
+Gate: 552 pytest passed, ruff clean on tests and on every src file touched, tsc
+--noEmit clean, no new lint findings.
+
+VERIFICATION. Driven end to end in Chrome against an isolated pair (API on 1403
+from this worktree's own SQLite file, web dev server on 1341) so nothing touched
+the real database — note port 1401 was already occupied by another session. A
+fresh account registered through POST /auth/register and marked past the wizard
+without seeding sample data, which is exactly the "dove straight in" state the
+feature targets. All eight empty states render; the hint banner appears on first
+visit; dismissing it persists through a full reload; Settings → Account restores
+it and the button correctly disables itself at zero. Adding a to-do swaps the
+empty state for the list with the banner still in place. All six feature_list
+steps executed. One false alarm worth recording: edited hint copy appeared not
+to take through several dev-server restarts — it was Chrome's disk cache holding
+a Turbopack chunk whose dev URL is path-hashed, not content-hashed. A hard
+reload cleared it; the source was never wrong.
+
+WHAT IS LEFT. Nothing for this feature. The hint catalog is eight ids shared
+between api/onboarding/service.py (HINT_PAGES) and web/lib/onboarding/hints.ts
+(copy) — adding a ninth means touching both, which is deliberate so a typo
+cannot silently persist a dismissal for a hint that will never show.
+
+Recommended next feature: pwa-001's two unexecuted steps still want two minutes
+on a real iPhone; otherwise the next unlanded item in feature_list.
