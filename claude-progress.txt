@@ -5968,3 +5968,88 @@ What was left / notes for next time:
 
 Recommended next feature: coach-007 (profile versioning single write path +
 weekly scheduled refresh + decay), now that its dependency is verified.
+
+=== 2026-07-22 — Coding session ===
+
+Feature: chat-001 (Context-aware chatbot — read the currently open resource).
+Status: complete.
+Commits: 4e6c620 fix(chat-001): make the chat context resolver actually resolve
+         (+ this tracking commit)
+
+What was worked on:
+chat-001 was already wired end-to-end on main (commit a2e66c2) but had never
+been executed — feature_list still had passes:false, and for good reason. The
+resolver wraps every formatter in a try/except by design, so that a stale or
+unauthorised ref can never break a chat turn. The cost of that design is that a
+formatter reading a field that doesn't exist fails *silently*: the block comes
+back empty, the chat proceeds normally, and nothing anywhere says the feature
+did nothing. Three of the six formatters were in that state.
+
+What was done:
+* recipes — `recipe.ingredients` / `recipe.steps` are lazy="noload"
+  relationships to child tables, not JSONB (api/CLAUDE.md's JSONB list is wrong
+  on this point). They always read as [], so the AI received a bare recipe name
+  with no ingredients — precisely what the feature's own verification step
+  ("what could I swap for a spicier version?") depends on. Now queried
+  explicitly, capped at 40 ingredients / 20 steps, rendering quantity + unit +
+  notes.
+* recipes — prep_minutes / cook_minutes don't exist (prep_time_minutes /
+  cook_time_minutes do), so timing silently never reached the prompt.
+* notes — resolved author-only, so a household-shared note sitting open on
+  screen resolved to nothing. Now goes through apply_visibility_filter like
+  every other type: exactly the checks the notes endpoints apply, no wider and
+  no narrower.
+* habits — cadence won over frequency and dumped the raw JSONB dict into the
+  prompt ("Cadence: {'days_of_week': [0, 2, 4]}"). Now renders frequency plus
+  day names.
+* documents — added a capped source_markdown excerpt so "summarize this" has
+  prose to work with rather than just a title.
+* New api/tests/test_chat_context_resolver.py (10 tests). They assert on
+  rendered text, not truthiness — with a swallowing try/except that is the only
+  way to catch a dead formatter. Running them against the pre-fix resolver fails
+  4 of the 10, which is the evidence the bugs were real rather than theoretical.
+
+Verification (executed, not just registered):
+* make test → 502 passed. ruff check tests → clean. tsc --noEmit → 0 errors.
+  All re-run after rebasing onto main (which had moved to ae95db9, coach-006).
+* Live, against a throwaway copy of the dev DB with the worktree code served on
+  :1339 and a real Anthropic key:
+  - Note context: "Summarize this in two sentences, name one specific detail"
+    with no content pasted → the model returned a quote from the entry
+    ("I'm the only one that can handle her"), confirmed present in content_md.
+    Not a hallucination; it read the resolved block.
+  - Recipe context: asked for a spicier variant of Khao Soi → response named the
+    actual ingredient rows with quantities (mild dried chilies guajillo/puya,
+    fried chili flakes "to taste", ginger 0.75 oz, turmeric 1.5 inch, coarse
+    salt 1 tsp). This is the path that was returning nothing before the fix.
+  - Backwards compatibility: a chat POST with no `context` field at all behaves
+    exactly as before.
+  - Security: as brandon, passed the id of another household member's PERSONAL
+    note (seeded with a distinctive marker string). The model answered as though
+    no context were attached and none of the marker tokens appeared anywhere in
+    the response. Test coverage extends this to all five other types.
+
+What was left:
+* The "Discussing: <title>" chip was NOT verified visually. It needs a
+  logged-in browser session and I don't type passwords into forms; Brandon
+  chose to skip rather than log in. The chip code is unchanged from a2e66c2 and
+  was read end to end (current-resource.tsx registers on mount and clears on
+  unmount; ai-chat.tsx renders the chip only when currentResource is non-null
+  and attaches {type, id} to the POST body). Worth a 30-second eyeball next time
+  the app is open.
+* Notes/todos/goals/habits have no [id] detail routes, so only note (via the
+  notes split-pane), recipe, and document currently register a resource. The
+  todo/goal/habit formatters are built and tested but unreachable from the UI
+  until those pages exist.
+* MCP verb: deliberately none. This resolver answers "what is the human looking
+  at right now", which has no agent analogue — an agent has no viewport, and
+  already has get_recipe / list_notes / etc. for the same data under the same
+  visibility rules.
+
+Gotcha worth remembering: a git worktree shares the editable install from the
+main checkout, so `pytest` inside a worktree imports main's src, not the
+worktree's. The first run of the new tests "passed" 6 and failed 4 against
+main's code. Run worktree tests with PYTHONPATH=$PWD/src.
+
+Recommended next feature: coach-007 (profile versioning single write path +
+weekly scheduled refresh + decay).

@@ -792,7 +792,7 @@
         "Open a note, navigate to a recipe mid-conversation, then send a new message about 'this' — verify the message resolves to the recipe",
         "Verify the OpenAPI client regenerates cleanly and the frontend tsc check stays at 0 errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-004",
