@@ -1172,7 +1172,7 @@
         "Navigate to the next week — verify the planner shows an empty grid for that week",
         "Navigate back to the current week — verify the planned meals are still there"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "chore-001",

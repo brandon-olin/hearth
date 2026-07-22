@@ -14,7 +14,7 @@ the suite points that name at a StaticPool in-memory engine whose data persists
 across the auth session and the data session within one tool call.
 """
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import httpx
 import pytest
@@ -30,6 +30,8 @@ from life_dashboard.core.database import Base
 from life_dashboard.domains.calendar_events.models import CalendarEvent
 from life_dashboard.domains.grocery_lists.models import GroceryItem, GroceryList
 from life_dashboard.domains.habits.models import Habit, HabitOccurrence
+from life_dashboard.domains.meal_plans.models import MealPlan, MealPlanEntry
+from life_dashboard.domains.recipes.models import Recipe
 from life_dashboard.domains.todos.models import Todo
 from life_dashboard.mcp.auth import MCPAuthError
 from life_dashboard.mcp.pseudo_member import get_or_create_household_agent
@@ -40,10 +42,13 @@ from life_dashboard.mcp.server import (
     create_calendar_event,
     get_grocery_list,
     get_household_summary,
+    get_meal_plan,
     list_calendar_events,
     list_habits,
+    list_recipes,
     list_todos,
     mcp_server,
+    plan_meal,
 )
 
 ALL_SCOPES = {
@@ -52,6 +57,8 @@ ALL_SCOPES = {
     "grocery": "read",
     "calendar": "read",
     "household": "read",
+    "recipes": "read",
+    "meals": "read",
 }
 
 
@@ -122,6 +129,16 @@ async def env(monkeypatch):
                      visibility="personal"))
         db.add(GroceryList(household_id=household.id, created_by_user_id=alice.id,
                            name="Weekly shop", status="active", visibility="household"))
+        # meal-001: two recipes whose names share a prefix, so the agent's
+        # name→id resolution has a real ambiguity to refuse.
+        db.add_all([
+            Recipe(household_id=household.id, created_by_user_id=alice.id,
+                   name="Chili", visibility="household"),
+            Recipe(household_id=household.id, created_by_user_id=alice.id,
+                   name="Chili verde", visibility="household"),
+            Recipe(household_id=household.id, created_by_user_id=alice.id,
+                   name="Pasta", visibility="household"),
+        ])
         await db.commit()
 
         _, raw_alice_full = await create_token(db, alice.id, "Alice agent", ALL_SCOPES, None)
@@ -132,6 +149,7 @@ async def env(monkeypatch):
         write_scopes = {
             "todos": "write", "grocery": "write",
             "habits": "write", "calendar": "write",
+            "recipes": "read", "meals": "write",
         }
         _, raw_alice_write = await create_token(db, alice.id, "Alice write", write_scopes, None)
         alice_id, bob_id, hh_id = alice.id, bob.id, household.id
@@ -327,6 +345,14 @@ async def test_no_tools_for_budget_documents_or_notes():
         # entered is unreachable by construction.
         "get_onboarding_status",
         "clear_sample_data",
+        # meal planner (meal-001). list_recipes is a read the planner needs to
+        # be usable at all — an agent asked to "plan the chili for Wednesday"
+        # has a name, and plan_meal needs an id. Recipes are shared household
+        # data, so this widens no scope; it is still gated on the recipes PAT
+        # scope like every other read.
+        "get_meal_plan",
+        "list_recipes",
+        "plan_meal",
     }
     # Sensitive domains are unreachable — no read *or* write tool touches them.
     for forbidden in ("budget", "document", "note"):
@@ -637,3 +663,119 @@ async def test_household_agent_write_records_null_actor_with_token(env):
         assert row.actor_user_id is None      # pseudo-member → no person
         assert row.token_id == token_id       # …but the token is on record
         assert row.source == "mcp"
+
+
+# ── Meal planner (meal-001) ───────────────────────────────────────────────────
+#
+# Registration is not verification: these drive the tools end-to-end through the
+# same PAT path a real agent uses, and read the rows back out of the database.
+
+@pytest.mark.asyncio
+async def test_get_meal_plan_returns_null_for_an_unplanned_week(env):
+    """An empty week is a normal answer, not an error — the agent should say
+    "nothing planned", not "the call failed"."""
+    ctx = _FakeCtx(env["raw_alice_full"])
+    result = await get_meal_plan(ctx, week_of=date(2026, 7, 22))
+    assert result == {"plan": None}
+
+
+@pytest.mark.asyncio
+async def test_plan_meal_schedules_a_recipe_and_reads_back(env):
+    ctx = _FakeCtx(env["raw_alice_write"])
+    result = await plan_meal(
+        ctx, on_date=date(2026, 7, 22), recipe_name="Pasta", meal_slot="dinner"
+    )
+    assert result["created"] is True
+    assert result["meal_slot"] == "dinner"
+
+    # The row is really there, in the week's plan, under this household.
+    async with env["maker"]() as db:
+        plan = (await db.execute(
+            select(MealPlan).where(MealPlan.household_id == env["household_id"])
+        )).scalar_one()
+        assert plan.week_start == date(2026, 7, 20)      # normalised to Monday
+        assert plan.visibility == "household"            # never personal over MCP
+        entry = (await db.execute(
+            select(MealPlanEntry).where(MealPlanEntry.plan_id == plan.id)
+        )).scalar_one()
+        assert entry.entry_date == date(2026, 7, 22)
+
+    # And the read tool sees what the write tool wrote.
+    read_back = await get_meal_plan(_FakeCtx(env["raw_alice_write"]), week_of=date(2026, 7, 24))
+    assert [e["recipe_name"] for e in read_back["entries"]] == ["Pasta"]
+
+
+@pytest.mark.asyncio
+async def test_plan_meal_is_idempotent(env):
+    ctx = _FakeCtx(env["raw_alice_write"])
+    args = dict(on_date=date(2026, 7, 22), recipe_name="Pasta", meal_slot="dinner")
+    first = await plan_meal(ctx, **args)
+    second = await plan_meal(ctx, **args)
+
+    assert first["created"] is True and second["created"] is False
+    assert second["id"] == first["id"]
+    async with env["maker"]() as db:
+        count = (await db.execute(
+            select(func.count()).select_from(MealPlanEntry)
+        )).scalar_one()
+        assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_meal_refuses_an_ambiguous_recipe_name_with_candidates(env):
+    """Guessing which chili the household meant is exactly the silent wrong
+    answer this tool must not give."""
+    ctx = _FakeCtx(env["raw_alice_write"])
+    with pytest.raises(MCPAuthError) as exc:
+        await plan_meal(ctx, on_date=date(2026, 7, 22), recipe_name="chil")
+    message = str(exc.value)
+    assert "Chili" in message and "Chili verde" in message   # candidates, not a guess
+
+    # An exact name still resolves even though it is a prefix of another one.
+    result = await plan_meal(ctx, on_date=date(2026, 7, 22), recipe_name="chili")
+    assert result["created"] is True
+    assert result["recipe_name"] == "Chili"
+
+
+@pytest.mark.asyncio
+async def test_plan_meal_rejects_an_unknown_slot_by_listing_the_valid_ones(env):
+    ctx = _FakeCtx(env["raw_alice_write"])
+    with pytest.raises(MCPAuthError) as exc:
+        await plan_meal(
+            ctx, on_date=date(2026, 7, 22), recipe_name="Pasta", meal_slot="brunch"
+        )
+    message = str(exc.value)
+    assert "brunch" in message
+    for slot in ("breakfast", "lunch", "dinner", "snack"):
+        assert slot in message
+
+
+@pytest.mark.asyncio
+async def test_meal_tools_are_gated_on_the_meals_scope(env):
+    """A read-only token cannot plan, and a token without the domain at all
+    cannot even look."""
+    read_only = _FakeCtx(env["raw_alice_full"])          # meals: read
+    with pytest.raises(MCPAuthError):
+        await plan_meal(read_only, on_date=date(2026, 7, 22), recipe_name="Pasta")
+
+    todos_only = _FakeCtx(env["raw_todos_only"])
+    with pytest.raises(MCPAuthError):
+        await get_meal_plan(todos_only, week_of=date(2026, 7, 22))
+
+
+@pytest.mark.asyncio
+async def test_planned_meal_is_visible_to_another_members_agent(env):
+    """Shared by construction: Bob's agent sees what Alice's agent planned."""
+    await plan_meal(
+        _FakeCtx(env["raw_alice_write"]),
+        on_date=date(2026, 7, 22), recipe_name="Pasta", meal_slot="dinner",
+    )
+    seen = await get_meal_plan(_FakeCtx(env["raw_bob"]), week_of=date(2026, 7, 22))
+    assert [e["recipe_name"] for e in seen["entries"]] == ["Pasta"]
+
+
+@pytest.mark.asyncio
+async def test_list_recipes_finds_by_name_substring(env):
+    ctx = _FakeCtx(env["raw_alice_full"])
+    result = await list_recipes(ctx, search="chili")
+    assert {r["name"] for r in result["items"]} == {"Chili", "Chili verde"}

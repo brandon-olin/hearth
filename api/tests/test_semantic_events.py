@@ -361,3 +361,205 @@ def test_can_see_gives_the_same_answer_for_both_event_kinds():
     )
     for user_id in (owner, other):
         assert can_see(invalidation, user_id) == can_see(semantic_event, user_id)
+
+
+# ── Step: meal.planned / meal.grocery_list_generated (meal-001) ───────────────
+
+@pytest.mark.asyncio
+async def test_planning_a_meal_publishes_a_semantic_event(db_session, semantic_queue):
+    """Registration is not delivery: the event has to reach the bus, carrying
+    the parent plan's household and visibility (entries have neither)."""
+    from life_dashboard.domains.meal_plans import service as meal_service
+    from life_dashboard.domains.meal_plans.schemas import (
+        MealPlanCreate,
+        MealPlanEntryCreate,
+    )
+    from life_dashboard.domains.recipes.models import Recipe
+
+    user = await _make_user(db_session)
+    recipe = Recipe(
+        household_id=user.household_id, created_by_user_id=user.id,
+        name="Chili", visibility=VISIBILITY_HOUSEHOLD,
+    )
+    db_session.add(recipe)
+    await db_session.commit()
+
+    plan = await meal_service.get_or_create_plan(
+        db_session, user.household_id, user.id,
+        MealPlanCreate(week_start=date(2026, 7, 22)),
+    )
+    _drain(semantic_queue)
+
+    await meal_service.add_entry(
+        db_session, plan.id, user.household_id, user.id,
+        MealPlanEntryCreate(
+            recipe_id=recipe.id, entry_date=date(2026, 7, 22), meal_slot="dinner"
+        ),
+    )
+
+    events = _drain(semantic_queue)
+    assert [e.event for e in events] == ["meal.planned"]
+    assert events[0].entity_type == "meal_plan_entry"
+    assert events[0].summary["recipe_name"] == "Chili"
+    assert events[0].summary["meal_slot"] == "dinner"
+    # Borrowed from the plan — an entry has no household_id of its own.
+    assert events[0].household_id == user.household_id
+    # And a household member is entitled to see it.
+    assert can_see(events[0], user.id)
+
+
+@pytest.mark.asyncio
+async def test_generating_a_grocery_list_publishes_a_semantic_event(
+    db_session, semantic_queue
+):
+    from life_dashboard.domains.meal_plans import service as meal_service
+    from life_dashboard.domains.meal_plans.schemas import (
+        GenerateGroceryListRequest,
+        MealPlanCreate,
+        MealPlanEntryCreate,
+    )
+    from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient
+
+    user = await _make_user(db_session)
+    recipe = Recipe(
+        household_id=user.household_id, created_by_user_id=user.id,
+        name="Chili", visibility=VISIBILITY_HOUSEHOLD,
+    )
+    db_session.add(recipe)
+    await db_session.flush()
+    db_session.add(RecipeIngredient(recipe_id=recipe.id, name="beans", sort_order=0))
+    await db_session.commit()
+
+    plan = await meal_service.get_or_create_plan(
+        db_session, user.household_id, user.id,
+        MealPlanCreate(week_start=date(2026, 7, 22)),
+    )
+    await meal_service.add_entry(
+        db_session, plan.id, user.household_id, user.id,
+        MealPlanEntryCreate(
+            recipe_id=recipe.id, entry_date=date(2026, 7, 22), meal_slot="dinner"
+        ),
+    )
+    _drain(semantic_queue)
+
+    result, error = await meal_service.generate_grocery_list(
+        db_session, plan.id, user.household_id, user.id, GenerateGroceryListRequest()
+    )
+    assert error is None
+
+    events = _drain(semantic_queue)
+    names = [e.event for e in events]
+    assert "meal.grocery_list_generated" in names
+    generated = next(e for e in events if e.event == "meal.grocery_list_generated")
+    assert generated.summary["list_id"] == str(result.list_id)
+    assert generated.summary["added"] == result.added
+
+
+# ── meal-001: the planner's bus events ────────────────────────────────────────
+#
+# These are the meal planner's agent surface for the half that has no MCP tool
+# (grocery generation), so "it is in the catalog" is not enough — the events have
+# to actually reach the bus, carry the parent plan's scope, and stay idempotent.
+
+async def _planned_week(db, user):
+    """A plan with one recipe on Wednesday, and the recipe's id."""
+    from life_dashboard.domains.meal_plans import service as meal_service
+    from life_dashboard.domains.meal_plans.schemas import MealPlanCreate, MealPlanEntryCreate
+    from life_dashboard.domains.recipes.models import Recipe, RecipeIngredient
+
+    recipe = Recipe(
+        household_id=user.household_id, created_by_user_id=user.id,
+        name="Chili", visibility=VISIBILITY_HOUSEHOLD,
+    )
+    db.add(recipe)
+    await db.flush()
+    db.add(RecipeIngredient(recipe_id=recipe.id, name="beans", unit="can", sort_order=0))
+    await db.commit()
+
+    plan = await meal_service.get_or_create_plan(
+        db, user.household_id, user.id, MealPlanCreate(week_start=date(2026, 7, 22))
+    )
+    return meal_service, MealPlanEntryCreate, plan, recipe
+
+
+@pytest.mark.asyncio
+async def test_planning_a_meal_publishes_meal_planned(db_session, semantic_queue):
+    user = await _make_user(db_session)
+    meal_service, EntryCreate, plan, recipe = await _planned_week(db_session, user)
+    _drain(semantic_queue)
+
+    entry, created, error = await meal_service.add_entry(
+        db_session, plan.id, user.household_id, user.id,
+        EntryCreate(recipe_id=recipe.id, entry_date=date(2026, 7, 22), meal_slot="dinner"),
+    )
+    assert created is True and error is None
+
+    events = _drain(semantic_queue)
+    assert [e.event for e in events] == ["meal.planned"]
+    assert events[0].entity_type == "meal_plan_entry"
+    assert events[0].entity_id == entry.id
+    assert events[0].household_id == user.household_id
+    assert events[0].summary["recipe_name"] == "Chili"
+    assert events[0].summary["meal_slot"] == "dinner"
+    # Entries carry no scope of their own — this is the plan's, borrowed.
+    assert events[0].visibility == VISIBILITY_HOUSEHOLD
+
+
+@pytest.mark.asyncio
+async def test_replanning_the_same_cell_emits_once(db_session, semantic_queue):
+    """An idempotent write must have an idempotent event."""
+    user = await _make_user(db_session)
+    meal_service, EntryCreate, plan, recipe = await _planned_week(db_session, user)
+    payload = EntryCreate(
+        recipe_id=recipe.id, entry_date=date(2026, 7, 22), meal_slot="dinner"
+    )
+    await meal_service.add_entry(db_session, plan.id, user.household_id, user.id, payload)
+    _drain(semantic_queue)
+
+    await meal_service.add_entry(db_session, plan.id, user.household_id, user.id, payload)
+    assert _drain(semantic_queue) == []
+
+
+@pytest.mark.asyncio
+async def test_generating_a_grocery_list_publishes_its_event(db_session, semantic_queue):
+    from life_dashboard.domains.meal_plans.schemas import GenerateGroceryListRequest
+
+    user = await _make_user(db_session)
+    meal_service, EntryCreate, plan, recipe = await _planned_week(db_session, user)
+    await meal_service.add_entry(
+        db_session, plan.id, user.household_id, user.id,
+        EntryCreate(recipe_id=recipe.id, entry_date=date(2026, 7, 22), meal_slot="dinner"),
+    )
+    _drain(semantic_queue)
+
+    result, error = await meal_service.generate_grocery_list(
+        db_session, plan.id, user.household_id, user.id, GenerateGroceryListRequest()
+    )
+    assert error is None
+
+    events = _drain(semantic_queue)
+    assert [e.event for e in events] == ["meal.grocery_list_generated"]
+    assert events[0].entity_type == "meal_plan"
+    assert events[0].entity_id == plan.id
+    assert events[0].summary["list_id"] == str(result.list_id)
+    assert events[0].summary["added"] == result.added
+
+
+@pytest.mark.asyncio
+async def test_meal_events_deliver_only_the_allowlisted_fields(db_session):
+    """The summary is a proposal; webhooks/summaries.py decides what leaves."""
+    from life_dashboard.webhooks.summaries import filter_summary
+
+    planned = filter_summary("meal.planned", {
+        "recipe_name": "Chili", "entry_date": "2026-07-22", "meal_slot": "dinner",
+        "plan_id": "leak-me", "notes": "secret",
+    })
+    assert planned == {
+        "recipe_name": "Chili", "entry_date": "2026-07-22", "meal_slot": "dinner",
+    }
+
+    generated = filter_summary("meal.grocery_list_generated", {
+        "week_start": "2026-07-20", "list_id": "abc", "added": 4,
+        "items": ["beans", "garlic"],          # the shopping list never leaves
+    })
+    assert generated == {"week_start": "2026-07-20", "list_id": "abc", "added": 4}

@@ -20,6 +20,10 @@ export const ENTITY_INVALIDATION_MAP: Record<string, string[]> = {
   projects: ["/projects"],
   recipes: ["/recipes"],
   grocery_lists: ["/grocery-lists"],
+  // meal-001. Entries carry no household_id of their own, but the invalidation
+  // producer emits per touched table, so both map to the planner's queries.
+  meal_plans: ["/meal-plans"],
+  meal_plan_entries: ["/meal-plans"],
   // Workouts is a multi-table domain (sessions, session_exercises, sets, plus the
   // shared exercise catalog and templates); all map to the "/workouts" prefix,
   // which covers the sessions/exercises/templates cached queries.

@@ -48,6 +48,7 @@ from life_dashboard.domains.habits.router import router as habits_router
 from life_dashboard.domains.notes.router import router as notes_router
 from life_dashboard.domains.notifications.router import router as notifications_router
 from life_dashboard.domains.projects.router import router as projects_router
+from life_dashboard.domains.meal_plans.router import router as meal_plans_router
 from life_dashboard.domains.recipes.router import router as recipes_router
 from life_dashboard.domains.tags.router import router as tags_router
 from life_dashboard.domains.templates.router import collections_template_router
@@ -609,6 +610,7 @@ app.include_router(projects_router)
 app.include_router(grocery_lists_router)
 app.include_router(habits_router)
 app.include_router(notes_router)
+app.include_router(meal_plans_router)
 app.include_router(recipes_router)
 app.include_router(tags_router)
 app.include_router(notifications_router)

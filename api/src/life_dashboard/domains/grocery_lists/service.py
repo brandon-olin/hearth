@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
@@ -78,6 +79,38 @@ async def create_grocery_list(
 
     item_map = await _load_items(db, [grocery_list.id])
     return _build_response(grocery_list, item_map.get(grocery_list.id, []))
+
+
+async def find_active_list_by_name(
+    db: AsyncSession,
+    household_id: uuid.UUID,
+    user_id: uuid.UUID,
+    name: str,
+) -> GroceryListResponse | None:
+    """The caller's most recent visible *active* list with this exact name.
+
+    The get-half of a get-or-create for callers that generate a list under a
+    deterministic name (meal-001's "Week of 2026-07-20"), so pressing the button
+    twice targets one list instead of minting a second. Matched
+    case-insensitively and only among active lists — a completed list is last
+    week's shopping trip, not a target to append to.
+    """
+    query = apply_visibility_filter(
+        select(GroceryList).where(
+            GroceryList.household_id == household_id,
+            GroceryList.status == "active",
+            func.lower(GroceryList.name) == name.strip().lower(),
+        ),
+        GroceryList,
+        user_id,
+    )
+    found = (await db.execute(
+        query.order_by(GroceryList.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if found is None:
+        return None
+    item_map = await _load_items(db, [found.id])
+    return _build_response(found, item_map.get(found.id, []))
 
 
 async def get_grocery_list(
@@ -407,3 +440,160 @@ async def add_recipe_ingredients_to_list(
 
     await db.commit()
     return {"added": added, "skipped": skipped}
+
+
+def _merge_key(name: str, unit: str | None) -> tuple[str, str]:
+    """Two ingredient lines merge when they name the same thing in the same unit.
+
+    Unit is part of the key on purpose: "2 cups flour" and "100 g flour" are the
+    same ingredient but not addable quantities, and silently summing them would
+    put a wrong number on the shopping list. They stay two lines.
+    """
+    return (name.strip().lower(), (unit or "").strip().lower())
+
+
+async def add_recipes_to_list_aggregated(
+    db: AsyncSession,
+    *,
+    recipes: list[tuple[uuid.UUID, float]],
+    list_id: uuid.UUID,
+    household_id: uuid.UUID,
+) -> dict:
+    """Append the ingredients of several recipes to one list, merging duplicates.
+
+    This is the meal-planner's path (meal-001), and it differs from
+    :func:`add_recipe_ingredients_to_list` in the one way that matters: that
+    function dedupes by ``recipe_ingredient_id``, which is per-recipe, so two
+    recipes that both call for garlic produce two garlic lines. Shopping for a
+    week means shopping for garlic once. Lines are merged by (name, unit) across
+    every recipe in the plan.
+
+    ``recipes`` is a list of ``(recipe_id, servings_scale)`` — the same recipe
+    planned twice in a week arrives twice and its quantities are counted twice,
+    which is the correct answer for the shopper.
+
+    Idempotent: a merged line whose name+unit is already on the list un-checked
+    is skipped rather than re-added, so pressing "Generate" twice does not
+    double the list. Returns ``{"added", "skipped", "items"}``.
+    """
+    from life_dashboard.domains.recipes.models import (  # local to avoid circular import
+        Recipe,
+        RecipeIngredient,
+    )
+
+    grocery_list = (await db.execute(
+        select(GroceryList).where(
+            GroceryList.id == list_id, GroceryList.household_id == household_id
+        )
+    )).scalar_one_or_none()
+    if grocery_list is None:
+        raise ValueError("Grocery list not found")
+
+    if not recipes:
+        return {"added": 0, "skipped": 0, "items": []}
+
+    # Only recipes that really belong to this household contribute — a planned
+    # entry can outlive a recipe moved or removed, and a caller should never be
+    # able to pull another household's ingredients through a plan.
+    recipe_ids = [rid for rid, _ in recipes]
+    owned_ids = set((await db.execute(
+        select(Recipe.id).where(
+            Recipe.id.in_(recipe_ids), Recipe.household_id == household_id
+        )
+    )).scalars().all())
+
+    # One query for every ingredient of every planned recipe — not one per
+    # recipe inside the loop below.
+    rows = list((await db.execute(
+        select(RecipeIngredient)
+        .where(RecipeIngredient.recipe_id.in_(owned_ids))
+        .order_by(RecipeIngredient.sort_order)
+    )).scalars().all())
+    by_recipe: dict[uuid.UUID, list] = {}
+    for row in rows:
+        by_recipe.setdefault(row.recipe_id, []).append(row)
+
+    # Merge. `order` preserves first-seen ordering so the list reads like the
+    # recipes did rather than in hash order.
+    merged: dict[tuple[str, str], dict] = {}
+    order: list[tuple[str, str]] = []
+    for recipe_id, scale in recipes:
+        for ing in by_recipe.get(recipe_id, []):
+            name = (ing.name or "").strip()
+            if not name:
+                continue
+            key = _merge_key(name, ing.unit)
+            qty = None
+            if ing.quantity is not None:
+                qty = Decimal(str(ing.quantity)) * Decimal(str(scale))
+            if key not in merged:
+                merged[key] = {
+                    "name": name,
+                    "unit": ing.unit,
+                    "quantity": qty,
+                    # Kept only while a single recipe contributes — see below.
+                    "recipe_id": recipe_id,
+                    "recipe_ingredient_id": ing.id,
+                    "notes": ing.notes,
+                    "from_recipes": 1,
+                    "contributors": {recipe_id},
+                }
+                order.append(key)
+                continue
+
+            entry = merged[key]
+            # An unquantified line ("salt, to taste") poisons the sum: there is
+            # no honest total, so the merged line carries no quantity at all.
+            if entry["quantity"] is None or qty is None:
+                entry["quantity"] = None
+            else:
+                entry["quantity"] = entry["quantity"] + qty
+            if recipe_id not in entry["contributors"]:
+                entry["contributors"].add(recipe_id)
+                entry["from_recipes"] += 1
+            # Attribution only survives while one recipe owns the line. Pointing
+            # a merged line at one of its several sources would be a lie the
+            # "remove this recipe" path could act on.
+            if entry["recipe_id"] != recipe_id:
+                entry["recipe_id"] = None
+                entry["recipe_ingredient_id"] = None
+                entry["notes"] = None
+
+    # Everything already on the list and not yet bought. Re-adding something the
+    # shopper has already checked off is legitimate (it is a new week).
+    existing = {
+        _merge_key(name, unit)
+        for name, unit in (await db.execute(
+            select(GroceryItem.name, GroceryItem.unit).where(
+                GroceryItem.list_id == list_id, GroceryItem.is_checked.is_(False)
+            )
+        )).all()
+    }
+
+    added = 0
+    skipped = 0
+    items: list[dict] = []
+    for key in order:
+        entry = merged[key]
+        items.append({
+            "name": entry["name"],
+            "quantity": entry["quantity"],
+            "unit": entry["unit"],
+            "from_recipes": entry["from_recipes"],
+        })
+        if key in existing:
+            skipped += 1
+            continue
+        db.add(GroceryItem(
+            list_id=list_id,
+            name=entry["name"],
+            quantity=entry["quantity"],
+            unit=entry["unit"],
+            notes=entry["notes"],
+            recipe_id=entry["recipe_id"],
+            recipe_ingredient_id=entry["recipe_ingredient_id"],
+        ))
+        added += 1
+
+    await db.commit()
+    return {"added": added, "skipped": skipped, "items": items}

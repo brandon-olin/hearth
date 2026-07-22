@@ -42,6 +42,7 @@ PAT_SCOPE_DOMAINS: dict[str, tuple[str, ...]] = {
     "calendar":      ("/events",),
     "grocery":       ("/grocery-lists",),
     "recipes":       ("/recipes",),
+    "meals":         ("/meal-plans",),
     "documents":     ("/documents",),
     "goals":         ("/goals",),
     "habits":        ("/habits",),
@@ -62,6 +63,7 @@ PAT_SCOPE_LABELS: dict[str, str] = {
     "calendar":      "Calendar",
     "grocery":       "Grocery lists",
     "recipes":       "Recipes",
+    "meals":         "Meal plans",
     "documents":     "Documents",
     "goals":         "Goals",
     "habits":        "Habits",
@@ -87,6 +89,10 @@ SCOPE_TO_PERMISSION_DOMAIN: dict[str, str] = {
     "recipes":   "recipes",
     "documents": "documents",
     "goals":     "goals",
+    # meal-001. Meal planning has no permission knob of its own — the routers
+    # gate it on the recipes permission, so the PAT ceiling must check the same
+    # one or a token could out-rank the UI its owner sees.
+    "meals":     "recipes",
 }
 
 #: The access ladder, lowest tier first. ``propose`` (proposal-001) sits between

@@ -45,6 +45,13 @@ from life_dashboard.domains.calendar_events.schemas import CalendarEventCreate
 from life_dashboard.domains.grocery_lists import service as grocery_service
 from life_dashboard.domains.grocery_lists.schemas import GroceryItemAdd
 from life_dashboard.domains.habits import service as habits_service
+from life_dashboard.domains.meal_plans import service as meal_plans_service
+from life_dashboard.domains.meal_plans.schemas import (
+    MEAL_SLOTS,
+    MealPlanCreate,
+    MealPlanEntryCreate,
+)
+from life_dashboard.domains.recipes import service as recipes_service
 from life_dashboard.domains.todos import service as todos_service
 from life_dashboard.domains.todos.schemas import TodoCreate
 from life_dashboard.domains.workouts import (
@@ -172,6 +179,156 @@ async def get_grocery_list(ctx: Context, limit: int = 50) -> dict:
             limit=min(limit, 200),
         )
     return result.model_dump(mode="json")
+
+
+@mcp_server.tool()
+async def get_meal_plan(ctx: Context, week_of: date | None = None) -> dict:
+    """Get the household's meal plan for a week — which recipes are scheduled
+    for which day and meal slot (breakfast, lunch, dinner, snack).
+
+    `week_of` is any date inside the week you want, in ISO format
+    (e.g. "2026-07-22"); it is normalised to that week's Monday. Omit it for
+    the current week.
+
+    Returns null when nothing has been planned for that week yet — an empty
+    week, not an error. Meal plans are shared household data."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "meals")
+        plan = await meal_plans_service.get_plan_for_week(
+            db, ident.household_id, ident.user_id, week_of or date.today()
+        )
+    return plan.model_dump(mode="json") if plan else {"plan": None}
+
+
+@mcp_server.tool()
+async def list_recipes(ctx: Context, search: str | None = None, limit: int = 50) -> dict:
+    """List the household's recipes, optionally filtered by a name substring.
+
+    This is how an agent turns "plan the chili for Wednesday" into the
+    `recipe_id` that `plan_meal` needs."""
+    async with AsyncSessionLocal() as db:
+        ident = await authorize(db, ctx, "recipes")
+        result = await recipes_service.list_recipes(
+            db,
+            ident.household_id,
+            ident.user_id,
+            search=search,
+            limit=min(limit, 200),
+        )
+    return result.model_dump(mode="json")
+
+
+async def _resolve_recipe_id(db, ident, recipe_id: str | None, recipe_name: str | None):
+    """A recipe's id from either an id or a name.
+
+    A name that matches several recipes is refused with the candidates listed
+    rather than picking one — guessing which chili the household meant is
+    exactly the kind of silent wrong answer an approval queue exists to avoid.
+    """
+    if recipe_id:
+        return _as_uuid(recipe_id, "recipe_id")
+    if not recipe_name:
+        raise MCPAuthError("Provide recipe_name or recipe_id.")
+
+    found = await recipes_service.list_recipes(
+        db, ident.household_id, ident.user_id, search=recipe_name, limit=25
+    )
+    if not found.items:
+        raise MCPAuthError(
+            f"No recipe matching {recipe_name!r}. Call list_recipes to see what exists."
+        )
+    exact = [r for r in found.items if r.name.strip().lower() == recipe_name.strip().lower()]
+    if len(exact) == 1:
+        return exact[0].id
+    if len(found.items) == 1:
+        return found.items[0].id
+    names = ", ".join(f"{r.name!r}" for r in found.items[:10])
+    raise MCPAuthError(
+        f"{recipe_name!r} matches {len(found.items)} recipes ({names}). "
+        f"Pass recipe_id to choose one."
+    )
+
+
+@register_executor("plan_meal")
+async def _perform_plan_meal(
+    db, ident, *, recipe_id: str | None = None, recipe_name: str | None = None,
+    on_date=None, meal_slot: str = "dinner",
+) -> dict:
+    entry_date = _coerce_date(on_date) or date.today()
+    resolved_recipe_id = await _resolve_recipe_id(db, ident, recipe_id, recipe_name)
+    plan = await meal_plans_service.get_or_create_plan(
+        db,
+        ident.household_id,
+        ident.user_id,
+        MealPlanCreate(week_start=entry_date),
+    )
+    entry, created, error = await meal_plans_service.add_entry(
+        db,
+        plan.id,
+        ident.household_id,
+        ident.user_id,
+        MealPlanEntryCreate(
+            recipe_id=resolved_recipe_id,
+            entry_date=entry_date,
+            meal_slot=meal_slot,
+        ),
+    )
+    if entry is None:
+        raise MCPAuthError(error or "Could not plan that meal.")
+    if created:
+        await record_mcp_write(
+            db, ident, action="create", entity_type="meal_plan_entry",
+            entity_id=entry.id,
+            payload={
+                "recipe_id": str(entry.recipe_id),
+                "entry_date": entry.entry_date.isoformat(),
+                "meal_slot": entry.meal_slot,
+            },
+        )
+    return {**entry.model_dump(mode="json"), "created": created, "plan_id": str(plan.id)}
+
+
+@mcp_server.tool()
+async def plan_meal(
+    ctx: Context,
+    on_date: date,
+    recipe_name: str | None = None,
+    recipe_id: str | None = None,
+    meal_slot: str = "dinner",
+) -> dict:
+    """Schedule a recipe onto a day of the household's meal plan.
+
+    Identify the recipe by name or id — a name is matched case-insensitively,
+    and an ambiguous one comes back with the candidates rather than a guess.
+    `on_date` is ISO (e.g. "2026-07-22"); the week's plan is created
+    automatically if it does not exist yet. `meal_slot` must be one of:
+    breakfast, lunch, dinner, snack.
+
+    Idempotent: planning the same recipe on the same day and slot twice returns
+    the existing entry with `created: false` rather than duplicating it.
+
+    If this household requires approval for recipe writes, the result is
+    `status: "proposed"` with a message — a request waiting on a human, not an
+    error."""
+    if meal_slot not in MEAL_SLOTS:
+        raise MCPAuthError(
+            f"meal_slot must be one of: {', '.join(MEAL_SLOTS)}; got {meal_slot!r}."
+        )
+    args = {
+        "recipe_id": recipe_id,
+        "recipe_name": recipe_name,
+        "on_date": on_date,
+        "meal_slot": meal_slot,
+    }
+    async with AsyncSessionLocal() as db:
+        decision = await authorize(db, ctx, "meals", "write")
+        if decision.proposed:
+            label = recipe_name or recipe_id or "a recipe"
+            return await _propose(
+                db, decision, domain="meals", tool="plan_meal", args=args,
+                summary=f"Plan “{label}” for {on_date.isoformat()} {meal_slot}",
+            )
+        return await _perform_plan_meal(db, decision, **args)
 
 
 @mcp_server.tool()

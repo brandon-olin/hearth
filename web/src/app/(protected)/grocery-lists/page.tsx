@@ -27,6 +27,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { VisibilityPicker, type Visibility } from "@/components/visibility-picker";
+import { formatQuantityUnit } from "@/lib/recipes/quantity";
 import type { components } from "@/lib/api/schema";
 
 type GroceryList = components["schemas"]["GroceryListResponse"];
@@ -92,9 +93,9 @@ function ItemRow({
       <span className={cn("text-sm flex-1", item.is_checked && "line-through text-muted-foreground")}>
         {item.name}
       </span>
-      {(item.quantity || item.unit) && (
+      {formatQuantityUnit(item.quantity, item.unit) && (
         <span className="text-xs text-muted-foreground shrink-0">
-          {[item.quantity, item.unit].filter(Boolean).join(" ")}
+          {formatQuantityUnit(item.quantity, item.unit)}
         </span>
       )}
     </div>

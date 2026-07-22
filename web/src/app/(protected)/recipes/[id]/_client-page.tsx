@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth/context";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import { useRegisterCurrentResource } from "@/lib/chat-context/current-resource";
+import { formatQuantity } from "@/lib/recipes/quantity";
 
 type Recipe = components["schemas"]["RecipeResponse"];
 
@@ -24,26 +25,6 @@ const RecipeBodyEditor = dynamic(
   () => import("@/components/recipes/recipe-body-editor").then((m) => m.RecipeBodyEditor),
   { ssr: false, loading: () => <div className="h-32 flex items-center justify-center text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" />Loading editor…</div> }
 );
-
-// Maps common cooking decimals back to unicode fraction characters.
-// e.g. 0.333... → "⅓", 1.5 → "1½", 2.25 → "2¼"
-const FRAC_MAP: [number, string][] = [
-  [1 / 8, "⅛"], [1 / 4, "¼"], [1 / 3, "⅓"], [3 / 8, "⅜"],
-  [1 / 2, "½"], [5 / 8, "⅝"], [2 / 3, "⅔"], [3 / 4, "¾"], [7 / 8, "⅞"],
-];
-const EPS = 0.02;
-
-function formatQuantity(qty: number | string | null | undefined): string | null {
-  if (qty == null) return null;
-  const n = Number(qty);
-  if (isNaN(n) || n <= 0) return null;
-  const whole = Math.floor(n);
-  const frac = n - whole;
-  if (frac < EPS) return String(whole);
-  const fracChar = FRAC_MAP.find(([v]) => Math.abs(frac - v) < EPS)?.[1] ?? null;
-  if (!fracChar) return n.toFixed(2).replace(/\.?0+$/, "");
-  return whole > 0 ? `${whole}${fracChar}` : fracChar;
-}
 
 function formatTime(mins: number | null): string | null {
   if (!mins) return null;

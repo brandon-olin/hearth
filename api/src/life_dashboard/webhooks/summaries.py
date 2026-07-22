@@ -67,6 +67,15 @@ EVENT_SUMMARY_FIELDS: dict[str, tuple[str, ...]] = {
     "journal.session_saved": (
         "mode", "included_transcript", "message_count", "appended_to_existing",
     ),
+    # meal-001. A meal plan is shared household data by construction, so the
+    # recipe name is no more sensitive here than in grocery.item_added — it is
+    # the field that makes the event useful ("chili is on for Wednesday") to a
+    # kitchen display or a reminder automation. `entity_id` is the entry, so a
+    # receiver that wants the recipe fetches it back with its own credentials.
+    "meal.planned": ("recipe_name", "entry_date", "meal_slot"),
+    # Counts and ids only — never the shopping list's contents. A receiver
+    # entitled to the list reads it through /grocery-lists/{id}.
+    "meal.grocery_list_generated": ("week_start", "list_id", "added"),
 }
 
 #: Human-readable blurbs for the subscription UI and the docs recipe. Kept
@@ -81,6 +90,8 @@ EVENT_DESCRIPTIONS: dict[str, str] = {
     "proposal.created": "An agent asked for approval to do something",
     "proposal.decided": "A pending approval request was approved or rejected",
     "journal.session_saved": "A guided journal session was saved to an entry",
+    "meal.planned": "A recipe was planned into a day and meal slot",
+    "meal.grocery_list_generated": "A week's meal plan was turned into a grocery list",
 }
 
 #: Every deliverable event name, sorted — the catalog surface for validation,

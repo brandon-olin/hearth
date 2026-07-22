@@ -2060,6 +2060,132 @@ export interface paths {
         patch: operations["update_note_notes__note_id__patch"];
         trace?: never;
     };
+    "/meal-plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Meal Plans */
+        get: operations["list_meal_plans_meal_plans_get"];
+        put?: never;
+        /**
+         * Create Meal Plan
+         * @description Get-or-create the plan for a week. Idempotent — re-posting the same week
+         *     returns the existing plan rather than a second one.
+         */
+        post: operations["create_meal_plan_meal_plans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/meal-plans/week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Week
+         * @description The plan for a week, or null when nothing has been planned for it yet.
+         *
+         *     Null rather than 404: an unplanned week is a normal, expected state that
+         *     the grid renders as empty, not a missing resource.
+         */
+        get: operations["get_week_meal_plans_week_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/meal-plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Meal Plan */
+        delete: operations["delete_meal_plan_meal_plans__plan_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Meal Plan */
+        patch: operations["update_meal_plan_meal_plans__plan_id__patch"];
+        trace?: never;
+    };
+    "/meal-plans/{plan_id}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Entry
+         * @description Drop a recipe into a day+slot. Idempotent: the same recipe on the same
+         *     cell twice returns the existing entry.
+         */
+        post: operations["add_entry_meal_plans__plan_id__entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/meal-plans/{plan_id}/entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Entry */
+        delete: operations["remove_entry_meal_plans__plan_id__entries__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Entry */
+        patch: operations["update_entry_meal_plans__plan_id__entries__entry_id__patch"];
+        trace?: never;
+    };
+    "/meal-plans/{plan_id}/grocery-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Grocery List
+         * @description Aggregate the week's planned recipes into a grocery list.
+         *
+         *     Writes to the grocery domain, so it is gated on grocery permissions too.
+         *     Safe to call twice: lines already on the target list un-checked are
+         *     reported as `skipped` rather than added again.
+         */
+        post: operations["generate_grocery_list_meal_plans__plan_id__grocery_list_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/recipes": {
         parameters: {
             query?: never;
@@ -3551,6 +3677,23 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /**
+         * AggregatedIngredient
+         * @description One merged line of the generated list, for the confirmation UI.
+         */
+        AggregatedIngredient: {
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /**
+             * From Recipes
+             * @default 1
+             */
+            from_recipes: number;
         };
         /**
          * AiSettingsResponse
@@ -5814,6 +5957,44 @@ export interface components {
             /** Email */
             email: string;
         };
+        /**
+         * GenerateGroceryListRequest
+         * @description Turn a planned week into groceries.
+         *
+         *     Either append to an existing list (``list_id``) or create a new one
+         *     (``name``). Sending neither creates a list named after the week.
+         */
+        GenerateGroceryListRequest: {
+            /** List Id */
+            list_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Store */
+            store?: string | null;
+        };
+        /** GenerateGroceryListResponse */
+        GenerateGroceryListResponse: {
+            /**
+             * List Id
+             * Format: uuid
+             */
+            list_id: string;
+            /** List Name */
+            list_name: string;
+            /** Created List */
+            created_list: boolean;
+            /** Recipes Planned */
+            recipes_planned: number;
+            /** Added */
+            added: number;
+            /** Skipped */
+            skipped: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["AggregatedIngredient"][];
+        };
         /** GoalCreate */
         GoalCreate: {
             /** Parent Id */
@@ -6582,6 +6763,178 @@ export interface components {
              */
             token_type: string;
             user: components["schemas"]["UserResponse"];
+        };
+        /** MealPlanCreate */
+        MealPlanCreate: {
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Visibility
+             * @default household
+             * @enum {string}
+             */
+            visibility: "household" | "personal" | "members";
+            /** Shared With User Ids */
+            shared_with_user_ids?: string[] | null;
+        };
+        /** MealPlanEntryCreate */
+        MealPlanEntryCreate: {
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /**
+             * Meal Slot
+             * @enum {string}
+             */
+            meal_slot: "breakfast" | "lunch" | "dinner" | "snack";
+            /** Servings */
+            servings?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** MealPlanEntryResponse */
+        MealPlanEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Plan Id
+             * Format: uuid
+             */
+            plan_id: string;
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /**
+             * Meal Slot
+             * @enum {string}
+             */
+            meal_slot: "breakfast" | "lunch" | "dinner" | "snack";
+            /** Servings */
+            servings: number | null;
+            /** Notes */
+            notes: string | null;
+            /** Sort Order */
+            sort_order: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Recipe Name */
+            recipe_name?: string | null;
+            /** Recipe Cover Image Url */
+            recipe_cover_image_url?: string | null;
+        };
+        /**
+         * MealPlanEntryUpdate
+         * @description Moving an entry between cells — the drag-to-another-day case.
+         */
+        MealPlanEntryUpdate: {
+            /** Entry Date */
+            entry_date?: string | null;
+            /** Meal Slot */
+            meal_slot?: ("breakfast" | "lunch" | "dinner" | "snack") | null;
+            /** Servings */
+            servings?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /** MealPlanListResponse */
+        MealPlanListResponse: {
+            /** Items */
+            items: components["schemas"]["MealPlanResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** MealPlanResponse */
+        MealPlanResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Household Id
+             * Format: uuid
+             */
+            household_id: string;
+            /** Created By User Id */
+            created_by_user_id: string | null;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "household" | "personal" | "members";
+            /**
+             * Shared With User Ids
+             * @default []
+             */
+            shared_with_user_ids: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["MealPlanEntryResponse"][];
+        };
+        /** MealPlanUpdate */
+        MealPlanUpdate: {
+            /** Notes */
+            notes?: string | null;
+            /** Visibility */
+            visibility?: ("household" | "personal" | "members") | null;
+            /** Shared With User Ids */
+            shared_with_user_ids?: string[] | null;
         };
         /** MemberResponse */
         MemberResponse: {
@@ -13268,6 +13621,303 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NoteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_meal_plans_meal_plans_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_meal_plan_meal_plans_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealPlanCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_week_meal_plans_week_get: {
+        parameters: {
+            query: {
+                /** @description Any day in the desired week; normalised to Monday */
+                day: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_meal_plan_meal_plans__plan_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_meal_plan_meal_plans__plan_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealPlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_entry_meal_plans__plan_id__entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealPlanEntryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_entry_meal_plans__plan_id__entries__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_entry_meal_plans__plan_id__entries__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealPlanEntryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealPlanEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_grocery_list_meal_plans__plan_id__grocery_list_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateGroceryListRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateGroceryListResponse"];
                 };
             };
             /** @description Validation Error */

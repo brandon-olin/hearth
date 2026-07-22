@@ -6053,3 +6053,108 @@ main's code. Run worktree tests with PYTHONPATH=$PWD/src.
 
 Recommended next feature: coach-007 (profile versioning single write path +
 weekly scheduled refresh + decay).
+
+=== 2026-07-22 — Coding session ===
+
+Worked on: meal-001 (weekly meal planner — drag recipes onto calendar days,
+auto-generate grocery list).
+
+Status: complete.
+
+Commits this session:
+* feat(meal-001): weekly meal planner with cross-recipe grocery aggregation
+
+What was done:
+
+New domain `api/src/life_dashboard/domains/meal_plans/` (models, schemas,
+service, router) mounted at /meal-plans, plus migration 0053 adding meal_plans
+and meal_plan_entries. Two ideas carry the design:
+
+* A week is ADDRESSED, not created. Every read and write takes any date and
+  normalises it to that week's Monday; the plan row is get-or-created under
+  UNIQUE(household_id, week_start). There is no "create plan" step to
+  double-submit and no way to end up with two plans for one week. The UI never
+  creates a plan explicitly — the first drop does it lazily.
+* Entries borrow the plan's scope. meal_plan_entries has no household_id and no
+  visibility of its own, so every entry operation loads the parent plan through
+  the same visibility filter a read uses. An entry id alone grants nothing.
+
+Grocery generation lives in the GROCERY domain
+(grocery_lists/service.add_recipes_to_list_aggregated), not the planner, because
+that is where "what belongs on a shopping list" is decided. It differs from the
+pre-existing add_recipe_ingredients_to_list in the one way that matters: that
+function dedupes by recipe_ingredient_id, which is per-recipe, so two recipes
+that both call for garlic produce two garlic lines. Shopping for a week means
+shopping for garlic once, so lines merge by (name, unit) ACROSS recipes. Unit is
+part of the key on purpose — "2 tbsp olive oil" and "50 ml olive oil" are the
+same ingredient but not addable quantities, so they stay two lines. An
+unquantified line ("salt, to taste") in any contributing recipe leaves the
+merged line unquantified rather than inventing a total. The same recipe planned
+twice in a week contributes twice.
+
+Agent surface (MCP-parity rule): three tools — get_meal_plan, plan_meal,
+list_recipes (an agent handed "plan the chili for Wednesday" has a name and
+needs an id) — under a new `meals` PAT scope whose member ceiling maps to the
+existing `recipes` permission, so a token cannot out-rank the UI its owner sees.
+plan_meal supports the propose tier and is registered as a proposal executor.
+Grocery generation has no tool; its agent surface is the
+meal.grocery_list_generated bus event, whose allowlist carries counts and ids
+but never the list's contents.
+
+Two bugs fixed during verification:
+
+* update_entry read entry.entry_date AFTER a rollback to find the merge
+  survivor. A rollback expires the instance, so that read reloaded the row's
+  PRE-move values and searched the cell the entry came from — 404-ing a move
+  that had actually succeeded. Destination values are now captured before the
+  commit attempt.
+* generate_grocery_list with no list_id created a new list every call, so a
+  double-tap on the only button the UI offers left the household with two
+  identical lists. It now get-or-creates against a deterministic name via
+  grocery_lists/service.find_active_list_by_name.
+
+Also extracted formatQuantity into web/src/lib/recipes/quantity.ts and used it
+on the grocery list. Numeric columns serialise full-precision, so the generated
+list rendered "7.0000000000 cloves garlic" — the same class of bug coach-006
+fixed on goal progress, now surfaced by the planner because generation is the
+main way quantities reach a list.
+
+Verification — executed, not inspected:
+
+* make migrate-verify equivalent: full 0001..0053 replay on a throwaway
+  Postgres DB, clean; alembic heads = 0053 (single); zero native enum columns.
+* 540 pytest passing (23 new in test_meal_plans.py, 9 in test_mcp_server.py,
+  4 in test_semantic_events.py); ruff clean on tests and on all new source;
+  tsc --noEmit clean; eslint clean on every changed web file.
+* End-to-end over real HTTP against a live API with two seeded members — all
+  eight feature_list steps: empty week reads null; plan created and week_start
+  normalised to Monday; three recipes dropped (one recipe on two different
+  days); same cell twice is idempotent; a date outside the week refused 422
+  with a reason; reload shows all three entries with recipe names; the SECOND
+  member sees the same plan and entries; generation merged garlic from three
+  planned meals into ONE line of 7 cloves (2+2+3) while olive oil in tbsp and
+  ml stayed two lines and salt stayed unquantified; pressing Generate again
+  reused the same list, added 0, and left garlic at 7 not 14; removing the
+  pasta entry dropped spaghetti entirely and garlic to 4; next week reads
+  empty; this week still intact.
+* MCP tools driven end-to-end through the PAT path, not just checked for
+  registration: plan_meal wrote a row read back from the DB (week normalised,
+  visibility household), was idempotent on replay, refused an ambiguous recipe
+  name by listing the candidates, rejected an unknown slot by enumerating the
+  valid four, was refused for a read-only token, and its result was visible to
+  a second member's agent.
+* Both bus events confirmed to actually reach the bus with the plan's borrowed
+  scope, to emit once on an idempotent re-plan, and to filter down to their
+  allowlisted fields.
+
+What was left / notes for next time:
+
+The planner has no MCP tool for generating a grocery list — deliberate (the bus
+event is the surface), but worth revisiting if agents start being asked to do
+the shopping. Regeneration into an EXISTING list skips lines already present
+rather than reconciling, so a recipe removed from the plan still leaves its
+ingredients on a list generated earlier; generating fresh is the answer today.
+
+Recommended next feature: onboarding-003 (per-section empty states and
+first-visit hints) — the meal planner's empty grid is now one more section that
+would benefit from it.
