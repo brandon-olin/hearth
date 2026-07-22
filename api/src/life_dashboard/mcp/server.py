@@ -1134,7 +1134,14 @@ async def get_onboarding_status(ctx: Context) -> dict:
 
     `modules` is a subset of: finance, habits, meals, tasks, health, notes,
     planning, contacts. Empty means the member skipped the question, which is
-    "no preference", not "none of them"."""
+    "no preference", not "none of them".
+
+    `dismissed_hints` lists the first-visit hints this member has already
+    closed, out of the ids in `available_hints`; anything absent is guidance
+    they have not read yet, so a section whose hint is still pending is one
+    worth explaining rather than assuming. Like the wizard flag, hint state is
+    per member and read-only here — closing someone's hints on their behalf is
+    not something an agent should do."""
     async with AsyncSessionLocal() as db:
         decision = await authorize(db, ctx, "household", "read")
         user = await get_user_by_id(db, decision.user_id)
@@ -1145,6 +1152,8 @@ async def get_onboarding_status(ctx: Context) -> dict:
             "household_name": decision.household_name,
             "wizard_completed": onboarding_service.wizard_completed(user),
             "modules": onboarding_service.wizard_modules(user),
+            "dismissed_hints": onboarding_service.dismissed_hints(user),
+            "available_hints": onboarding_service.HINT_PAGES,
             "household_has_data": await onboarding_service.household_has_real_data(
                 db, decision.household_id
             ),

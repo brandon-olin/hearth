@@ -5,6 +5,8 @@ import { $api } from "@/lib/api/query";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { GoalSheet } from "@/components/goals/goal-sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import {
@@ -244,6 +246,8 @@ export default function GoalsPage() {
         )}
       </div>
 
+      <HintBanner id="goals" className="mb-4" />
+
       {/* Filter tabs */}
       <div className="flex border-b mb-5">
         {FILTERS.map(({ key, label }) => (
@@ -285,7 +289,24 @@ export default function GoalsPage() {
         <p className="py-8 text-sm text-destructive">Failed to load goals.</p>
       )}
 
-      {!isLoading && !isError && displayed.length === 0 && (
+      {/* onboarding-003: rich state only when there are no goals at all. */}
+      {!isLoading && !isError && counts.all === 0 && (
+        <EmptyState
+          icon={Target}
+          title="No goals yet"
+          description="Goals are the bigger outcomes you're working toward. Link a project to one and its progress rolls up here."
+          action={
+            can("goals", "create") && (
+              <Button size="sm" onClick={openCreate}>
+                <Plus className="h-4 w-4 mr-1" />
+                Set your first goal
+              </Button>
+            )
+          }
+        />
+      )}
+
+      {!isLoading && !isError && counts.all > 0 && displayed.length === 0 && (
         <div className="py-12 text-center">
           <Target className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">

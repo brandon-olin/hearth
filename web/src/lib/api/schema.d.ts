@@ -1292,6 +1292,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/households/onboarding/hints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hints
+         * @description This member's first-visit hint state, and nothing else.
+         *
+         *     Separate from ``GET /onboarding`` on purpose: that endpoint counts rows
+         *     across ten domain tables to answer ``household_has_data``, and every domain
+         *     page in the web client asks about hints. Reading a key off the already-loaded
+         *     user costs no queries at all.
+         */
+        get: operations["get_hints_households_onboarding_hints_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Reset Hints
+         * @description Bring every dismissed hint back for the calling member — what the
+         *     Settings → Account "show tips again" control calls. Idempotent: with nothing
+         *     dismissed it returns the same empty list rather than erroring.
+         */
+        delete: operations["reset_hints_households_onboarding_hints_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/households/onboarding/hints/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Hint
+         * @description Stop showing one first-visit hint to the calling member (onboarding-003).
+         *
+         *     Idempotent — dismissal is set membership, so a double-tapped close button or
+         *     a retried request lands on the same list rather than appending twice. Scoped
+         *     to the caller: dismissing a hint never affects another member.
+         */
+        post: operations["dismiss_hint_households_onboarding_hints_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/households/demo-data": {
         parameters: {
             query?: never;
@@ -5487,6 +5542,14 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * DismissHintRequest
+         * @description Ask to stop showing one first-visit hint to the calling member.
+         */
+        DismissHintRequest: {
+            /** Hint Id */
+            hint_id: string;
+        };
         /** DocumentChildrenResponse */
         DocumentChildrenResponse: {
             /** Items */
@@ -6473,6 +6536,21 @@ export interface components {
             /** Completion Rate 30D */
             completion_rate_30d?: number | null;
         };
+        /**
+         * HintStateResponse
+         * @description The member's hint state after a dismiss or a reset.
+         *
+         *     Both operations return the full list rather than an acknowledgement, so a
+         *     client never has to re-read to find out where it stands.
+         */
+        HintStateResponse: {
+            /** Dismissed Hints */
+            dismissed_hints?: string[];
+            /** Available Hints */
+            available_hints?: {
+                [key: string]: string;
+            };
+        };
         /** HouseholdNameResponse */
         HouseholdNameResponse: {
             /** Name */
@@ -7275,6 +7353,12 @@ export interface components {
             wizard_completed: boolean;
             /** Modules */
             modules?: string[];
+            /** Dismissed Hints */
+            dismissed_hints?: string[];
+            /** Available Hints */
+            available_hints?: {
+                [key: string]: string;
+            };
             /** Household Has Data */
             household_has_data: boolean;
             demo_data: components["schemas"]["DemoDataStatus"];
@@ -11231,6 +11315,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingStatusResponse"];
+                };
+            };
+        };
+    };
+    get_hints_households_onboarding_hints_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HintStateResponse"];
+                };
+            };
+        };
+    };
+    reset_hints_households_onboarding_hints_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HintStateResponse"];
+                };
+            };
+        };
+    };
+    dismiss_hint_households_onboarding_hints_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissHintRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HintStateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -1,15 +1,19 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { $api } from "@/lib/api/query";
 import { NoteList } from "@/components/notes/note-list";
 import { NoteEditor } from "@/components/notes/note-editor";
 import { NoteGraph } from "@/components/notes/note-graph";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { useRegisterCurrentResource } from "@/lib/chat-context/current-resource";
 import { useResizablePanel } from "@/lib/hooks/use-resizable-panel";
 import { useFocusMode } from "@/lib/focus/context";
 import { FocusToggle } from "@/components/focus/focus-toggle";
 import { useAuth } from "@/lib/auth/context";
-import { BookOpen, Network, List } from "lucide-react";
+import { BookOpen, Network, List, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { components } from "@/lib/api/schema";
 
@@ -33,6 +37,14 @@ export default function NotesPage() {
   useEffect(() => {
     setSelectedId(null);
   }, [user?.id]);
+
+  // onboarding-003: the list lives in NoteList, which owns the search box — its
+  // count reflects the filter. A one-row unfiltered probe is the only honest
+  // "does this household have any notes at all" signal available on this page.
+  const { data: notesProbe } = $api.useQuery("get", "/notes", {
+    params: { query: { limit: 1 } },
+  });
+  const hasNoNotes = notesProbe !== undefined && notesProbe.items.length === 0;
 
   // ── Resizable panel + focus ─────────────────────────────────────────────────
   const { width, startResize } = useResizablePanel({
@@ -133,6 +145,10 @@ export default function NotesPage() {
         <FocusToggle className="ml-auto shrink-0" />
       </div>
 
+      {/* shrink-0: the pane layout below is `flex-1 min-h-0`, so a growable
+          banner here would eat the editor's scroll area. */}
+      <HintBanner id="notes" className="shrink-0 m-3 mb-0" />
+
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
 
@@ -179,10 +195,29 @@ export default function NotesPage() {
               )}
             >
               {selectedId === null ? (
-                <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
-                  <BookOpen className="h-10 w-10 mb-3 opacity-30" />
-                  <p className="text-sm">Select a note or create one.</p>
-                </div>
+                /* onboarding-003: the sidebar is ~260px, too narrow for a rich
+                   empty state, so it lives in the editor pane instead. Someone
+                   who already has notes gets the short "pick one" prompt — they
+                   do not need to be told what notes are. */
+                hasNoNotes ? (
+                  <EmptyState
+                    icon={BookOpen}
+                    title="No notes yet"
+                    description="Notes are for quick thoughts and references you want to find again later, without the ceremony of a document."
+                    className="h-full"
+                    action={
+                      <Button size="sm" onClick={handleNewNote}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Write your first note
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center px-6 text-muted-foreground">
+                    <BookOpen className="h-10 w-10 mb-3 opacity-30" />
+                    <p className="text-sm">Select a note or create one.</p>
+                  </div>
+                )
               ) : (
                 <NoteEditor
                   key={selectedId}

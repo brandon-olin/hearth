@@ -7,6 +7,8 @@ import { EventSheet } from "@/components/calendar/event-sheet";
 import { SessionSheet } from "@/components/calendar/session-sheet";
 import { TodoSheet } from "@/components/todos/todo-sheet";
 import { HabitSheet } from "@/components/habits/habit-sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft,
@@ -14,6 +16,7 @@ import {
   Plus,
   MapPin,
   Clock,
+  CalendarDays,
 } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import type { components } from "@/lib/api/schema";
@@ -389,6 +392,7 @@ function MonthView({
   onEditHabit,
   onOpenSession,
   canCreate,
+  householdHasEvents,
 }: {
   year: number;
   month: number;
@@ -406,6 +410,8 @@ function MonthView({
   onEditHabit: (habit: Habit) => void;
   onOpenSession: (session: WorkoutSession) => void;
   canCreate: boolean;
+  /** False only when the household has never created an event — onboarding-003. */
+  householdHasEvents: boolean;
 }) {
   const grid = useMemo(() => buildGrid(year, month), [year, month]);
   const selectedEvents = useMemo(
@@ -488,7 +494,29 @@ function MonthView({
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
-          {totalSelected === 0 ? (
+          {totalSelected === 0 && !householdHasEvents ? (
+            /* onboarding-003: an empty day is normal and gets the terse "No
+               events". A household that has never made an event at all gets
+               told what the calendar is for instead — once, until they do. */
+            <EmptyState
+              icon={CalendarDays}
+              title="Nothing scheduled yet"
+              description="Your calendar gathers events, the to-dos due each day, and the habits scheduled for it, so one view covers the day."
+              className="px-2 py-8"
+              action={
+                canCreate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCreateEvent(selectedDate)}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Create your first event
+                  </Button>
+                )
+              }
+            />
+          ) : totalSelected === 0 ? (
             <div className="py-8 text-center">
               <p className="text-xs text-muted-foreground">No events</p>
               {canCreate && (
@@ -945,6 +973,14 @@ export default function CalendarPage() {
     params: { query: { starts_after: fetchFrom, starts_before: fetchTo, limit: 200 } },
   });
 
+  // onboarding-003: every query on this page is windowed to the visible dates,
+  // so an empty result means "nothing this month", never "nothing ever". This
+  // unwindowed one-row probe is what separates the two.
+  const { data: eventsProbe } = $api.useQuery("get", "/events", {
+    params: { query: { limit: 1 } },
+  });
+  const householdHasEvents = eventsProbe === undefined || eventsProbe.items.length > 0;
+
   // ── Fetch todos with due dates in the visible window ────────────────────────
   const { data: todosData } = $api.useQuery("get", "/todos", {
     params: {
@@ -1208,6 +1244,10 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {/* shrink-0: the body below is `flex-1 min-h-0`, so the banner must not
+          grow into the grid's scroll area. */}
+      <HintBanner id="calendar" className="shrink-0 mx-6 mt-4" />
+
       {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {view === "month" && (
@@ -1235,6 +1275,7 @@ export default function CalendarPage() {
             onEditHabit={openEditHabit}
             onOpenSession={openSession}
             canCreate={can("calendar", "create")}
+            householdHasEvents={householdHasEvents}
           />
         )}
 

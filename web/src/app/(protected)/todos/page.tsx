@@ -8,8 +8,10 @@ import { Select } from "@/components/ui/select";
 import { TodoRow } from "@/components/todos/todo-row";
 import { TodoSheet } from "@/components/todos/todo-sheet";
 import { QuickAdd } from "@/components/todos/quick-add";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { cn } from "@/lib/utils";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, ListTodo } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import type { components } from "@/lib/api/schema";
 
@@ -229,6 +231,8 @@ export default function TodosPage() {
         </div>
       </div>
 
+      <HintBanner id="todos" className="mb-4" />
+
       {/* Filter tabs */}
       <div className="flex items-center border-b mb-4">
         {FILTERS.map(({ key, label }) => (
@@ -277,7 +281,27 @@ export default function TodosPage() {
         <p className="py-8 text-sm text-destructive">Failed to load todos.</p>
       )}
 
-      {!isLoading && !isError && groups.length === 0 && (
+      {/* onboarding-003: the rich state is for someone who has *no* to-dos at
+          all. "Nothing active — nice work." belongs to someone who has plenty
+          and finished them — telling that person what a to-do is would be
+          insulting, so the two states stay separate. */}
+      {!isLoading && !isError && allItems.length === 0 && (
+        <EmptyState
+          icon={ListTodo}
+          title="No to-dos yet"
+          description="To-dos are one-off tasks. Give one a due date and it turns up here, on your dashboard, and on the day it's due in your calendar."
+          action={
+            can("todos", "create") && (
+              <Button size="sm" onClick={openCreate}>
+                <Plus className="h-4 w-4 mr-1" />
+                Create your first to-do
+              </Button>
+            )
+          }
+        />
+      )}
+
+      {!isLoading && !isError && allItems.length > 0 && groups.length === 0 && (
         <div className="py-12 text-center">
           <p className="text-sm text-muted-foreground">
             {filter === "active"

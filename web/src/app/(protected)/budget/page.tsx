@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiBaseUrl } from "@/lib/api/client";
 import { fetchWithAuth } from "@/lib/api/fetch-with-auth";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import {
   Upload,
   Download,
@@ -3333,34 +3335,34 @@ export default function BudgetPage() {
 
   if (!accountsLoading && !hasAccounts) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
-        <div className="rounded-full bg-muted p-4">
-          <Upload className="w-8 h-8 text-muted-foreground" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold mb-1">Budget</h1>
-          <p className="text-muted-foreground text-sm max-w-sm">
-            Connect your bank or import statements to get started.
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap justify-center">
-          {tellerConfig?.enabled && (
-            <Button onClick={handleConnectBank} disabled={connectingBank}>
-              {connectingBank ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <ArrowLeftRight className="w-4 h-4 mr-2" />
+      <div className="max-w-2xl mx-auto px-4 pt-6">
+        <HintBanner id="budget" className="mb-6" />
+        <EmptyState
+          icon={Upload}
+          title="Nothing in your budget yet"
+          description="Bring in transactions from your bank and Hearth sorts them into categories you can rename, re-assign, and budget against month by month."
+          className="min-h-[50vh]"
+          action={
+            <div className="flex gap-2 flex-wrap justify-center">
+              {tellerConfig?.enabled && (
+                <Button onClick={handleConnectBank} disabled={connectingBank}>
+                  {connectingBank ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <ArrowLeftRight className="w-4 h-4 mr-2" />
+                  )}
+                  Connect bank
+                </Button>
               )}
-              Connect bank
-            </Button>
-          )}
-          <Button
-            variant={tellerConfig?.enabled ? "outline" : "default"}
-            onClick={() => router.push("/budget/import")}
-          >
-            Import transactions
-          </Button>
-        </div>
+              <Button
+                variant={tellerConfig?.enabled ? "outline" : "default"}
+                onClick={() => router.push("/budget/import")}
+              >
+                Import transactions
+              </Button>
+            </div>
+          }
+        />
       </div>
     );
   }
@@ -3396,6 +3398,8 @@ export default function BudgetPage() {
           selectedAccountName={effectiveDeleteAccountName}
         />
       </div>
+
+      <HintBanner id="budget" />
 
       {/* ── Account + month row ── */}
       <div className="flex items-center justify-between gap-3">

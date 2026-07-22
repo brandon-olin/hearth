@@ -50,8 +50,34 @@ class OnboardingStatusResponse(BaseModel):
     #: Module ids the member picked in the wizard ("finance", "habits", …).
     #: Empty when the wizard has not run or the member skipped the question.
     modules: list[str] = Field(default_factory=list)
+    #: Ids of the first-visit hints this member has dismissed (onboarding-003).
+    #: Per member, like the wizard flag — dismissing the budget hint does not
+    #: take it away from a partner who has never opened the page.
+    dismissed_hints: list[str] = Field(default_factory=list)
+    #: Every hint id the client may show, mapped to the page it belongs to.
+    #: Sent so a client (or an agent) can enumerate hints without hard-coding
+    #: the list.
+    available_hints: dict[str, str] = Field(default_factory=dict)
     #: True when the household holds any content the user actually created —
     #: sample data does not count. This is the guard that stops the seeder
     #: writing over someone's work.
     household_has_data: bool
     demo_data: DemoDataStatus
+
+
+class DismissHintRequest(BaseModel):
+    """Ask to stop showing one first-visit hint to the calling member."""
+
+    #: One of the ids in ``OnboardingStatusResponse.available_hints``.
+    hint_id: str
+
+
+class HintStateResponse(BaseModel):
+    """The member's hint state after a dismiss or a reset.
+
+    Both operations return the full list rather than an acknowledgement, so a
+    client never has to re-read to find out where it stands.
+    """
+
+    dismissed_hints: list[str] = Field(default_factory=list)
+    available_hints: dict[str, str] = Field(default_factory=dict)

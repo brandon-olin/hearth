@@ -26,6 +26,8 @@ from life_dashboard.onboarding import service as onboarding_service
 from life_dashboard.onboarding.schemas import (
     ClearDemoDataResponse,
     DemoDataStatus,
+    DismissHintRequest,
+    HintStateResponse,
     OnboardingStatusResponse,
     SeedDemoDataResponse,
 )
@@ -549,10 +551,64 @@ async def get_onboarding_status(
     return OnboardingStatusResponse(
         wizard_completed=onboarding_service.wizard_completed(current_user),
         modules=onboarding_service.wizard_modules(current_user),
+        dismissed_hints=onboarding_service.dismissed_hints(current_user),
+        available_hints=onboarding_service.HINT_PAGES,
         household_has_data=await onboarding_service.household_has_real_data(
             db, current_user.household_id
         ),
         demo_data=await onboarding_service.demo_data_status(db, current_user.household_id),
+    )
+
+
+@router.get("/onboarding/hints", response_model=HintStateResponse)
+async def get_hints(
+    current_user: User = Depends(get_current_user),
+) -> HintStateResponse:
+    """This member's first-visit hint state, and nothing else.
+
+    Separate from ``GET /onboarding`` on purpose: that endpoint counts rows
+    across ten domain tables to answer ``household_has_data``, and every domain
+    page in the web client asks about hints. Reading a key off the already-loaded
+    user costs no queries at all.
+    """
+    return HintStateResponse(
+        dismissed_hints=onboarding_service.dismissed_hints(current_user),
+        available_hints=onboarding_service.HINT_PAGES,
+    )
+
+
+@router.post("/onboarding/hints/dismiss", response_model=HintStateResponse)
+async def dismiss_hint(
+    body: DismissHintRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HintStateResponse:
+    """Stop showing one first-visit hint to the calling member (onboarding-003).
+
+    Idempotent — dismissal is set membership, so a double-tapped close button or
+    a retried request lands on the same list rather than appending twice. Scoped
+    to the caller: dismissing a hint never affects another member.
+    """
+    try:
+        dismissed = await onboarding_service.dismiss_hint(db, current_user, body.hint_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return HintStateResponse(
+        dismissed_hints=dismissed, available_hints=onboarding_service.HINT_PAGES
+    )
+
+
+@router.delete("/onboarding/hints", response_model=HintStateResponse)
+async def reset_hints(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HintStateResponse:
+    """Bring every dismissed hint back for the calling member — what the
+    Settings → Account "show tips again" control calls. Idempotent: with nothing
+    dismissed it returns the same empty list rather than erroring."""
+    dismissed = await onboarding_service.reset_hints(db, current_user)
+    return HintStateResponse(
+        dismissed_hints=dismissed, available_hints=onboarding_service.HINT_PAGES
     )
 
 

@@ -417,3 +417,116 @@ async def test_wizard_modules_tolerates_malformed_preferences(db_session):
     assert onboarding.wizard_modules(
         User(email="c@x.com", password_hash="x", preferences=None)
     ) == []
+
+
+# ── First-visit hints (onboarding-003) ────────────────────────────────────────
+
+async def test_dismissed_hints_reads_defensively(db_session):
+    """Every shape the preferences column can legitimately hold."""
+    never = User(email="h1@example.com", password_hash="x", preferences=None)
+    other = User(email="h2@example.com", password_hash="x",
+                 preferences={"theme": {"accentId": "blue"}})
+    some = User(email="h3@example.com", password_hash="x",
+                preferences={"dismissed_hints": ["budget", "habits"]})
+    # A string where a list belongs, and an id from a client we don't know.
+    malformed = User(email="h4@example.com", password_hash="x",
+                     preferences={"dismissed_hints": "budget"})
+    unknown = User(email="h5@example.com", password_hash="x",
+                   preferences={"dismissed_hints": ["budget", "teleporter", 7]})
+
+    assert onboarding.dismissed_hints(never) == []
+    assert onboarding.dismissed_hints(other) == []
+    assert set(onboarding.dismissed_hints(some)) == {"budget", "habits"}
+    assert onboarding.dismissed_hints(malformed) == []
+    # Unknown ids are filtered from the answer, not surfaced to a caller that
+    # could not act on them.
+    assert onboarding.dismissed_hints(unknown) == ["budget"]
+
+
+async def test_dismiss_hint_is_idempotent(db_session):
+    _hh, user = await _household(db_session, "dismiss@example.com")
+
+    first = await onboarding.dismiss_hint(db_session, user, "budget")
+    second = await onboarding.dismiss_hint(db_session, user, "budget")
+
+    assert first == ["budget"]
+    assert second == ["budget"]
+    # The stored list itself must not have grown — a double-tap writes once.
+    assert user.preferences["dismissed_hints"] == ["budget"]
+
+
+async def test_dismiss_hint_preserves_other_preferences(db_session):
+    _hh, user = await _household(db_session, "prefs@example.com")
+    user.preferences = {"onboarding_completed": True, "theme": {"accentId": "blue"}}
+    await db_session.flush()
+
+    await onboarding.dismiss_hint(db_session, user, "habits")
+
+    assert user.preferences["onboarding_completed"] is True
+    assert user.preferences["theme"] == {"accentId": "blue"}
+    assert user.preferences["dismissed_hints"] == ["habits"]
+
+
+async def test_dismiss_unknown_hint_names_the_valid_ids(db_session):
+    _hh, user = await _household(db_session, "unknown@example.com")
+
+    try:
+        await onboarding.dismiss_hint(db_session, user, "teleporter")
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected ValueError for an unknown hint id")
+
+    assert "teleporter" in message
+    for hint_id in onboarding.HINT_PAGES:
+        assert hint_id in message
+    assert onboarding.dismissed_hints(user) == []
+
+
+async def test_reset_hints_restores_all_and_is_idempotent(db_session):
+    _hh, user = await _household(db_session, "reset@example.com")
+    user.preferences = {"onboarding_completed": True}
+    await onboarding.dismiss_hint(db_session, user, "budget")
+    await onboarding.dismiss_hint(db_session, user, "recipes")
+
+    assert await onboarding.reset_hints(db_session, user) == []
+    assert await onboarding.reset_hints(db_session, user) == []
+    # Resetting hints must not disturb anything else in preferences.
+    assert user.preferences["onboarding_completed"] is True
+
+
+async def test_hints_are_per_member(db_session):
+    _hh, one = await _household(db_session, "member-one@example.com")
+    two = User(email="member-two@example.com", password_hash="x")
+    db_session.add(two)
+    await db_session.flush()
+
+    await onboarding.dismiss_hint(db_session, one, "budget")
+
+    assert onboarding.dismissed_hints(one) == ["budget"]
+    assert onboarding.dismissed_hints(two) == []
+
+
+async def test_dismiss_hint_persists_to_the_database(db_session):
+    """The commit must actually reach the row, not just the in-memory object.
+
+    Every other assertion in this file reads ``user.preferences`` straight back
+    off the instance that was just mutated, which would look identical if the
+    write never left the session. The refresh re-reads from the database.
+    """
+    _hh, user = await _household(db_session, "durable@example.com")
+
+    await onboarding.dismiss_hint(db_session, user, "calendar")
+    await db_session.refresh(user)
+
+    assert user.preferences["dismissed_hints"] == ["calendar"]
+
+
+async def test_reset_hints_persists_to_the_database(db_session):
+    _hh, user = await _household(db_session, "durable-reset@example.com")
+    await onboarding.dismiss_hint(db_session, user, "calendar")
+
+    await onboarding.reset_hints(db_session, user)
+    await db_session.refresh(user)
+
+    assert "dismissed_hints" not in (user.preferences or {})

@@ -9,6 +9,8 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RecipeSheet } from "@/components/recipes/recipe-sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   Plus, Loader2, ChefHat, Clock, Search, ChevronLeft, ChevronRight, X,
@@ -323,6 +325,8 @@ export default function RecipesPage() {
         )}
       </div>
 
+      <HintBanner id="recipes" className="mb-4" />
+
       {/* Search + tag filter — single row, minimal vertical footprint */}
       <div className="flex items-center gap-2 mb-5">
         <div className="relative flex-1">
@@ -364,23 +368,31 @@ export default function RecipesPage() {
       {isError && (
         <p className="py-8 text-sm text-destructive">Failed to load recipes.</p>
       )}
-      {!isLoading && !isError && recipes.length === 0 && (
+      {/* onboarding-003: filtering is server-side, so `recipes` being empty can
+          just mean the search matched nothing. The rich state needs the
+          unfiltered count. */}
+      {!isLoading && !isError && recipes.length === 0 && !hasFilters && (
+        <EmptyState
+          icon={ChefHat}
+          title="No recipes yet"
+          description="Keep your recipes in one place, then send any recipe's ingredients straight to a grocery list."
+          action={
+            can("recipes", "create") && (
+              <Button size="sm" onClick={() => setSheetOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add your first recipe
+              </Button>
+            )
+          }
+        />
+      )}
+
+      {!isLoading && !isError && recipes.length === 0 && hasFilters && (
         <div className="py-12 text-center">
           <ChefHat className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
-            {hasFilters ? "No recipes match those filters." : "No recipes yet."}
+            No recipes match those filters.
           </p>
-          {!hasFilters && can("recipes", "create") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={() => setSheetOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add one
-            </Button>
-          )}
         </div>
       )}
 

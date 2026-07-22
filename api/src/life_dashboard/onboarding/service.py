@@ -27,6 +27,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from life_dashboard.auth.models import User
 from life_dashboard.domains.budget.models import (
@@ -61,6 +62,27 @@ from life_dashboard.onboarding.schemas import (
 WIZARD_FLAG_KEY = "onboarding_completed"
 #: Preference key holding the module ids the member picked in the wizard.
 WIZARD_MODULES_KEY = "onboarding_modules"
+#: Preference key holding the ids of first-visit hints this member has
+#: dismissed (onboarding-003). A list of strings; a missing key means nothing
+#: has been dismissed yet, which is the correct default for every account —
+#: including ones that predate hints, who simply see each hint once.
+DISMISSED_HINTS_KEY = "dismissed_hints"
+
+#: Every first-visit hint the web client can show, mapped to the page it lives
+#: on. The hint *copy* is UI text and lives in the web client
+#: (``web/src/lib/onboarding/hints.ts``); only the ids live here, so the API can
+#: reject a typo with the list of real ids instead of silently persisting a
+#: dismissal for a hint that will never be shown.
+HINT_PAGES: dict[str, str] = {
+    "todos": "/todos",
+    "habits": "/habits",
+    "budget": "/budget",
+    "recipes": "/recipes",
+    "notes": "/notes",
+    "calendar": "/calendar",
+    "goals": "/goals",
+    "projects": "/projects",
+}
 
 #: entity_type → (model, id attribute). The clear path resolves rows through
 #: this map; an entity_type absent here is skipped rather than raising, so a
@@ -197,6 +219,92 @@ def wizard_modules(user: User) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [m for m in raw if isinstance(m, str)]
+
+
+# ── First-visit hints (onboarding-003) ────────────────────────────────────────
+#
+# Per *member* state, like the wizard flag — one person dismissing the budget
+# hint must not take it away from their partner, who has never seen the page.
+# It lives in ``users.preferences`` for the same reason the wizard flag does: it
+# is a handful of strings of UI state, not a domain entity, and a column for it
+# would buy nothing a JSON key does not already give.
+
+
+def dismissed_hints(user: User) -> list[str]:
+    """Hint ids this member has dismissed, in catalog order.
+
+    Read defensively — the stored value may predate this feature, or hold an id
+    from a newer client. Unknown ids are kept in the stored list (removing them
+    would silently un-dismiss a hint after a rollback) but filtered out here, so
+    a caller only ever sees ids it can act on.
+    """
+    raw = (user.preferences or {}).get(DISMISSED_HINTS_KEY)
+    if not isinstance(raw, list):
+        return []
+    stored = {h for h in raw if isinstance(h, str)}
+    return [hint_id for hint_id in HINT_PAGES if hint_id in stored]
+
+
+def unknown_hint_message(hint_id: str) -> str:
+    """The error a caller gets for a hint id that does not exist.
+
+    Names the valid ids rather than just refusing — this message is read by
+    agents as often as by developers.
+    """
+    return (
+        f"Unknown hint id {hint_id!r}. Valid hint ids are: "
+        f"{', '.join(sorted(HINT_PAGES))}."
+    )
+
+
+async def dismiss_hint(db: AsyncSession, user: User, hint_id: str) -> list[str]:
+    """Mark one hint dismissed for this member. Returns the new dismissed list.
+
+    Idempotent by construction: dismissal is set membership, so a double-tapped
+    close button, a retried request, and a background refetch all converge on
+    the same list. Raises :class:`ValueError` for an id that is not in the
+    catalog — see :func:`unknown_hint_message`.
+    """
+    if hint_id not in HINT_PAGES:
+        raise ValueError(unknown_hint_message(hint_id))
+
+    # Rebuild the dict rather than mutating in place, and read the result back
+    # off the in-memory object rather than refreshing: ``AsyncSessionLocal`` sets
+    # ``expire_on_commit=False``, so the committed value is still here, and a
+    # refresh would additionally require ``user`` to be attached to *this*
+    # session — which the caller does not owe us.
+    preferences = dict(user.preferences or {})
+    stored = preferences.get(DISMISSED_HINTS_KEY)
+    stored = [h for h in stored if isinstance(h, str)] if isinstance(stored, list) else []
+    if hint_id not in stored:
+        stored.append(hint_id)
+        preferences[DISMISSED_HINTS_KEY] = stored
+        user.preferences = preferences
+        # SQLAlchemy does not reliably detect JSON mutation through a replaced
+        # dict reference; the same flag_modified the /auth/me PATCH needs.
+        # Assigning a fresh dict is already enough for SQLAlchemy to see the
+        # change; flag_modified is belt-and-braces against someone later
+        # "simplifying" this into an in-place mutation, which it would not.
+        # Same reasoning as the /auth/me PATCH handler.
+        flag_modified(user, "preferences")
+        await db.commit()
+    return dismissed_hints(user)
+
+
+async def reset_hints(db: AsyncSession, user: User) -> list[str]:
+    """Bring every dismissed hint back for this member — the Settings → Account
+    "show tips again" action. Idempotent: resetting twice is a no-op the second
+    time, and returns the same empty list."""
+    preferences = dict(user.preferences or {})
+    if preferences.pop(DISMISSED_HINTS_KEY, None) is not None:
+        user.preferences = preferences
+        # Assigning a fresh dict is already enough for SQLAlchemy to see the
+        # change; flag_modified is belt-and-braces against someone later
+        # "simplifying" this into an in-place mutation, which it would not.
+        # Same reasoning as the /auth/me PATCH handler.
+        flag_modified(user, "preferences")
+        await db.commit()
+    return dismissed_hints(user)
 
 
 # ── Seeding ───────────────────────────────────────────────────────────────────

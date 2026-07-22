@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { HabitRow } from "@/components/habits/habit-row";
 import { HabitSheet } from "@/components/habits/habit-sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { Plus, Loader2, Repeat } from "lucide-react";
 import type { components } from "@/lib/api/schema";
 
@@ -32,7 +34,8 @@ export default function HabitsPage() {
     params: { query: { limit: 100 } },
   });
 
-  const displayed = applyFilter(data?.items ?? [], filter);
+  const allHabits = data?.items ?? [];
+  const displayed = applyFilter(allHabits, filter);
 
   function openCreate() {
     setEditingHabit(null);
@@ -74,6 +77,8 @@ export default function HabitsPage() {
         </div>
       </div>
 
+      <HintBanner id="habits" className="mb-4" />
+
       {/* Loading / error */}
       {isLoading && (
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -89,7 +94,22 @@ export default function HabitsPage() {
       {/* Table */}
       {!isLoading && !isError && (
         <>
-          {displayed.length === 0 ? (
+          {/* onboarding-003: only someone with no habits at all gets told what
+              habits are for. With the filter on "paused" and three active
+              habits, "No paused habits." is the honest answer. */}
+          {allHabits.length === 0 ? (
+            <EmptyState
+              icon={Repeat}
+              title="No habits yet"
+              description="Habits are the things you want to do regularly. Check in as you go and your daily streak and weekly completion rate build up here."
+              action={
+                <Button size="sm" onClick={openCreate}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create your first habit
+                </Button>
+              }
+            />
+          ) : displayed.length === 0 ? (
             <div className="py-12 text-center">
               <p className="text-sm text-muted-foreground">
                 {filter === "active"

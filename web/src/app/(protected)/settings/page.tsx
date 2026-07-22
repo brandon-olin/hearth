@@ -44,6 +44,7 @@ import { validatePassword } from "@/lib/auth/password-policy";
 import { useAppConfig } from "@/lib/app-config";
 import { $api } from "@/lib/api/query";
 import { apiBaseUrl } from "@/lib/api/client";
+import { useHints } from "@/lib/onboarding/use-hints";
 import { useThemeCustomizer } from "@/lib/theme/context";
 import {
   BASE_THEMES,
@@ -2758,6 +2759,10 @@ function AccountSection() {
   const qc = useQueryClient();
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // ── First-visit tips (onboarding-003) ────────────────────────────────────────
+  const { dismissed, resetAll, isResetting } = useHints();
+  const dismissedHintCount = dismissed.length;
+
   // ── Locale state ─────────────────────────────────────────────────────────────
   const [timezone,   setTimezone]   = useState(user?.timezone   ?? "");
   const [dateFormat, setDateFormat] = useState(user?.date_format ?? "MM/DD/YY");
@@ -2842,6 +2847,37 @@ function AccountSection() {
       {changingPassword && (
         <ChangePasswordModal onClose={() => setChangingPassword(false)} />
       )}
+
+      {/* ── Tips (onboarding-003) ───────────────────────────────────────────── */}
+      <SubSection title="Tips">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">First-visit tips</p>
+            <p className="text-xs text-muted-foreground">
+              {dismissedHintCount === 0
+                ? "You haven't dismissed any tips. They appear once on each section and disappear when you close them."
+                : `You've dismissed ${dismissedHintCount} ${
+                    dismissedHintCount === 1 ? "tip" : "tips"
+                  }. Show them again on the sections they belong to.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void resetAll()}
+            disabled={dismissedHintCount === 0 || isResetting}
+            className="h-8 px-3 text-sm font-medium rounded-md border hover:bg-muted transition-colors shrink-0 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center"
+          >
+            {isResetting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Restoring…
+              </>
+            ) : (
+              "Show tips again"
+            )}
+          </button>
+        </div>
+      </SubSection>
 
       {/* ── Locale ──────────────────────────────────────────────────────────── */}
       <SubSection title="Locale & date preferences">

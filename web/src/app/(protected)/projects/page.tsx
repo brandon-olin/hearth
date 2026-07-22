@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { $api } from "@/lib/api/query";
 import { Button } from "@/components/ui/button";
 import { ProjectCreateSheet } from "@/components/projects/project-create-sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HintBanner } from "@/components/onboarding/hint-banner";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import {
@@ -131,6 +133,10 @@ export default function ProjectsPage() {
     all:      all.length,
   };
 
+  // onboarding-003: system projects are seeded, not authored — a household that
+  // only has those has made nothing yet and should still get the rich state.
+  const hasOwnProjects = all.some((p) => !p.is_system);
+
   return (
     <div className="page-content">
       {/* Header */}
@@ -146,6 +152,8 @@ export default function ProjectsPage() {
           </Button>
         )}
       </div>
+
+      <HintBanner id="projects" className="mb-4" />
 
       {/* Filter tabs */}
       <div className="flex border-b mb-5">
@@ -225,6 +233,26 @@ export default function ProjectsPage() {
           {userProjects.map((p) => (
             <ProjectRow key={p.id} project={p} />
           ))}
+          {/* onboarding-003: the rich state sits *below* the seeded "To-dos"
+              project rather than replacing the list. Every household is given
+              that one row, so a plain "No projects yet" above a visible project
+              would contradict itself — what's missing is a project the
+              household made. */}
+          {!hasOwnProjects && (
+            <EmptyState
+              icon={FolderKanban}
+              title="No projects of your own yet"
+              description="Projects group related to-dos so a bigger piece of work stays in one place instead of scattered across your task list."
+              action={
+                can("projects", "create") && (
+                  <Button size="sm" onClick={() => setCreateOpen(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Create your first project
+                  </Button>
+                )
+              }
+            />
+          )}
         </div>
       )}
 
