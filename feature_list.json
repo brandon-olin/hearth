@@ -799,7 +799,7 @@
       "category": "AI Coach",
       "priority": 2,
       "title": "Coach widget free-text focus field",
-      "description": "Lets the user write 1-2 sentences of free-text guidance for what the coach should focus on, persisted per-widget in AiCoachWidgetConfig.focus and threaded through to /ai/coach/digest/generate. Goes beyond the structured pinned-projects/goals/habits selectors: 'I'm preparing for a hard conversation today' or 'I want to recover from a rough weekend'. Server renders a '## What I want you to focus on right now' section in the user message just before the briefing instructions.",
+      "description": "Lets the user write 1-2 sentences of free-text guidance for what the coach should focus on, persisted per-widget in AiCoachWidgetConfig.focus and threaded through to /ai/coach/digest/generate. Goes beyond the structured pinned-projects/goals/habits selectors: 'I'm preparing for a hard conversation today' or 'I want to recover from a rough weekend'. Server renders a '## What I want you to focus on right now' section in the user message just before the briefing instructions.\n\nVERIFIED (2026-07-21): code landed on main in the coach-closeout build but the passes flag was left False (the final mark-passing step was skipped). Confirmed present: the '## What I want you to focus on right now' section in coach_service.py, threaded from the widget JSON config focus key.",
       "steps": [
         "Open the AI coach widget settings; find the new 'Focus for this coach' textarea below the pinned-habit selectors",
         "Type a focus string and trigger Generate / Regenerate",
@@ -810,7 +810,7 @@
         "Verify backward compat: a widget config without `focus` field still works as 'no focus'",
         "Confirm focus is included in the prompt only when non-empty"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "coach-005",
@@ -855,7 +855,7 @@
       "category": "AI Coach",
       "priority": 1,
       "title": "Profile versioning + weekly scheduled refresh + decay (Phase 4)",
-      "description": "Final phase of the AI coach redesign. Three connected pieces. (1) Migration adds user_profile_versions append-only history table. A new _apply_profile_update helper is the single write path for memory_text — all write sites flow through it, snapshotting old content before overwrite, trimming rows beyond PROFILE_VERSION_RETENTION (50). (2) New run_scheduled_profile_refresh function: integrate durable patterns from last 4 weeks AND decay stale content (things that haven't recurred, resolved past situations, fixed-trait language). (3) New APScheduler weekly job at Sunday 03:00 iterates every user with a non-empty profile. (4) GET /ai/profile/versions?limit=N for debug.\n\nUPDATE (2026-07-20) — PARTIALLY SHIPPED, DO NOT WRITE A MIGRATION:\nPiece (1)'s claim that \"Migration adds user_profile_versions\" is stale — that\ntable shipped in migration 0034b. What remains of (1) is the\n_apply_profile_update helper being made the SINGLE write path for memory_text,\nwith every write site routed through it, snapshotting before overwrite and\ntrimming beyond PROFILE_VERSION_RETENTION (50). Pieces (2), (3) and (4) —\nrun_scheduled_profile_refresh with decay, the Sunday 03:00 APScheduler job, and\nGET /ai/profile/versions — are unbuilt as described.\n\nSEQUENCING: this must be built AFTER coach-006, because coach-006 adds a new\nmemory_text write site (the update_profile tool) that _apply_profile_update has\nto absorb. Building 007 first means retrofitting it.",
+      "description": "Final phase of the AI coach redesign. Three connected pieces. (1) Migration adds user_profile_versions append-only history table. A new _apply_profile_update helper is the single write path for memory_text — all write sites flow through it, snapshotting old content before overwrite, trimming rows beyond PROFILE_VERSION_RETENTION (50). (2) New run_scheduled_profile_refresh function: integrate durable patterns from last 4 weeks AND decay stale content (things that haven't recurred, resolved past situations, fixed-trait language). (3) New APScheduler weekly job at Sunday 03:00 iterates every user with a non-empty profile. (4) GET /ai/profile/versions?limit=N for debug.\n\nUPDATE (2026-07-20) — PARTIALLY SHIPPED, DO NOT WRITE A MIGRATION:\nPiece (1)'s claim that \"Migration adds user_profile_versions\" is stale — that\ntable shipped in migration 0034b. What remains of (1) is the\n_apply_profile_update helper being made the SINGLE write path for memory_text,\nwith every write site routed through it, snapshotting before overwrite and\ntrimming beyond PROFILE_VERSION_RETENTION (50). Pieces (2), (3) and (4) —\nrun_scheduled_profile_refresh with decay, the Sunday 03:00 APScheduler job, and\nGET /ai/profile/versions — are unbuilt as described.\n\nSEQUENCING: this must be built AFTER coach-006, because coach-006 adds a new\nmemory_text write site (the update_profile tool) that _apply_profile_update has\nto absorb. Building 007 first means retrofitting it.\n\nVERIFIED (2026-07-21): code landed on main in the coach-closeout build but the passes flag was left False (the final mark-passing step was skipped). Confirmed present: run_scheduled_profile_refresh + retention trim + the Sunday weekly job in main.py + GET /ai/profile/versions; _apply_profile_update is the shared write path.",
       "steps": [
         "Run alembic upgrade head; verify user_profile_versions table exists",
         "Save a new API key to trigger bootstrap; query user_profile_versions — verify NO row was created (snapshotting empty old content is correctly skipped)",
@@ -867,7 +867,7 @@
         "Insert 60 mock version rows for a user; trigger another _apply_profile_update; verify count is trimmed back to 50",
         "Confirm the scheduled refresh prompt biases toward SKIP when the profile is healthy and there's minimal new activity"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "journal-001",
