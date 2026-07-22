@@ -135,7 +135,11 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
       {/* Name — two affordances when a link is set:
             • clicking the name/icon navigates to the linked page
             • clicking anywhere else on the row opens the edit sheet  */}
-      <td className="py-2.5 pl-4 pr-3">
+      {/* max-w-0 + w-full makes the name column absorb the leftover width and
+          actually honour `truncate` — without it the auto table layout widens
+          the column to the longest habit name and pushes the Today toggle off
+          a phone screen. */}
+      <td className="py-2.5 pl-4 pr-3 max-w-0 w-full">
         <div className="flex items-center gap-2 min-w-0">
           {habitLink ? (
             <button
@@ -172,7 +176,7 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
       </td>
 
       {/* Frequency */}
-      <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
+      <td className="hidden sm:table-cell py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
         {frequencyLabel(habit)}
       </td>
 
@@ -188,12 +192,12 @@ export function HabitRow({ habit, today, onEdit }: HabitRowProps) {
       </td>
 
       {/* 7-day rate */}
-      <td className="py-2.5 px-3 text-xs">
+      <td className="hidden md:table-cell py-2.5 px-3 text-xs">
         <RateChip value={habit.completion_rate_7d ?? null} />
       </td>
 
       {/* 30-day rate */}
-      <td className="py-2.5 px-3 text-xs">
+      <td className="hidden md:table-cell py-2.5 px-3 text-xs">
         <RateChip value={habit.completion_rate_30d ?? null} />
       </td>
 

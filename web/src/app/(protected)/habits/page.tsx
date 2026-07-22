@@ -118,16 +118,16 @@ export default function HabitsPage() {
                     <th className="py-2.5 pl-4 pr-3 text-left text-xs font-medium text-muted-foreground">
                       Habit
                     </th>
-                    <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                    <th className="hidden sm:table-cell py-2.5 px-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                       Frequency
                     </th>
                     <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">
                       Streak
                     </th>
-                    <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">
+                    <th className="hidden md:table-cell py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">
                       7 days
                     </th>
-                    <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">
+                    <th className="hidden md:table-cell py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">
                       30 days
                     </th>
                     <th className="py-2.5 pl-3 pr-4 text-center text-xs font-medium text-muted-foreground">

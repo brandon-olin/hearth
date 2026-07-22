@@ -298,6 +298,25 @@ html.theme-switching *::after {
     min-height: 44px;
     min-width: 44px;
   }
+
+  /* Text fields, selects and textareas sit at 28–36px across the app. They are
+     wide enough to hit horizontally, so only the height needs raising — a
+     min-width here would stop narrow fields (the settings colour swatch) from
+     sizing themselves. Checkbox and radio keep their own hit-area rule below. */
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    min-height: 44px;
+  }
+
+  /* Links styled with buttonVariants render as <a>, which the exclusion above
+     skips. They are controls, not prose links, and the primitive stamps every
+     one with its `group/button` marker — target that rather than bare anchors
+     so inline text links stay unstretched. */
+  a.group\/button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 /* ── Badge primitives ─────────────────────────────────────────────────────────
@@ -415,13 +434,22 @@ input[type="checkbox"].checkbox-themed:checked {
 }
 
 /* Expand the tappable area to 44px on touch devices without changing the 14px
-   visual box. content-box clipping keeps the padding transparent, and the
-   negative margin cancels the layout effect so surrounding spacing is intact. */
+   visual box.
+
+   A padding + negative-margin trick cannot work here: the 1.5px border is
+   painted around the padding box, so the checkbox would render as a 44px
+   outlined square. An absolutely-positioned ::before is part of the input for
+   hit-testing but contributes nothing to layout or paint, so the box stays
+   14px and the touch target becomes 44px. (::after is the checkmark.) */
 @media (pointer: coarse) {
-  input[type="checkbox"].checkbox-themed {
-    padding: 15px;
-    margin: -15px;
-    background-clip: content-box;
+  input[type="checkbox"].checkbox-themed::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
   }
 }
 

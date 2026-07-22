@@ -126,7 +126,7 @@ function DraggableRecipe({ recipe }: { recipe: Recipe }) {
         isDragging && "opacity-40",
       )}
     >
-      <span className="line-clamp-2">{recipe.name}</span>
+      <span className="line-clamp-2 break-words">{recipe.name}</span>
     </div>
   );
 }
@@ -158,7 +158,10 @@ function PlannedMeal({
       <span
         {...listeners}
         {...attributes}
-        className="flex-1 cursor-grab active:cursor-grabbing line-clamp-2"
+        // break-words matters on the grid: a column is 1fr, whose floor is
+        // min-content, so one unbreakable recipe name would widen its day
+        // column and squeeze the other six.
+        className="flex-1 min-w-0 break-words cursor-grab active:cursor-grabbing line-clamp-2"
       >
         {entry.recipe_name ?? "Recipe"}
       </span>
@@ -200,7 +203,10 @@ function Cell({
       ref={setNodeRef}
       data-testid={`cell-${date}-${slot}`}
       className={cn(
-        "min-h-[64px] rounded-md border border-dashed p-1.5 flex flex-col gap-1 transition-colors",
+        // min-w-0 lets the 1fr day columns stay equal: without it a track's
+        // floor is its min-content width, so one long recipe name widens that
+        // day and squeezes the other six.
+        "min-w-0 min-h-[64px] rounded-md border border-dashed p-1.5 flex flex-col gap-1 transition-colors",
         isOver ? "border-primary bg-primary/5" : "border-border",
       )}
     >
@@ -483,9 +489,11 @@ export default function MealPlannerPage() {
           </div>
         )}
 
-        <div className="flex flex-1 min-h-0">
-          {/* Recipe sidebar */}
-          <aside className="w-56 shrink-0 border-r flex flex-col min-h-0">
+        <div className="flex flex-col md:flex-row flex-1 min-h-0">
+          {/* Recipe sidebar — on a phone the full-height rail would leave the
+              week grid ~150px to render seven days in, so below md it becomes a
+              bounded strip above the grid and the week gets the full width. */}
+          <aside className="w-full md:w-56 shrink-0 max-h-48 md:max-h-none border-b md:border-b-0 md:border-r flex flex-col min-h-0">
             <div className="p-3 border-b">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -517,9 +525,9 @@ export default function MealPlannerPage() {
             {planLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : (
-              <div className="min-w-[52rem]">
+              <div className="min-w-[40rem] md:min-w-[52rem]">
                 {/* Day header row */}
-                <div className="grid grid-cols-[5rem_repeat(7,1fr)] gap-1.5 mb-1.5">
+                <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] md:grid-cols-[5rem_repeat(7,1fr)] gap-1.5 mb-1.5">
                   <div />
                   {weekDates.map((iso, i) => (
                     <div key={iso} className="text-center">
@@ -534,7 +542,7 @@ export default function MealPlannerPage() {
                 {SLOTS.map((slot) => (
                   <div
                     key={slot}
-                    className="grid grid-cols-[5rem_repeat(7,1fr)] gap-1.5 mb-1.5"
+                    className="grid grid-cols-[3.5rem_repeat(7,1fr)] md:grid-cols-[5rem_repeat(7,1fr)] gap-1.5 mb-1.5"
                   >
                     <div className="text-xs text-muted-foreground pt-2">
                       {SLOT_LABEL[slot]}

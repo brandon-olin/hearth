@@ -6170,3 +6170,117 @@ strength of the other seven plus the API-level proof of this one.
 Recommended next feature: onboarding-003 (per-section empty states and
 first-visit hints) — the meal planner's empty grid is now one more section that
 would benefit from it.
+
+=== 2026-07-22 — Coding session ===
+
+Worked on: pwa-001 (mobile PWA — installable, offline shell, 375px responsive
+audit). Status: complete.
+
+Commits this session: see feat/pwa-001.
+
+STARTING POSITION. The PWA scaffolding already existed on main: e64e7fa landed
+the manifest, icons, service worker, offline page and a first round of
+responsive fixes back on 2026-07-20. What never happened was the passes flip —
+254c992's message says "mark pwa-001 passing" but its feature_list.json hunk
+does not touch the entry, the same skipped-final-step pattern already recorded
+for coach-004 and coach-007. So this session was a real verification pass over
+existing code, plus the fixes that pass turned up.
+
+HOW 375px WAS ACTUALLY REACHED. Chrome will not size a window below 500px wide
+on macOS, so resize_window cannot produce a phone viewport. The app was instead
+driven inside a same-origin 375x812 iframe served from web/public: an iframe
+establishes its own viewport, so `md:` and `(pointer: coarse)` media queries
+evaluate against 375px, and same-origin means the parent can measure
+documentElement.scrollWidth, walk getBoundingClientRect on every node and probe
+elementFromPoint inside it. The harness was deleted before commit. Touch targets
+were measured by extracting the app's own @media (pointer: coarse) blocks out of
+document.styleSheets and re-applying them unconditionally — that measures the
+shipped CSS rather than a hand-written approximation of it, which matters
+because the first version of that check was measuring my own copy of the rules
+and reported false passes.
+
+The account was seeded through the API with deliberately hostile strings (an
+84-character sentence and a 66-character unbreakable word) as todo, habit,
+recipe, project, goal, note, event, workout and meal-plan names, plus 21 meal
+entries and a month of transactions. An empty account shows empty states and
+proves nothing.
+
+WHAT THE AUDIT FOUND (all four were live defects, not theoretical):
+
+1. Habits table. The name column had `truncate` on the span but no width
+   constraint, so auto table layout widened the column to the longest name —
+   587px inside a 341px scroller — and pushed the Today check-in, the primary
+   daily action, 553px off screen. Fixed with max-w-0 + w-full on the name cell
+   so truncate engages, and by hiding Frequency below sm and the 7/30-day rates
+   below md. The table now measures 341px at 375px: Habit, Streak, Today, no
+   horizontal scroll.
+
+2. Meal planner. Kept its desktop two-pane layout at 375px: a 224px recipe rail
+   beside a grid with min-w-[52rem], leaving the week roughly 150px to render
+   seven days in. Only a sliver of Monday was reachable. The panes now stack
+   below md with the rail as a bounded strip above the grid, the day-label
+   column narrows to 3.5rem and the grid floor drops to 40rem. Separately the
+   1fr day tracks were unequal (one 258px against 77px) because a track's floor
+   is min-content and one unbreakable recipe name widened its day; min-w-0 on
+   the cell plus break-words on the chip made all seven exactly 77px.
+
+3. Touch targets. The coarse-pointer floor covered button and [role=button]
+   only. Selects sat at 32px, search inputs 28–36px, and the workouts
+   Progress/Templates links 28px — those are <a> styled with buttonVariants,
+   which the rule deliberately skipped along with prose links. Extended to
+   select/textarea/text inputs (height only; a min-width would break the
+   settings colour swatch) and to a.group\/button, using the marker class the
+   Button primitive already stamps on everything it styles, so no shadcn
+   primitive had to be edited.
+
+4. Checkbox hit area. The existing rule claimed 44px via padding + negative
+   margin, but Tailwind preflight sets border-box globally, so the padding was
+   subtracted from the 14px box instead of added to it — the real target was
+   32px. The first attempted fix (box-sizing: content-box) reached 46px and was
+   wrong for a different reason: the 1.5px border paints around the padding box,
+   so the checkbox rendered as a 46px outlined square overlapping its own label.
+   Padding cannot expand the hit area of a bordered control. Replaced with an
+   absolutely-positioned 44px ::before, which participates in hit-testing but
+   not in layout or paint (::after was already taken by the checkmark). Verified
+   by elementFromPoint: hits at ±20px in all four directions, misses at ±30px,
+   visual box still 14x14.
+
+SERVICE WORKER IN DEV. The SW caches /_next/static/ cache-first and forever,
+which is correct in production where those filenames are content-hashed, and
+actively harmful under `next dev` where they are reused across rebuilds. It cost
+about twenty minutes of this session: edits were on disk, tsc saw them, the
+server had recompiled, and the browser kept rendering the previous build from
+the SW cache. Registration is now skipped when NODE_ENV is development, and a
+dev load tears down any worker and hearth-* cache left behind by an earlier
+production build so nobody inherits a poisoned cache. CacheStorage is absent on
+insecure origins and `next dev` is reachable over plain http on the LAN, so that
+teardown is typeof-guarded.
+
+PWA VERIFICATION (against a real production build on :1403, not dev):
+manifest.json, both icons and the apple-touch-icon serve 200 and are genuine
+PNGs at 192x192, 512x512 and 180x180; the document carries link[rel=manifest],
+apple-touch-icon, apple-mobile-web-app-capable=yes, apple-mobile-web-app-title,
+theme-color #1c1412 and viewport-fit=cover; the worker activates at root scope
+and holds 35 entries — 29 hashed chunks plus /offline, /manifest.json, the three
+icons and visited documents — with ZERO /api or /uploads entries, so the privacy
+invariant in the SW header holds under test and not just by inspection. With the
+server killed outright, /goals (never visited) renders the fully styled offline
+page titled "Offline — Hearth" with a Try again button, and /login (visited)
+renders its real cached form. The mobile nav drawer opens at 375px with all 16
+sections reachable.
+
+Gate: 539 pytest passed, tsc --noEmit clean. No Python was touched.
+
+WHAT IS LEFT. Real iOS-Safari Add to Home Screen, and the standalone launch that
+follows it, cannot be driven headlessly — no amount of Chrome automation
+exercises Safari's installer or proves the absence of browser chrome on a
+device. Two of the seven feature_list steps (the iPhone install and the
+standalone launch) are therefore unexecuted and are worth two minutes on a phone
+against a LAN or deployed URL; everything they depend on — manifest fields,
+icon sizes, display: standalone, scope, apple meta — is verified above. The
+Lighthouse PWA audit was likewise not run as a tool; its installability inputs
+were checked individually instead. The feature is marked passing on that basis.
+
+Recommended next feature: onboarding-003 (per-section empty states and
+first-visit hints) — still unlanded, and the 375px pass left every empty state
+looking correct but bare.
