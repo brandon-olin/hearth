@@ -344,36 +344,13 @@ async def test_generating_twice_without_a_list_id_reuses_the_same_list(db_sessio
     second, _ = await service.generate_grocery_list(
         db_session, plan.id, hh.id, alice.id, GenerateGroceryListRequest()
     )
+    assert first.created_list is True
     assert second.list_id == first.list_id
     assert second.created_list is False
-    assert second.added == 0
+    assert second.added == 0 and second.skipped == first.added
 
     lists = await grocery_service.list_grocery_lists(db_session, hh.id, alice.id)
     assert lists.total == 1
-    items = await _items_on(db_session, first.list_id)
-    assert items[("garlic", "cloves")].quantity == Decimal("5")   # not 10
-
-
-async def test_generating_twice_without_a_target_reuses_one_list(db_session):
-    """The double-tap case. Without get-or-create on the generated name this is
-    the one path in the feature that mints a second list every press."""
-    hh, alice, _ = await _household(db_session)
-    plan, _, _ = await _planned_week(db_session, hh, alice)
-
-    first, _ = await service.generate_grocery_list(
-        db_session, plan.id, hh.id, alice.id, GenerateGroceryListRequest()
-    )
-    second, _ = await service.generate_grocery_list(
-        db_session, plan.id, hh.id, alice.id, GenerateGroceryListRequest()
-    )
-    assert first.created_list is True
-    assert second.created_list is False
-    assert second.list_id == first.list_id
-    assert second.added == 0 and second.skipped == first.added
-
-    all_lists = await grocery_service.list_grocery_lists(db_session, hh.id, alice.id)
-    assert all_lists.total == 1
-
     items = await _items_on(db_session, first.list_id)
     assert items[("garlic", "cloves")].quantity == Decimal("5")   # not 10
 
