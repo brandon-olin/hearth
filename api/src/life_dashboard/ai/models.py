@@ -241,6 +241,17 @@ class AiUsage(Base):
     )
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Prompt-caching counters. input_tokens is only the *uncached* remainder,
+    # so the true prompt size is
+    #   input_tokens + cache_creation_input_tokens + cache_read_input_tokens.
+    # Without these two columns a drop in input_tokens looks like a win even
+    # when nothing was actually cached.
+    cache_creation_input_tokens: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    cache_read_input_tokens: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
     # Actual model string returned by the provider (e.g. "claude-sonnet-4-6").
     model: Mapped[str] = mapped_column(Text)
     # "chat" for interactive turns, "memory_refresh" for background calls.

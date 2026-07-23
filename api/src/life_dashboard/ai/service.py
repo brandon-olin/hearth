@@ -533,14 +533,23 @@ async def record_usage(
     output_tokens: int,
     model: str,
     turn_kind: str = "chat",
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
 ) -> None:
     """Persist a single token-usage record.  Failures are non-critical — the
-    caller is responsible for catching and logging any exceptions."""
+    caller is responsible for catching and logging any exceptions.
+
+    The two cache counters default to 0 so callers on non-cached paths (the
+    background FAST_MODEL calls) need no change. `input_tokens` is only the
+    uncached remainder — total prompt size is the sum of all three.
+    """
     row = AiUsage(
         user_id=user_id,
         conversation_id=conversation_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
         model=model,
         turn_kind=turn_kind,
     )
@@ -613,6 +622,14 @@ async def get_usage_summary(
 # ── Context assembly ──────────────────────────────────────────────────────────
 
 def _build_system_prompt(user: User, memory_text: str) -> str:
+    """Assemble the chat system prompt.
+
+    This string is a prompt-cache breakpoint (see provider._cacheable), so it
+    must stay byte-identical across requests within a cache TTL window. The
+    date below is safe — it changes daily, not per request. Do NOT add a
+    timestamp, request id, or anything else that varies per call: caching
+    would silently stop working with no error, just a bigger bill.
+    """
     name = user.display_name or user.email
     today = date.today().strftime("%B %d, %Y")
 
@@ -1345,6 +1362,8 @@ async def generate_stream(
     # Accumulated token counts across all rounds (each round is one API call).
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cache_write: int = 0
+    total_cache_read: int = 0
     response_model: str = ""
 
     # Safety cap: prevent runaway tool-use loops.
@@ -1374,6 +1393,14 @@ async def generate_stream(
                     if usage is not None:
                         total_input_tokens += getattr(usage, "input_tokens", 0)
                         total_output_tokens += getattr(usage, "output_tokens", 0)
+                        # getattr defaults keep this safe against older SDK
+                        # response shapes; `or 0` covers an explicit None.
+                        total_cache_write += (
+                            getattr(usage, "cache_creation_input_tokens", 0) or 0
+                        )
+                        total_cache_read += (
+                            getattr(usage, "cache_read_input_tokens", 0) or 0
+                        )
                     if not response_model:
                         response_model = getattr(final_msg, "model", "") or ""
 
@@ -1437,7 +1464,12 @@ async def generate_stream(
             await _touch_conversation(db, conversation_id)
 
             # ── Persist token usage ────────────────────────────────────────────
-            if total_input_tokens > 0 or total_output_tokens > 0:
+            if (
+                total_input_tokens > 0
+                or total_output_tokens > 0
+                or total_cache_write > 0
+                or total_cache_read > 0
+            ):
                 try:
                     await record_usage(
                         db,
@@ -1445,6 +1477,8 @@ async def generate_stream(
                         conversation_id=conversation_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
+                        cache_creation_input_tokens=total_cache_write,
+                        cache_read_input_tokens=total_cache_read,
                         model=response_model,
                         turn_kind="chat",
                     )

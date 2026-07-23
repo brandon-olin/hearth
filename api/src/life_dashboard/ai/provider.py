@@ -11,6 +11,36 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
+_EPHEMERAL: dict[str, str] = {"type": "ephemeral"}
+
+
+def _cacheable(
+    tools: list[dict] | None, system: str
+) -> tuple[list[dict] | None, list[dict]]:
+    """Attach cache breakpoints to the stable prefix (tools → system).
+
+    Anthropic caches the prompt prefix cumulatively in the order
+    tools → system → messages. Marking the final tool definition caches the
+    whole tool array (~15.6k tokens, identical for every user); marking the
+    system block caches tools+system.
+
+    Both are copied rather than mutated — TOOL_DEFINITIONS is a module-level
+    constant and must not gain request-specific keys.
+    """
+    cached_tools = None
+    if tools:
+        cached_tools = [dict(t) for t in tools]
+        cached_tools[-1]["cache_control"] = dict(_EPHEMERAL)
+
+    system_blocks = [
+        {
+            "type": "text",
+            "text": system,
+            "cache_control": dict(_EPHEMERAL),
+        }
+    ]
+    return cached_tools, system_blocks
+
 
 @runtime_checkable
 class AIProvider(Protocol):
@@ -97,18 +127,31 @@ class AnthropicProvider:
 
         Retries once on 429 rate-limit errors after the server-suggested delay
         (or 60 s if no Retry-After header is present).
+
+        Prompt caching: two explicit breakpoints (last tool, system block) plus
+        top-level automatic caching, which walks a third breakpoint forward
+        through the message history as the conversation grows. See
+        plans/020-implement-prompt-caching.md. The system prompt contains
+        today's *date* — stable within any 5-minute TTL window — so it is safe
+        to cache. Never add a per-request value (a timestamp, request id, or a
+        random greeting) to it: that silently disables caching entirely.
         """
         import asyncio
         from anthropic import RateLimitError
 
-        kwargs: dict[str, Any] = dict(
-            model=self.CHAT_MODEL,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-        )
-        if tools:
-            kwargs["tools"] = tools
+        cached_tools, system_blocks = _cacheable(tools, system)
+
+        # Build in prefix order (tools → system → messages) so the payload
+        # reads the way Anthropic assembles the cache prefix.
+        kwargs: dict[str, Any] = {
+            "model": self.CHAT_MODEL,
+            "max_tokens": max_tokens,
+        }
+        if cached_tools:
+            kwargs["tools"] = cached_tools
+        kwargs["system"] = system_blocks
+        kwargs["messages"] = messages
+        kwargs["cache_control"] = dict(_EPHEMERAL)
 
         for attempt in range(2):
             try:
