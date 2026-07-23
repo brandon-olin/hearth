@@ -6540,3 +6540,45 @@ prefix changed between requests).
 
 Recommended next feature: the live-key caching check above; otherwise the next
 unlanded item in feature_list.
+
+=== 2026-07-23 — Infrastructure session ===
+
+Scope: model switch companion to the prompt-caching work above
+(plans/019-ai-cost-control.md, finding 5b). Branch feat/ai-prompt-caching,
+own worktree. One commit, kept separate from the caching commit so it stays
+independently revertible.
+
+Context on arrival: commit 1 (prompt caching, 3ee9fd0) was already built,
+verified, and merged to main by the prior session — nothing to redo there.
+Confirmed it before building: single alembic head 0054, all 7 caching tests
+green, and the installed anthropic SDK (0.117.0) DOES accept the top-level
+cache_control kwarg on messages.stream() (re-verified via inspect.signature),
+so all three breakpoints are live.
+
+Done:
+  - provider.py: CHAT_MODEL "claude-sonnet-4-6" -> "claude-sonnet-5". Sonnet 5
+    is $2/$10 per M through 31 Aug 2026, then $3/$15 — identical to what 4.6
+    costs today. Newer model, temporary discount, parity thereafter. One line.
+  - FAST_MODEL (Haiku 4.5) left unchanged, per plan.
+  - No migration, no user-visible behaviour change, no MCP verb (internal
+    optimisation, not a feature — not a feature_list entry).
+
+Verification run:
+  - pytest: 559 passed. ruff clean on `tests` (the project's lint scope). The
+    3 pre-existing UP035/I001 warnings in ai/provider.py are on main already,
+    outside `make lint` scope, and untouched by the one-line change.
+  - Grepped for the old model string: only a doc-comment example in models.py
+    and a fake-response fixture in test_ai_prompt_caching.py reference it;
+    neither asserts on CHAT_MODEL, so nothing breaks.
+
+NOT verified (no ANTHROPIC_API_KEY in this environment): the live two-call
+check — two real chat calls in one conversation within 5 minutes, asserting
+cache_read_input_tokens >= 15000 on the second. Still the only check that
+proves caching fires against the real API. Run it manually; both cache fields
+returning 0 means caching did not happen.
+
+Commits this session:
+  - 060627c feat(ai): switch CHAT_MODEL to Sonnet 5
+
+Recommended next feature: the live-key caching check above; otherwise the next
+unlanded item in feature_list.
