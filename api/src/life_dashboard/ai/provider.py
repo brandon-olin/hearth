@@ -106,7 +106,7 @@ class AnthropicProvider:
     auto-titling) where cost and latency matter more than capability.
     """
 
-    CHAT_MODEL = "claude-sonnet-4-6"
+    CHAT_MODEL = "claude-sonnet-5"
     FAST_MODEL = "claude-haiku-4-5-20251001"
 
     def __init__(self, api_key: str) -> None:
