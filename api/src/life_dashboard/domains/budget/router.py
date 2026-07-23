@@ -90,8 +90,12 @@ async def create_profile(
     current_user: User = Depends(get_current_user),
 ) -> BudgetProfileResponse:
     """
-    Create a new budget profile. Business profiles (profit_tracking) are a
-    paid-tier feature — returns 402 if the free-tier limit is exceeded.
+    Create a new budget profile.
+
+    No tier gating today (the unreachable FREE_TIER_MAX_PROFILES cap was removed
+    2026-07-22). The 402 path is kept so a real tier check can raise ValueError
+    from the service layer without touching this route — see
+    plans/017-paid-tier-limits.md.
     """
     try:
         return await service.create_profile(db, current_user.household_id, current_user.id, data)

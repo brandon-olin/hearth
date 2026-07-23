@@ -6362,3 +6362,181 @@ cannot silently persist a dismissal for a hint that will never show.
 
 Recommended next feature: pwa-001's two unexecuted steps still want two minutes
 on a real iPhone; otherwise the next unlanded item in feature_list.
+
+=== 2026-07-22 — Planning session (marketing site / pricing) ===
+
+WHAT WAS WORKED ON. Marketing-site positioning and pricing decisions, plus one
+code removal that fell out of them. Status: complete for the decisions; the
+site itself is still unbuilt (phase 2, mocks, remains the oldest unstarted
+action). No commits made this session — working tree left dirty for review.
+
+DECISIONS LOCKED.
+- Open-core boundary: every domain feature stays in the core. Cost-bearing
+  features (AI, bank linking) run BYOK when self-hosted, on our credentials on
+  Cloud. BYOK is self-hosted-only — Cloud subscribers never bring keys.
+- Pricing: Cloud $8/mo or $80/yr. Bank sync is a $7/mo or $70/yr add-on, framed
+  as a cost pass-through rather than a third pricing column. All-in $15/mo,
+  $150/yr. Annual is two months free and should be preselected — it is also the
+  float that covers the aggregator's fixed monthly floor pre-revenue.
+- Positioning: priced above YNAB deliberately. The claim is "all of this AND
+  something close to YNAB," never "cheaper than YNAB."
+- Site lives in a separate repo, `hearth-site`.
+
+WHAT WAS DONE.
+- Removed FREE_TIER_MAX_PROFILES from domains/budget/service.py. It gated
+  profit_tracking profiles behind a count every household exceeded at creation
+  (two profiles are seeded by seed_default_profiles), with no deployment_tier or
+  is_exempt bypass anywhere — so business profiles were unreachable in every
+  tier including paid. Dead feature, not an upsell. The router's 402 path is
+  kept so a real tier check can raise ValueError from the service layer later.
+- Rewrote the open-core boundary section of the root CLAUDE.md so the pledge and
+  the code agree, and added an explicit "no feature-count paywalls" rule.
+- plans/marketing-site-spec.md updated to v2 with all of the above.
+- plans/016-teller-to-quiltt-bank-sync-migration.md written (new).
+- plans/017-paid-tier-limits.md written (new).
+- plans/README.md table gained rows 016 and 017.
+
+TELLER. Confirmed via web search that Teller withdrew its API in early July
+2026 with about a week's notice, so bank sync is likely already dark in
+production — unverified against the live install. This is P1 and outranks the
+marketing site: the paid add-on sells a feature that does not currently work.
+Plan 016 argues for a provider abstraction rather than a Quiltt find-and-replace,
+because self-hosted needs a cheap second provider (SimpleFIN ~$15/yr) that Cloud
+does not — Quiltt's entry plan is $100/mo, which no self-hosted household will
+pay. Open question for Quiltt's sales call: whether billing counts monthly
+active profiles or connected accounts. That answer swings unit economics ~4x and
+blocks the linked-account cap design in plan 017.
+
+WHAT IS LEFT. Verification of the profile-gate removal was not run — ruff and
+pytest are unavailable in this session's sandbox (Linux; the venv is macOS).
+No test covered profit_tracking profile creation, so nothing should have broken,
+but run the gate locally before committing. feature_list.json untouched: none of
+this maps to an existing entry, and the marketing work is still not tracked
+there.
+
+Recommended next: verify + commit the above, then either plan 016 (P1, separate
+track) or marketing-site phase 2 mocks.
+
+ADDENDUM — same session, marketing phase 2 (mocks).
+Style direction chosen: warm hearth palette (rust/orange/amber from brand/logo.svg,
+cream canvas, Fraunces serif headings), full commitment rather than neutral-with-
+accents — the app's shadcn default is grayscale, so the marketing site deliberately
+diverges from the product's current look. Hero leads on the all-in-one household
+angle per the YNAB positioning decision.
+Built plans/mocks/homepage.html and plans/mocks/pricing.html — standalone, no build
+step, screenshot slots left as labeled dashed placeholders for phase 6. Pricing page
+has a working monthly/yearly toggle with annual preselected.
+Copy is drafted, not final — phase 3 is still a real pass against docs/writing-tone.md.
+
+ADDENDUM 2 — same session, AI economics and v1 scope.
+
+DECISIONS.
+- Pricing model: one Cloud plan plus optional add-ons, not tiers. $8/mo billed
+  annually ($96), $12 month-to-month (monthly rate still TBD — 20% split, i.e.
+  $10, sits inside the 15-25% industry norm; 33% does not).
+- AI: included, capped ~150 turns/month, degrade to the fast model at the ceiling
+  rather than cutting off. BYOK stays self-hosted-only but is the escape valve
+  for heavy users.
+- Business tier deferred. It needs more than the P&L view to be credible, and
+  invoicing (the chosen addition) does not exist. Add-on rather than tier is the
+  likely eventual shape.
+- Conversational journal/coach deferred on Cloud. Plain journal writing ships;
+  the AI conversation partner does not. Self-hosted keeps all of it.
+
+WHY THE JOURNAL DEFERRAL. Not cost, though it does cut expected AI spend 40%.
+There is no crisis handling anywhere in ai/ — no detection, no escalation, no
+resource surfacing. `rant` mode instructs the model to "stay with them, do NOT
+reality-test", which is right for venting and close to backwards for a rumination
+spiral, and it is the mode someone picks on their worst day. Journal signal
+extraction also writes inferred emotional state into a profile that is injected
+into every later conversation, so a misread compounds silently. None of these are
+design failures; they are what iteration with real users surfaces. Full record and
+the conditions for shipping it later are in plans/021.
+
+AI COST FINDINGS (all measured against current published rates).
+- TOOL_DEFINITIONS is 66 schemas ~15,582 tokens, shipped on EVERY API call, times
+  up to 6 calls per turn via the tool loop. A typical chat turn costs ~$0.15, not
+  the ~$0.018 assumed earlier — roughly 8x off.
+- Prompt caching is NOT implemented (cache_control absent from ai/). Implementing
+  it is ~30 lines in provider.py for 2.2-2.9x on chat. Plan 020 is implementation-
+  ready and verified against Anthropic's docs.
+- After caching, tool subsetting is NO LONGER the big lever (~$0.003/turn). The
+  remaining costs are fresh history + accumulated tool results (50%) and output
+  (29%). Trimming oversized tool result payloads is the best effort-to-value fix.
+- Sonnet 5 is $2/$10 through 31 Aug 2026 then $3/$15 — the same price we already
+  pay for Sonnet 4.6. Switching CHAT_MODEL is a newer model at a temporary
+  discount and parity after. One line.
+- Expected AI cost per subscriber (mixed base, post-caching, journaling removed):
+  ~$1.24/mo, 15% of an $8 plan. Heavy user $6.85, bounded to ~$5.13 by the cap.
+- AiUsage already records per-call tokens by turn_kind, so the invented usage
+  distribution behind all of the above can be replaced with real data as soon as
+  there are customers. Do that before publishing any allowance number.
+
+WHAT IS LEFT. Marketing phase 2 mocks exist (plans/mocks/homepage.html,
+pricing.html) but pricing.html still shows the deferred Business tier as a third
+column and needs cutting back to one plan plus add-ons. Features page not started.
+Copy pass (phase 3) not started. Nothing committed this session.
+
+Recommended next: plan 020 (caching) as a build, then real AiUsage numbers, then
+rework the pricing mock to the v1 one-plan shape.
+
+=== 2026-07-23 — Infrastructure session ===
+
+Worked on: prompt caching for the Anthropic chat provider (plans/020-implement-
+prompt-caching.md). Internal cost optimisation — no user-visible behaviour
+change, no feature_list entry, no MCP verb.
+
+Status: complete pending one manual live-key check (see below).
+
+Commits (branch feat/ai-prompt-caching, code merged to local main as 3ee9fd0):
+  - feat(ai): prompt caching on the chat path
+
+NOTE ON THE PROGRESS LOG. main's working tree already had uncommitted edits
+(the 2026-07-22 marketing/pricing planning block plus CLAUDE.md, budget
+router/service, plans/*). To avoid clobbering them, only the CODE commit was
+fast-forwarded to main — it touches ai/ and the new migration only, none of the
+dirty files. This block is appended to the working tree and left UNCOMMITTED,
+matching how the planning session was left for review.
+
+Done:
+  - provider.py: _cacheable() helper wired into AnthropicProvider.stream_chat —
+    cache_control:{ephemeral} on the LAST tools entry (caches the ~15.6k-token
+    schema block, identical for every user), system passed as a content-block
+    list with its own cache_control, and top-level cache_control for automatic
+    history caching. kwargs built in prefix order (tools → system → messages).
+    TOOL_DEFINITIONS is copied, never mutated.
+  - provider.complete() (Haiku/FAST_MODEL) left uncached on purpose — its
+    4,096-token cache floor won't be reached, so breakpoints there would
+    silently do nothing.
+  - migration 0054 (parents on 0053): cache_creation_input_tokens +
+    cache_read_input_tokens on ai_usage, not-null default 0, via
+    op.batch_alter_table so it runs on SQLite as well as Postgres.
+  - service.py: record_usage() gained the two fields (default 0); generate_stream
+    captures them at the usage site with getattr(..., 0) or 0 defaults so older
+    SDK response shapes don't break. _build_system_prompt gained a comment
+    warning against adding per-request content that would silently break caching.
+  - tests/test_ai_prompt_caching.py: builds a real stream_chat payload against a
+    fake Anthropic client and asserts exactly one cache_control on the final
+    tool, one on the system block, tools before system, top-level cache_control
+    present, and TOOL_DEFINITIONS byte-identical after the call (deepcopy
+    compare). Also drives generate_stream end-to-end through the fake client and
+    asserts both new columns persist, including the older-SDK-shape fallback.
+
+Verification run:
+  - pytest: 559 passed (7 new). ruff clean on all touched files.
+  - migrate-verify equivalent: replayed full history on a throwaway Postgres DB;
+    both cache columns land as `integer not null default 0`, native-enum drift
+    count still 0.
+  - Installed anthropic SDK is 0.117.0 and DOES accept the top-level
+    cache_control kwarg on messages.stream(), so all three breakpoints shipped
+    (the plan's fallback of dropping the top-level line was not needed).
+
+NOT verified (no ANTHROPIC_API_KEY in this environment): the live two-call check
+— two real chat calls in one conversation within 5 minutes, asserting
+cache_read_input_tokens >= 15000 on the second. This is the only check that
+proves caching actually fires against the real API. Run it manually. If both
+cache fields come back 0, caching did not happen (minimum length not met, or the
+prefix changed between requests).
+
+Recommended next feature: the live-key caching check above; otherwise the next
+unlanded item in feature_list.

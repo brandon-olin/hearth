@@ -80,9 +80,15 @@ from life_dashboard.domains.budget.schemas import (
 from life_dashboard.domains.budget.teller_client import teller_client, _teller_account_type
 from life_dashboard.core.settings import settings
 
-# Maximum profiles per household on the free tier (Personal + Household = 2).
-# Additional profiles (e.g. Business) are a paid-tier feature.
-FREE_TIER_MAX_PROFILES = 2
+# NOTE: a FREE_TIER_MAX_PROFILES = 2 cap used to live here and was removed
+# 2026-07-22. Because every household is seeded with exactly two profiles
+# (Personal + Household, see seed_default_profiles), the cap made
+# profit_tracking profiles unreachable in *every* deployment tier, including
+# paid ones — there was no is_exempt or deployment_tier bypass. It was a dead
+# feature wearing a paywall, not a working upsell.
+#
+# Business-profile gating is still wanted, but as a real tier check.
+# See plans/017-paid-tier-limits.md before reintroducing any limit here.
 
 # Window within which an identical manual create is treated as a client retry
 # (double-tap / network retry / background refetch) rather than a deliberate
@@ -188,23 +194,11 @@ async def create_profile(
     """
     Create a new budget profile.
 
-    Business profiles (budgeting_style='profit_tracking') are a paid-tier
-    feature. On the free tier, households are limited to FREE_TIER_MAX_PROFILES.
-    Returns ValueError if the limit is exceeded.
+    No tier gating today — see the FREE_TIER_MAX_PROFILES note at the top of
+    this module and plans/017-paid-tier-limits.md. Any future limit must be
+    gated on deployment_tier / household.is_exempt so self-hosted installs are
+    unaffected, per the open-core boundary in the root CLAUDE.md.
     """
-    # Count existing profiles for the household
-    count_stmt = select(func.count()).where(
-        BudgetProfile.household_id == household_id
-    )
-    count_result = await db.execute(count_stmt)
-    existing_count = count_result.scalar_one()
-
-    if existing_count >= FREE_TIER_MAX_PROFILES and data.budgeting_style == "profit_tracking":
-        raise ValueError(
-            "Business profiles are a paid-tier feature. "
-            f"Free households can have at most {FREE_TIER_MAX_PROFILES} profiles."
-        )
-
     profile = BudgetProfile(
         household_id=household_id,
         **data.model_dump(),

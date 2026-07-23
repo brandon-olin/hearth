@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearth — Everything your household runs on</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FDFAF6;
+    --cream-deep:#F7EFE5;
+    --ink:#2B1810;
+    --ink-soft:#5C4736;
+    --muted:#8A7565;
+    --rust:#7C2D12;
+    --orange:#C2410C;
+    --amber:#EF9F27;
+    --amber-pale:#FAC775;
+    --line:#E9DCCE;
+    --white:#FFFFFF;
+    --serif:'Fraunces','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --shadow:0 1px 2px rgba(124,45,18,.04),0 8px 24px rgba(124,45,18,.06);
+    --shadow-lg:0 2px 4px rgba(124,45,18,.05),0 20px 48px rgba(124,45,18,.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--cream);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+  a{color:inherit;text-decoration:none}
+
+  h1,h2,h3,.serif{font-family:var(--serif);font-weight:600;letter-spacing:-.02em;line-height:1.1}
+
+  /* ── Nav ─────────────────────────────────────────── */
+  nav{position:sticky;top:0;z-index:50;background:rgba(253,250,246,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:36px;height:68px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:22px;font-weight:600;margin-right:auto}
+  .nav-links{display:flex;gap:28px;font-size:15px;color:var(--ink-soft);font-weight:500}
+  .nav-links a:hover{color:var(--orange)}
+  .btn{display:inline-block;padding:11px 22px;border-radius:10px;font-size:15px;font-weight:600;font-family:var(--sans);transition:.18s;cursor:pointer;border:none}
+  .btn-primary{background:var(--orange);color:#fff;box-shadow:0 1px 2px rgba(124,45,18,.2)}
+  .btn-primary:hover{background:var(--rust)}
+  .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn-ghost:hover{border-color:var(--amber);background:var(--cream-deep)}
+  .btn-lg{padding:15px 30px;font-size:16.5px}
+
+  /* ── Hero ────────────────────────────────────────── */
+  .hero{position:relative;padding:104px 0 88px;text-align:center;overflow:hidden}
+  .hero::before{content:'';position:absolute;top:-340px;left:50%;transform:translateX(-50%);width:1000px;height:640px;
+    background:radial-gradient(ellipse at center,rgba(239,159,39,.28),rgba(250,199,117,.10) 42%,transparent 68%);
+    pointer-events:none}
+  .hero-in{position:relative}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--rust);background:rgba(250,199,117,.3);border:1px solid rgba(239,159,39,.35);
+    padding:7px 15px;border-radius:100px;margin-bottom:28px}
+  h1{font-size:clamp(42px,6.2vw,72px);margin-bottom:24px}
+  h1 em{font-style:italic;color:var(--orange)}
+  .sub{font-size:20.5px;color:var(--ink-soft);max-width:620px;margin:0 auto 38px;line-height:1.6}
+  .hero-ctas{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+  .hero-note{font-size:14.5px;color:var(--muted)}
+
+  /* ── Screenshot placeholder ──────────────────────── */
+  .shot{background:var(--white);border:1.5px dashed #D9C4AE;border-radius:16px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    padding:36px 28px;box-shadow:var(--shadow);position:relative}
+  .shot-tag{position:absolute;top:12px;left:14px;font-size:11px;font-weight:600;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--amber);background:rgba(250,199,117,.22);padding:4px 9px;border-radius:5px}
+  .shot-title{font-family:var(--serif);font-size:19px;color:var(--ink-soft);margin-bottom:6px}
+  .shot-desc{font-size:14px;color:var(--muted);max-width:380px;line-height:1.55}
+  .shot-hero{aspect-ratio:16/10;margin-top:52px;box-shadow:var(--shadow-lg)}
+  .shot-sec{aspect-ratio:4/3}
+
+  /* ── Trust bar ───────────────────────────────────── */
+  .trust{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--cream-deep);padding:26px 0}
+  .trust-in{display:flex;gap:40px;justify-content:center;flex-wrap:wrap;font-size:14.5px;color:var(--ink-soft);font-weight:500}
+  .trust-in span{display:flex;align-items:center;gap:9px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--amber);flex:none}
+
+  /* ── Sections ────────────────────────────────────── */
+  section{padding:96px 0}
+  .sec-grid{display:grid;grid-template-columns:1fr 1.15fr;gap:64px;align-items:center}
+  .sec-grid.flip .sec-copy{order:2}
+  .kicker{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:16px}
+  h2{font-size:clamp(30px,3.6vw,42px);margin-bottom:20px}
+  .sec-copy p{color:var(--ink-soft);font-size:17.5px;margin-bottom:16px}
+  .sec-list{list-style:none;margin-top:24px;display:flex;flex-direction:column;gap:11px}
+  .sec-list li{display:flex;gap:11px;font-size:16px;color:var(--ink-soft)}
+  .sec-list li::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--amber-pale);
+    border:1.5px solid var(--amber);margin-top:8px;flex:none}
+  .alt{background:var(--cream-deep);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+
+  /* ── Module grid ─────────────────────────────────── */
+  .center{text-align:center;max-width:640px;margin:0 auto 56px}
+  .center p{color:var(--ink-soft);font-size:18px;margin-top:16px}
+  .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:14px}
+  .mod{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:18px 20px;transition:.18s}
+  .mod:hover{border-color:var(--amber);transform:translateY(-2px);box-shadow:var(--shadow)}
+  .mod-name{font-family:var(--serif);font-size:17px;font-weight:600;margin-bottom:3px}
+  .mod-desc{font-size:13.5px;color:var(--muted);line-height:1.45}
+
+  /* ── Ownership ───────────────────────────────────── */
+  .own{background:var(--rust);color:#F6E8DA;border-radius:22px;padding:64px 56px;text-align:center;position:relative;overflow:hidden}
+  .own::after{content:'';position:absolute;bottom:-180px;left:50%;transform:translateX(-50%);width:700px;height:340px;
+    background:radial-gradient(ellipse at center,rgba(239,159,39,.30),transparent 70%)}
+  .own-in{position:relative}
+  .own h2{color:#fff;margin-bottom:18px}
+  .own p{max-width:600px;margin:0 auto 14px;color:#EBD7C4;font-size:17.5px}
+  .own-pts{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;margin-top:44px;text-align:left}
+  .own-pt h4{font-family:var(--serif);font-size:18px;color:#fff;margin-bottom:7px;font-weight:600}
+  .own-pt p{font-size:14.5px;color:#DCC3AC;margin:0}
+
+  /* ── Pricing teaser ──────────────────────────────── */
+  .price-teaser{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:800px;margin:0 auto}
+  .pcard{background:var(--white);border:1px solid var(--line);border-radius:16px;padding:30px}
+  .pcard.feat{border:2px solid var(--amber);box-shadow:var(--shadow)}
+  .pname{font-family:var(--serif);font-size:20px;margin-bottom:6px}
+  .pamt{font-size:38px;font-family:var(--serif);font-weight:600;margin:14px 0 4px}
+  .pamt small{font-size:15px;color:var(--muted);font-family:var(--sans);font-weight:400}
+  .pnote{font-size:14.5px;color:var(--muted);margin-bottom:20px;min-height:44px}
+
+  /* ── Footer ──────────────────────────────────────── */
+  footer{border-top:1px solid var(--line);padding:56px 0 40px;background:var(--cream-deep)}
+  .foot-top{display:flex;justify-content:space-between;gap:40px;flex-wrap:wrap;margin-bottom:40px}
+  .foot-col h5{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-weight:700}
+  .foot-col a{display:block;font-size:15px;color:var(--ink-soft);margin-bottom:9px}
+  .foot-col a:hover{color:var(--orange)}
+  .badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .badge{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:6px;background:rgba(250,199,117,.28);
+    color:var(--rust);border:1px solid rgba(239,159,39,.3)}
+  .foot-bot{border-top:1px solid var(--line);padding-top:24px;font-size:14px;color:var(--muted);
+    display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+
+  .note{max-width:1120px;margin:0 auto;padding:20px 28px;font-size:13px;color:var(--muted);
+    border-top:1px dashed var(--line);font-style:italic}
+
+  @media(max-width:860px){
+    .sec-grid{grid-template-columns:1fr;gap:36px}
+    .sec-grid.flip .sec-copy{order:0}
+    .own-pts{grid-template-columns:1fr;gap:24px}
+    .price-teaser{grid-template-columns:1fr}
+    .nav-links{display:none}
+    .own{padding:44px 28px}
+    section{padding:68px 0}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="#">
+      <svg width="26" height="33" viewBox="0 0 64 80" aria-label="Hearth">
+        <path d="M6 78L6 38C6 8 58 8 58 38L58 78Z" fill="#7c2d12"/>
+        <path d="M32 70C22 62 16 50 21 38C24 30 29 23 32 15C35 23 40 30 43 38C48 50 42 62 32 70Z" fill="#C2410C"/>
+        <path d="M32 60C25 54 21 44 25 36C27 29 30 24 32 19C34 24 37 29 39 36C43 44 39 54 32 60Z" fill="#EF9F27"/>
+        <path d="M32 50C27 46 25 39 27 34C29 29 31 25 32 21C33 25 35 29 37 34C39 39 37 46 32 50Z" fill="#FAC775"/>
+      </svg>
+      Hearth
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#own">Self-host</a>
+      <a href="#">Docs</a>
+    </div>
+    <a class="btn btn-ghost" href="#">Sign in</a>
+    <a class="btn btn-primary" href="#">Start free trial</a>
+  </div>
+</nav>
+
+<!-- ══ HERO ══ -->
+<header class="hero">
+  <div class="wrap hero-in">
+    <div class="eyebrow"><span class="dot"></span> Open source · Self-hostable</div>
+    <h1>Everything your household<br>runs on, <em>in one place</em>.</h1>
+    <p class="sub">
+      The groceries, the budget, the dentist appointment, whose turn it is to take
+      the bins out. Hearth keeps all of it together — for everyone who lives there,
+      not just the person who usually remembers.
+    </p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary btn-lg" href="#pricing">Start your free trial</a>
+      <a class="btn btn-ghost btn-lg" href="#own">Or host it yourself, free</a>
+    </div>
+    <p class="hero-note">14 days free · No card to start · Your data exports whenever you want it</p>
+
+    <div class="shot shot-hero">
+      <span class="shot-tag">Screenshot</span>
+      <div class="shot-title">Household dashboard, full width</div>
+      <p class="shot-desc">
+        Today's view for a real seeded household — assignments across two members,
+        a habit streak mid-week, this week's meal plan, and the budget summary card.
+        Light theme, 1440×900.
+      </p>
+    </div>
+  </div>
+</header>
+
+<div class="trust">
+  <div class="wrap trust-in">
+    <span><span class="dot"></span> AGPL-3.0 licensed</span>
+    <span><span class="dot"></span> Runs on your own NAS</span>
+    <span><span class="dot"></span> No investors, no ads</span>
+    <span><span class="dot"></span> Export everything, always</span>
+  </div>
+</div>
+
+<!-- ══ RUN YOUR HOUSEHOLD ══ -->
+<section id="features">
+  <div class="wrap sec-grid">
+    <div class="sec-copy">
+      <div class="kicker">Run your household</div>
+      <h2>The mental load, finally written down</h2>
+      <p>
+        Most households run on one person's memory. That person is tired.
+      </p>
+      <p>
+        Tasks, chores, and recurring responsibilities live where everyone can see
+        them — assigned to actual people, repeating on the schedules real life
+        actually follows.
+      </p>
+      <ul class="sec-list">
+        <li>Recurring todos that regenerate properly, not duplicates that pile up</li>
+        <li>Assignments attached to household members, not a shared inbox</li>
+        <li>Projects and goals for the bigger things</li>
+        <li>A calendar everyone in the house can actually see</li>
+      </ul>
+    </div>
+    <div class="shot shot-sec">
+      <span class="shot-tag">Screenshot</span>
+      <div class="shot-title">Todos — grouped by assignee</div>
+      <p class="shot-desc">Recurrence badges visible, two members' avatars, one overdue item styled.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ MONEY ══ -->
+<section class="alt">
+  <div class="wrap sec-grid flip">
+    <div class="sec-copy">
+      <div class="kicker">See your money</div>
+      <h2>Envelope budgeting, without the second subscription</h2>
+      <p>
+        Separate profiles for personal and shared money, so joint expenses and
+        your own spending don't get tangled together.
+      </p>
+      <p>
+        Zero-based budgeting with categories, targets, and rollover. Import a CSV,
+        or connect your bank and let it fill itself in.
+      </p>
+      <ul class="sec-list">
+        <li>Personal and household budgets kept separate on purpose</li>
+        <li>Categories, targets, rollover, and spending trends</li>
+        <li>CSV and OFX import on every plan</li>
+        <li>Automatic bank sync as an optional add-on</li>
+      </ul>
+    </div>
+    <div class="shot shot-sec">
+      <span class="shot-tag">Screenshot</span>
+      <div class="shot-title">Budget — category view with targets</div>
+      <p class="shot-desc">"Ready to assign" banner, a few funded categories, one over-target in warning state.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ ROUTINES ══ -->
+<section>
+  <div class="wrap sec-grid">
+    <div class="sec-copy">
+      <div class="kicker">Build routines that stick</div>
+      <h2>Streaks for the things worth repeating</h2>
+      <p>
+        Habits with flexible cadences — daily, a few times a week, every other
+        Tuesday if that's genuinely your life.
+      </p>
+      <p>
+        Workouts and goals sit alongside them, so the personal stuff doesn't need
+        yet another app.
+      </p>
+      <ul class="sec-list">
+        <li>Cadences that handle real schedules, not just daily</li>
+        <li>Streaks and history without the guilt-trip design</li>
+        <li>Workout logging and long-range goals</li>
+      </ul>
+    </div>
+    <div class="shot shot-sec">
+      <span class="shot-tag">Screenshot</span>
+      <div class="shot-title">Habits — week grid with streaks</div>
+      <p class="shot-desc">Four habits, mixed cadences, one mid-streak. Checkbox states clearly visible.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ FOOD ══ -->
+<section class="alt">
+  <div class="wrap sec-grid flip">
+    <div class="sec-copy">
+      <div class="kicker">Feed everyone</div>
+      <h2>From "what's for dinner" to a grocery list</h2>
+      <p>
+        Save recipes, drop them onto a week, and let the grocery list build itself —
+        ingredients aggregated across every meal so you buy onions once.
+      </p>
+      <ul class="sec-list">
+        <li>Recipe library with real ingredient data</li>
+        <li>Weekly meal planner you can drag around</li>
+        <li>Grocery lists aggregated across the whole week</li>
+      </ul>
+    </div>
+    <div class="shot shot-sec">
+      <span class="shot-tag">Screenshot</span>
+      <div class="shot-title">Meal planner — week view</div>
+      <p class="shot-desc">Recipes placed across seven days with the generated grocery list panel beside it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ MODULES ══ -->
+<section>
+  <div class="wrap">
+    <div class="center">
+      <h2>One app, because your house isn't sorted into apps</h2>
+      <p>Every part is included on every plan. Turn on what you need, ignore the rest.</p>
+    </div>
+    <div class="mods">
+      <div class="mod"><div class="mod-name">Todos</div><div class="mod-desc">Assignments and recurring chores</div></div>
+      <div class="mod"><div class="mod-name">Habits</div><div class="mod-desc">Cadences and streaks</div></div>
+      <div class="mod"><div class="mod-name">Budget</div><div class="mod-desc">Envelopes, targets, rollover</div></div>
+      <div class="mod"><div class="mod-name">Calendar</div><div class="mod-desc">Shared household events</div></div>
+      <div class="mod"><div class="mod-name">Recipes</div><div class="mod-desc">Your cookbook, searchable</div></div>
+      <div class="mod"><div class="mod-name">Meal planner</div><div class="mod-desc">Drag recipes onto a week</div></div>
+      <div class="mod"><div class="mod-name">Grocery lists</div><div class="mod-desc">Aggregated automatically</div></div>
+      <div class="mod"><div class="mod-name">Notes</div><div class="mod-desc">Linked, wiki-style</div></div>
+      <div class="mod"><div class="mod-name">Documents</div><div class="mod-desc">Warranties, leases, the lot</div></div>
+      <div class="mod"><div class="mod-name">Projects</div><div class="mod-desc">The bigger undertakings</div></div>
+      <div class="mod"><div class="mod-name">Goals</div><div class="mod-desc">Long-range, tracked</div></div>
+      <div class="mod"><div class="mod-name">Workouts</div><div class="mod-desc">Logged and reviewed</div></div>
+      <div class="mod"><div class="mod-name">Contacts</div><div class="mod-desc">Plumber, vet, school</div></div>
+      <div class="mod"><div class="mod-name">Collections</div><div class="mod-desc">Whatever you catalogue</div></div>
+      <div class="mod"><div class="mod-name">AI assistant</div><div class="mod-desc">Knows your household</div></div>
+      <div class="mod"><div class="mod-name">Household roles</div><div class="mod-desc">Shared, personal, private</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ OWNERSHIP ══ -->
+<section id="own" class="alt">
+  <div class="wrap">
+    <div class="own">
+      <div class="own-in">
+        <div class="kicker" style="color:var(--amber-pale)">Owned by you</div>
+        <h2>Your household's data shouldn't live in someone else's business model</h2>
+        <p>
+          Hearth is open source under AGPL-3.0. Run it on a NAS in your cupboard and
+          pay nothing, forever — not a trial, not a crippled tier, the whole thing.
+        </p>
+        <p>
+          Or let us host it, and the money goes to keeping the lights on rather than
+          to an exit.
+        </p>
+        <div class="own-pts">
+          <div class="own-pt">
+            <h4>Nothing is held back</h4>
+            <p>Self-hosted gets every feature. Things that cost money to run — AI, bank
+              linking — use your own API keys instead of ours.</p>
+          </div>
+          <div class="own-pt">
+            <h4>Leave whenever</h4>
+            <p>Full data export is always available, including if you stop paying.
+              Migrating between hosted and self-hosted goes both ways.</p>
+          </div>
+          <div class="own-pt">
+            <h4>No investors to answer to</h4>
+            <p>No ads, no data sales, no growth targets that turn into your problem.
+              Subscriptions are the entire business model.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ PRICING TEASER ══ -->
+<section id="pricing">
+  <div class="wrap">
+    <div class="center">
+      <h2>Two ways to run it</h2>
+      <p>Same software either way. The only question is who keeps the server running.</p>
+    </div>
+    <div class="price-teaser">
+      <div class="pcard">
+        <div class="pname">Self-hosted</div>
+        <div class="pamt">Free<small> — forever</small></div>
+        <p class="pnote">Every feature, on your own machine or NAS. Bring your own keys for AI and bank linking.</p>
+        <a class="btn btn-ghost" href="#" style="width:100%;text-align:center">Read the install guide</a>
+      </div>
+      <div class="pcard feat">
+        <div class="pname">Cloud</div>
+        <div class="pamt">$8<small>/month, $96 billed annually</small></div>
+        <p class="pnote">We host it, back it up, and keep it patched. Bank sync available as a $7/mo add-on.</p>
+        <a class="btn btn-primary" href="#" style="width:100%;text-align:center">Start 14-day trial</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <div class="foot-col" style="max-width:280px">
+        <a class="brand" href="#" style="margin-bottom:12px">
+          <svg width="22" height="28" viewBox="0 0 64 80" aria-label="Hearth">
+            <path d="M6 78L6 38C6 8 58 8 58 38L58 78Z" fill="#7c2d12"/>
+            <path d="M32 70C22 62 16 50 21 38C24 30 29 23 32 15C35 23 40 30 43 38C48 50 42 62 32 70Z" fill="#C2410C"/>
+            <path d="M32 60C25 54 21 44 25 36C27 29 30 24 32 19C34 24 37 29 39 36C43 44 39 54 32 60Z" fill="#EF9F27"/>
+            <path d="M32 50C27 46 25 39 27 34C29 29 31 25 32 21C33 25 35 29 37 34C39 39 37 46 32 50Z" fill="#FAC775"/>
+          </svg>
+          Hearth
+        </a>
+        <p style="font-size:14.5px;color:var(--muted)">A household operating system you can actually own.</p>
+        <div class="badges">
+          <span class="badge">AGPL-3.0</span>
+          <span class="badge">Self-hostable</span>
+          <span class="badge">★ GitHub</span>
+        </div>
+      </div>
+      <div class="foot-col">
+        <h5>Product</h5>
+        <a href="#">Features</a><a href="#">Pricing</a><a href="#">Demo</a><a href="#">Changelog</a>
+      </div>
+      <div class="foot-col">
+        <h5>Self-host</h5>
+        <a href="#">Install guide</a><a href="#">Docker / NAS</a><a href="#">Docs</a><a href="#">GitHub</a>
+      </div>
+      <div class="foot-col">
+        <h5>Compare</h5>
+        <a href="#">vs Notion</a><a href="#">vs Cozi</a><a href="#">vs Spreadsheets</a>
+      </div>
+      <div class="foot-col">
+        <h5>Company</h5>
+        <a href="#">Blog</a><a href="#">Philosophy</a><a href="#">Privacy</a><a href="#">Contact</a>
+      </div>
+    </div>
+    <div class="foot-bot">
+      <span>© 2026 Hearth</span>
+      <span>Built by one person who got tired of six apps.</span>
+    </div>
+  </div>
+</footer>
+
+<p class="note">
+  Mock — phase 2 style exploration, 2026-07-22. Dashed boxes are Playwright screenshot slots (phase 6).
+  Prices per plans/marketing-site-spec.md. Bank sync is shown as an add-on and deliberately never as
+  a headline claim, since the provider migration (plan 016) is unresolved.
+</p>
+
+</body>
+</html>

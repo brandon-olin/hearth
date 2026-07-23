@@ -66,9 +66,39 @@ Sub-level CLAUDE.md files contain stack-specific conventions:
 
 ## Open-core boundary
 
-**Always in the open core:** household model, all domain features (tasks, habits, documents, recipes, etc.), self-hosted deployment, basic AI/BYOK hooks.
+*Decided 2026-07-22. The pricing page is written against this; keep the code and
+this section in agreement.*
 
-**Candidates for paid/hosted tier:** managed hosting infrastructure, automated backups, polished mobile apps with push notifications, managed AI credits, premium integrations with ongoing operational cost.
+**The line is who pays the per-use bill, not what the software can do.**
+
+**Always in the open core:** household model, *all* domain features (tasks,
+habits, documents, recipes, budget, AI coach, portfolio, bank sync — no
+exceptions), self-hosted deployment. No domain feature is withheld from
+self-hosted users.
+
+**Cost-bearing features run BYOK when self-hosted.** Anything with an ongoing
+third-party cost — AI inference, bank linking — takes user-supplied credentials
+on self-hosted installs and uses ours on Cloud. Blank credentials disable the
+feature gracefully; they never degrade it into a lesser version. Example to
+copy: `ai/service.py` (per-user key, system-key fallback).
+
+**BYOK is self-hosted-only.** Cloud subscribers never bring their own keys — we
+supply them and the subscription covers it. Do not add customer-credential
+plumbing to the managed tier; hide BYOK settings when
+`deployment_tier == "cloud"`.
+
+**Paid tier sells operations, not features:** managed hosting, automated
+backups, transactional email, included integration credentials, mobile push,
+guided migration. Cloud is **$8/mo or $80/yr**, with bank sync a **$7/mo or
+$70/yr add-on** (a cost pass-through, not a feature gate). 14-day trial.
+
+**Therefore: do not add feature-count paywalls.** A hard cap on a feature that
+costs us nothing to run contradicts the pledge above and is a bug, not a
+business model. `FREE_TIER_MAX_PROFILES` was exactly this and was removed
+2026-07-22 — it made business profiles unreachable in *every* tier, including
+paid, because there was no bypass. If a limit is genuinely needed, gate it on
+`deployment_tier` / `household.is_exempt` so self-hosted is unaffected, and read
+`plans/017-paid-tier-limits.md` first.
 
 If a design makes the self-hosted product feel crippled or fake, push back.
 
