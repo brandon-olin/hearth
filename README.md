@@ -1,120 +1,81 @@
-# life-dashboard
+# Hearth
 
-Open-source, local-first household operating system for planning, chores, routines, notes, and automation.
+**A privacy-first "household operating system" — a full multi-tenant SaaS, built and shipped solo.**
 
-`life-dashboard` is being designed as a privacy-respecting household platform that works in three modes:
+Hearth is one app for a family or shared household to run planning, tasks, chores, habits, documents, recipes, meal planning, grocery lists, budgeting with bank sync, workouts, calendar, contacts, notes, and an AI life-coach — with hard privacy boundaries between *shared*, *personal*, and *sensitive* data.
 
-1. **Local-only** — one device, no server required, ideal for trying the product.
-2. **Self-hosted** — shared household data with sync across devices on your own infrastructure.
-3. **Hosted** — the same product experience without the self-hosting overhead.
+It runs from a single codebase across three tiers — **local (no Docker), self-hosted (NAS/Docker), and managed cloud** — where one `DEPLOYMENT_TIER` setting changes egress policy, credential sourcing, and feature availability without a rewrite.
 
-The goal is to let people start small, keep ownership of their data, and upgrade to sync and multi-device collaboration only when they need it.
+<!-- HERO SCREENSHOT — drop the marketing-page hero shot/GIF of the dashboard here:
+     ![Hearth dashboard](docs/screenshot-dashboard.png)
+     This is the highest-leverage element in the README — a visitor sees the product works
+     before doing anything. Reuse the same asset produced for the marketing site. -->
 
-## Product direction
+**▶️ Walkthrough:** <!-- paste the 60–90s Loom link here once recorded (dual-use with the marketing page) -->
 
-This project is evolving from a personal self-hosted dashboard into a reusable product with a strong open-source core.
+---
 
-Core principles:
+## By the numbers
 
-- **Local-first**: the app should remain useful without a permanent network connection or managed backend.
-- **Household-aware**: chores, routines, calendars, tasks, and dashboards should support multiple household members.
-- **Privacy-respecting**: personal and shared data should be modeled explicitly and kept separate by design.
-- **Open-source core**: the core product should be inspectable, hackable, and usable by individuals and self-hosters.
-- **Upgradeable collaboration**: sync, mobile access, notifications, backups, and hosted convenience are premium layers, not prerequisites.
+| | |
+|---|---|
+| Backend | ~46,500 lines of async Python — **256 REST endpoints**, **18 product domains** |
+| Frontend | ~65,000 lines of TypeScript/React |
+| Tests | **543** test functions across 39 files (pytest, async) |
+| Migrations | **54** Alembic migrations, portable across Postgres **and** SQLite |
+| AI surface | **~24 MCP tools** exposed to AI agents |
+| Built by | One person, ~3 months |
 
-## Planned modes
+## Stack
 
-| Mode | Primary use case | Storage | Accounts | Sync |
-|---|---|---|---|---|
-| Local-only | One household using one computer | Local on-device database | Local household profiles | No |
-| Self-hosted | Technical households who want shared access | Server database on user infrastructure | Real user accounts | Yes |
-| Hosted | Non-technical households | Managed cloud database | Real user accounts | Yes |
+**Backend:** Python 3.12 · FastAPI · SQLAlchemy 2.x (async) · Alembic · PostgreSQL / SQLite · Pydantic v2
+**Frontend:** Next.js 16 · React 19 · TypeScript · Tailwind v4 · shadcn/ui · TanStack Query (typed client generated from the API's OpenAPI schema)
+**Desktop:** Tauri 2 (Rust shell)
+**AI:** Anthropic Claude API · Model Context Protocol (MCP) · prompt caching
+**Infra:** Docker · Caddy · Tailscale · Vercel · Railway · Neon
 
-The local-only mode is especially important: someone should be able to install the app, create a household, assign chores, and explore the product without first setting up Docker, Postgres, reverse proxies, or a NAS.
+---
 
-## Scope
+## What makes it more than a CRUD app
 
-The long-term product vision includes:
+- **Multi-tenant privacy by design.** One visibility rule (shared / personal / sensitive), expressed as a matched pair that must agree: `apply_visibility_filter` pushes it into SQL so the database never returns rows a user can't see, and its mirror `can_see` filters in-memory events (SSE stream, outbound webhooks, agent proposals) where there's no query to attach it to. Cross-scope leakage is treated as a bug — and a real cross-tenant write defect was found and fixed.
+- **Correctness under concurrency.** Idempotent writes, atomic recurring-task completion (row locks + SAVEPOINTs), DB-level import dedup via partial unique indexes, double-submit guards on financial writes.
+- **Security-grade auth, from scratch.** OAuth 2.1 authorization server, scoped personal-access tokens with rate limiting, argon2 + JWT sessions, RBAC, and Fernet field-level encryption with documented key rotation.
+- **AI agents as first-class clients.** An in-process MCP server exposes ~24 tools plus an **agent-proposal/approval system** — agents act under the *same* permission and data-scope rules as humans, with an audit hook. Prompt caching cut chat inference cost **2.2–2.9×** after profiling that tool schemas alone shipped ~15.6k tokens per call.
+- **Tier-aware SSRF defense** on outbound webhooks (blocks private/loopback targets and DNS-rebinding on cloud; intentionally allows LAN targets when self-hosted, so it can drive Home Assistant).
+- **Built by its own AI pipeline.** A Telegram-triggered Claude Code agent harness with a machine-readable feature backlog, one-feature-per-git-worktree isolation, and a serialized rebase/merge protocol — the system that built the product.
 
-- Household dashboards
-- Chores and recurring routines
-- Task assignment by household member
-- Shared and personal planning
-- Notes and lightweight documentation
-- Health / activity integrations
-- AI-assisted summaries and automation
-- Home and life administration workflows
-
-The near-term focus is narrower:
-
-- Define the core household domain model
-- Build the API and web app around that model
-- Support a credible local-only experience
-- Keep the architecture compatible with later sync and hosted deployment
+---
 
 ## Architecture
 
-The repository is structured around a shared domain model that should eventually support all deployment modes.
-
-```text
-life-dashboard/
-├── api/                # FastAPI backend
-├── web/                # Next.js frontend
-├── agent/              # AI/automation client and tools
-├── integrations/       # External integrations
-├── infra/              # Self-hosting configs
-├── migrations/         # Database migrations
-└── docs/               # Product, architecture, and operational docs
+```
+api/          FastAPI backend — domain services, auth, async Postgres/SQLite
+web/          Next.js frontend — App Router, typed OpenAPI client
+desktop/      Tauri 2 desktop shell (Rust + web build)
+agent/        AI automation / autonomous coding-agent prompts
+infra/        Docker Compose, Caddy, Tailscale, launchd/systemd, Telegram bot
+migrations/   54 Alembic migrations (Postgres + SQLite)
+plans/        Architecture Decision Records & hardening plans
+docs/         Product, architecture, and operational docs
 ```
 
-### Current stack
+**Design discipline enforced throughout:** all business logic lives in domain service layers (never in routers or UI); the app is typed end-to-end (Pydantic v2 → OpenAPI → generated TS types); and **no feature ships without its MCP verb** — the web UI and AI agents are peer clients of the same service layer.
 
-- **Backend**: FastAPI
-- **Frontend**: Next.js
-- **Database**: Postgres today; local mode may also require an embedded local database such as SQLite
-- **Migrations**: SQL / Alembic-compatible migrations
-- **AI layer**: local and hosted provider support planned
+---
 
-### Architectural goals
+## Deployment tiers
 
-- Keep the domain model independent from deployment mode.
-- Separate household members, accounts, devices, and permissions cleanly.
-- Support migration from local-only mode to synced mode later.
-- Avoid coupling core product logic to one specific AI provider or one specific hosting model.
+| Mode | Use case | Storage | Sync |
+|---|---|---|---|
+| Local-only | One household, one machine — no Docker | On-device DB (SQLite) | No |
+| Self-hosted | Technical households, shared access | Your infra (Docker + Postgres, Caddy TLS, Tailscale) | Yes |
+| Managed cloud | Non-technical households | Vercel + Railway + Neon | Yes |
 
-## Open-source plan
+Open-core (AGPL-3.0): the self-hosted product is fully functional and free forever; the paid tier ($8/mo) sells managed *operations*, not feature gates. Cost-bearing features (AI, bank sync) run bring-your-own-key when self-hosted. Subscription/tier tracking is schema-ready (Stripe integration planned) — the cloud tier is deployed and running; metered billing is in progress.
 
-This repository is published as open source under the AGPL-3.0 license (open core: the
-self-hosted product is fully functional and free forever; managed cloud hosting is the
-paid tier).
-
-Planned baseline repository files:
-
-- `LICENSE`
-- `README.md`
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `CODE_OF_CONDUCT.md`
-
-The AGPL-3.0 lets anyone use, modify, self-host, and share Hearth freely — including commercially. Its one distinctive requirement: anyone who runs a modified version as a network service must make their modified source available to that service's users. Self-hosting households are unaffected; the clause exists to keep hosted derivatives open.
-
-## Roadmap
-
-| Phase | Status | Focus |
-|---|---|---|
-| 0 | in progress | Core schema, multi-user model, audit, permissions groundwork |
-| 1 | pending | FastAPI backend with household-aware CRUD and auth |
-| 2 | pending | Next.js web app for household workflows |
-| 3 | pending | Local-only installation path and migration flow into sync |
-| 4 | future | AI provider abstraction, automations, integrations |
-| 5 | future | Self-hosted sync and managed hosting |
-
-## Contributing
-
-Contribution guidelines are not finalized yet. For now, the project is still in active architecture and product-definition mode.
+---
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the `LICENSE` file for details.
-
-Versions of this repository prior to 2026-07-17 were published under the MIT License; those historical snapshots remain MIT-licensed. All releases from 2026-07-17 onward are AGPL-3.0.
+AGPL-3.0. Anyone can use, modify, self-host, and share Hearth — including commercially — with one requirement: run a modified version as a network service and you must make your source available to its users. Self-hosting households are unaffected. Snapshots prior to 2026-07-17 remain MIT-licensed.

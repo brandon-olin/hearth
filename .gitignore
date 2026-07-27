@@ -67,3 +67,8 @@ api/*.db
 # Agent worktrees — transient, must never be tracked as gitlinks
 .claude/worktrees/
 .claude/settings.local.json
+
+# Personal / job-search docs — not part of the Hearth product
+PROJECT_CONTEXT_FOR_RESUME.md
+*resume*.md
+*résumé*.md
